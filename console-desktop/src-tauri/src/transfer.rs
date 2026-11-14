@@ -242,7 +242,7 @@ fn legacy_label_refused(text: &str, chain_id: u64) -> bool {
     }
     // Canonical base32 parses on every chain. Success on a lenient chain and
     // failure as base32 means the label is legacy hex.
-    text.parse::<Address>().is_err() && Address::parse_for_chain(text, chain_id::TESTNET_V2).is_ok()
+    text.parse::<Address>().is_err() && Address::parse_for_chain(text, chain_id::DEVNET).is_ok()
 }
 
 fn transfer_len(sender: Address, to: Address, amount: u64, nonce: u64) -> Result<usize, String> {
@@ -752,8 +752,8 @@ mod tests {
         let legacy = recipient.encode_legacy_hex();
         let bare = recipient.to_hex();
         let prefixed = format!("0x{bare}");
-        let allowed = [chain_id::DEVNET, chain_id::TESTNET_V2, chain_id::LOCAL];
-        let refused = [chain_id::MAINNET, chain_id::TESTNET, 0, 42];
+        let allowed = [chain_id::DEVNET, chain_id::LOCAL];
+        let refused = [chain_id::MAINNET, chain_id::TESTNET, 4, 0, 42];
         for chain in allowed {
             for form in [&legacy, &bare, &prefixed] {
                 let quote = build_quote(sender, form, "1", chain, 0, 1).unwrap();
@@ -776,13 +776,13 @@ mod tests {
         let quote = store
             .quote_from_status(
                 &ScriptRpc::account(4, 1),
-                &fresh_status(Some("4")),
-                draft(Some("4"), false, &legacy, "1"),
+                &fresh_status(Some("3")),
+                draft(Some("3"), false, &legacy, "1"),
                 now,
             )
             .unwrap();
         assert_eq!(quote.recipient, recipient.to_string());
-        assert_eq!(quote.chain_id, "4");
+        assert_eq!(quote.chain_id, "3");
 
         let mut refused_store = WalletStore::new();
         refused_store.open_for_test(sender.encode_legacy_hex(), now);
@@ -803,7 +803,6 @@ mod tests {
         let label = Address([9; 32]).encode_legacy_hex();
         let err = wallet_address(&label, chain_id::MAINNET).unwrap_err();
         assert_eq!(err, "A legacy address label is not accepted on chain 1.");
-        assert!(wallet_address(&label, chain_id::TESTNET_V2).is_ok());
         assert!(wallet_address(&label, chain_id::DEVNET).is_ok());
         assert!(wallet_address(&label, chain_id::LOCAL).is_ok());
         let canonical = Address([9; 32]).to_string();

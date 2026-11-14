@@ -37,7 +37,10 @@ export function encodeAddress(publicKey: Uint8Array): string {
 }
 
 export function decodeAddress(value: string): Uint8Array {
-  const trimmed = value.trim().toLowerCase();
+  const trimmed = value.trim();
+  if (trimmed !== trimmed.toLowerCase()) {
+    throw new Error("address must be lowercase");
+  }
   if (!trimmed.startsWith(PREFIX) || !trimmed.endsWith(SUFFIX)) {
     throw new Error("address must start with kvnc and end with dag");
   }
@@ -71,10 +74,10 @@ export type AddressCheck = {
 };
 
 function isLegacyHex(value: string): boolean {
-  const trimmed = value.trim().toLowerCase();
-  if (/^0x[0-9a-f]{64}$/.test(trimmed)) return true;
+  const trimmed = value.trim();
+  if (/^0x[0-9a-fA-F]{64}$/.test(trimmed)) return true;
   if (/^kvnc[0-9a-f]{64}dag$/.test(trimmed)) return true;
-  if (/^[0-9a-f]{64}$/.test(trimmed)) return true;
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return true;
   return false;
 }
 
@@ -96,7 +99,7 @@ export function checkAddress(value: string, chainId: number | null): AddressChec
     return { ok: true, legacyHex: true, message: "Legacy hex accepted on this network" };
   }
   try {
-    decodeAddress(trimmed.toLowerCase());
+    decodeAddress(trimmed);
     return { ok: true, legacyHex: false, message: "Checksum matches" };
   } catch (error) {
     return {
@@ -110,7 +113,7 @@ export function checkAddress(value: string, chainId: number | null): AddressChec
 export function decodeRecipient(value: string, chainId: number | null): Uint8Array {
   const check = checkAddress(value, chainId);
   if (!check.ok) throw new Error(check.message);
-  if (!check.legacyHex) return decodeAddress(value.trim().toLowerCase());
+  if (!check.legacyHex) return decodeAddress(value.trim());
   const trimmed = value.trim().toLowerCase();
   const hex = trimmed.startsWith("kvnc")
     ? trimmed.slice(4, -3)

@@ -2,11 +2,11 @@
 
 M0 scaffold for the Kovanica comms app: a **Tauri v2** desktop shell around a
 **React 18 + Vite 5 + TypeScript** frontend. The webview uses
-[`@kovanica/comms`](../../packages/comms) to derive the comms identity from a wallet
+[`@kovanica/comms`](../../kovanica/packages/comms) to derive the comms identity from a wallet
 key and read the chain head over JSON-RPC.
 
 ```
-apps/desktop/
+kovanica-apps/desktop/
 ├── index.html            Vite entry
 ├── src/                  React frontend (main.tsx, App.tsx, styles.css)
 ├── vite.config.ts
@@ -32,7 +32,7 @@ Tauri needs native toolchains:
 ## Run
 
 ```sh
-cd apps/desktop
+cd kovanica-apps/desktop
 npm install          # installs frontend deps (workspace `file:` deps too)
 npm run tauri dev    # starts Vite and the Tauri shell together
 ```
@@ -61,7 +61,7 @@ build` additionally needs the native prerequisites listed above.
 ## Rust core (wired)
 
 `src-tauri` depends on **`kovanica-comms-core`**
-(`path = "../../../crates/kovanica-comms-core"`) and exposes `derive_comms_id` over
+(`path = "../../../kovanica/crates/kovanica-comms-core"`) and exposes `derive_comms_id` over
 the Tauri IPC bridge, so the webview (`@kovanica/comms`) and the Rust core derive the
 *same* comms id. `src-tauri` declares its own empty `[workspace]` so it stays
 independent of the repository-root Cargo workspace (whose `members` list is

@@ -69,8 +69,8 @@ if (!rejectedHardened) throw new Error("non-hardened child was accepted");
 
 if (checkAddress("0x" + "ab".repeat(32), 1).ok) throw new Error("chain 1 accepted 0x");
 if (checkAddress(`kvnc${"ab".repeat(32)}dag`, 1).ok) throw new Error("chain 1 accepted kvnc hex");
-if (checkAddress("0x" + "11".repeat(32), 5).ok) throw new Error("chain 5 accepted hex");
-if (!checkAddress("0x" + "11".repeat(32), 4).ok) throw new Error("chain 4 rejected legacy hex");
+if (checkAddress("0x" + "11".repeat(32), 4).ok) throw new Error("chain 4 accepted legacy hex");
+if (!checkAddress("0x" + "11".repeat(32), 3).ok) throw new Error("chain 3 rejected legacy hex");
 if (!checkAddress("0x" + "11".repeat(32), 1337).ok) throw new Error("local rejected legacy hex");
 
 const recipient = encodeAddress(to);

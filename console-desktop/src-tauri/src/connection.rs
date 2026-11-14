@@ -311,8 +311,8 @@ fn fetch_status_with_pins(
     let height = parse_qty(&height_value).map_err(|_| bad_payload(endpoint, "height"))?;
     let sync = rpc.call("kovanica_syncStatus", Value::Array(vec![]))?;
     let (peer_count, peers) = parse_peers(&sync).map_err(|_| bad_payload(endpoint, "peer list"))?;
-    if reported_chain_id(&sync) == Some(chain_id::HYBRID_TESTNET) {
-        return prove_hybrid_pow(rpc, endpoint, height, peer_count, peers);
+    if let Some(id @ (chain_id::MAINNET | chain_id::TESTNET)) = reported_chain_id(&sync) {
+        return prove_hybrid_pow(rpc, endpoint, id, height, peer_count, peers);
     }
     let header = rpc.call("kovanica_getLeaderHeader", Value::Array(vec![]))?;
     if header.is_null() {
@@ -439,10 +439,11 @@ fn fetch_status_with_pins(
     })
 }
 
-/// Chain 5 has no committee seals. Prove the tip with the PoW header verifier.
+/// Hybrid PoW chains (1 and 2) have no committee seals. Prove the tip with the PoW header verifier.
 fn prove_hybrid_pow(
     rpc: &impl Rpc,
     _endpoint: &str,
+    chain: u64,
     height: u64,
     peer_count: u64,
     peers: Vec<PeerStatus>,
@@ -465,18 +466,21 @@ fn prove_hybrid_pow(
     }
     let Some(header) = header else {
         return Ok(pow_status(
+            chain,
             height,
             peer_count,
             peers,
             None,
-            "Chain 2 does not use committee seals. The node did not return a PoW header this console could verify.",
+            &format!(
+                "Chain {chain} does not use committee seals. The node did not return a PoW header this console could verify."
+            ),
         ));
     };
     let parent = parent_header_json(&header);
     let now = unix_ms();
     let header_json = header.to_string();
     match kovanica_light_ffi::verify_pow_header_json(
-        chain_id::HYBRID_TESTNET,
+        chain,
         header_json,
         parent.clone(),
         Some(now),
@@ -485,35 +489,38 @@ fn prove_hybrid_pow(
             let cumulative = if parent.is_empty() {
                 verified.work.clone()
             } else {
-                let chain = format!("[{parent},{header}]");
-                kovanica_light_ffi::verify_pow_header_chain_json(chain_id::HYBRID_TESTNET, chain, Some(now))
+                let chain_json = format!("[{parent},{header}]");
+                kovanica_light_ffi::verify_pow_header_chain_json(chain, chain_json, Some(now))
                     .unwrap_or_else(|_| verified.work.clone())
             };
             let target = header_u64(&header, &["target_bits", "targetBits"])
                 .map(|bits| format!("{bits:#010x}"))
                 .unwrap_or_else(|| "unreported".to_string());
             Ok(pow_status(
+                chain,
                 height,
                 peer_count,
                 peers,
                 Some(verified.round.to_string()),
                 &format!(
-                    "Verified Hybrid PoW header. Round {}. target_bits {}. Work {}. Cumulative work {}. powHash {}. GHOSTDAG K=5, target 4s. No committee seals on chain 2.",
+                    "Verified Hybrid PoW header. Round {}. target_bits {}. Work {}. Cumulative work {}. powHash {}. GHOSTDAG K=5, target 4s. No committee seals on chain {chain}.",
                     verified.round, target, verified.work, cumulative, verified.pow_hash
                 ),
             ))
         }
         Err(err) => Ok(pow_status(
+            chain,
             height,
             peer_count,
             peers,
             header_u64(&header, &["round"]).map(|round| round.to_string()),
-            &format!("Chain 2 PoW header did not verify: {err}"),
+            &format!("Chain {chain} PoW header did not verify: {err}"),
         )),
     }
 }
 
 fn pow_status(
+    chain: u64,
     height: u64,
     peer_count: u64,
     peers: Vec<PeerStatus>,
@@ -522,7 +529,7 @@ fn pow_status(
 ) -> NodeStatus {
     let proven = chain_note.starts_with("Verified Hybrid PoW");
     NodeStatus {
-        chain_id: proven.then(|| chain_id::HYBRID_TESTNET.to_string()),
+        chain_id: proven.then(|| chain.to_string()),
         chain_note: chain_note.to_string(),
         height: height.to_string(),
         leader_round,
@@ -624,8 +631,6 @@ pub fn registered_chain_ids() -> &'static [u64] {
         chain_id::MAINNET,
         chain_id::TESTNET,
         chain_id::DEVNET,
-        chain_id::TESTNET_V2,
-        chain_id::HYBRID_TESTNET,
         chain_id::LOCAL,
     ]
 }
@@ -985,8 +990,8 @@ mod tests {
                 assert!(known.contains(&id), "registered chain {id} is missing");
             }
         }
-        assert!(known.contains(&chain_id::TESTNET_V2));
-        assert_eq!(chain_id::TESTNET_V2, 4);
+        assert!(known.contains(&chain_id::TESTNET));
+        assert_eq!(chain_id::TESTNET, 2);
         assert_eq!(chain_id::MAINNET, 1);
     }
 
@@ -1174,7 +1179,7 @@ mod tests {
             pinned_committees().is_empty(),
             "this build must not ship a committee pin"
         );
-        let status = fetch_status(&Script::new(chain_id::TESTNET_V2), DEFAULT_RPC_URL).unwrap();
+        let status = fetch_status(&Script::new(chain_id::DEVNET), DEFAULT_RPC_URL).unwrap();
         assert_eq!(status.chain_id, None);
         assert_eq!(status.chain_note, SEALS_CONSISTENT_UNVERIFIED);
         assert_ne!(status.chain_note, PROVEN_BY_SEALS);
@@ -1195,19 +1200,19 @@ mod tests {
 
     #[test]
     fn a_pinned_committee_proves_only_that_chain() {
-        let (committee, _, _) = sealed_fixture(chain_id::TESTNET_V2, true);
+        let (committee, _, _) = sealed_fixture(chain_id::DEVNET, true);
         let pretty =
             serde_json::to_string_pretty(&serde_json::from_str::<Value>(&committee).unwrap())
                 .unwrap();
         assert_ne!(pretty, committee);
         let pins = [PinnedCommittee {
-            chain_id: chain_id::TESTNET_V2,
+            chain_id: chain_id::DEVNET,
             committee_json: pretty,
         }];
         let status =
-            fetch_status_with_pins(&Script::new(chain_id::TESTNET_V2), DEFAULT_RPC_URL, &pins)
+            fetch_status_with_pins(&Script::new(chain_id::DEVNET), DEFAULT_RPC_URL, &pins)
                 .unwrap();
-        assert_eq!(status.chain_id.as_deref(), Some("4"));
+        assert_eq!(status.chain_id.as_deref(), Some("3"));
         assert_eq!(status.chain_note, PROVEN_BY_SEALS);
 
         let mainnet =
@@ -1219,11 +1224,11 @@ mod tests {
         let mut forged: Value = serde_json::from_str(&committee).unwrap();
         forged[0]["stake"] = json!("0x2");
         let wrong_committee = [PinnedCommittee {
-            chain_id: chain_id::TESTNET_V2,
+            chain_id: chain_id::DEVNET,
             committee_json: forged.to_string(),
         }];
         let forged_status = fetch_status_with_pins(
-            &Script::new(chain_id::TESTNET_V2),
+            &Script::new(chain_id::DEVNET),
             DEFAULT_RPC_URL,
             &wrong_committee,
         )
@@ -1234,9 +1239,9 @@ mod tests {
 
     #[test]
     fn a_wrong_epoch_is_not_proven() {
-        let (committee, _, _) = sealed_fixture(chain_id::TESTNET_V2, true);
+        let (committee, _, _) = sealed_fixture(chain_id::DEVNET, true);
         let pins = [PinnedCommittee {
-            chain_id: chain_id::TESTNET_V2,
+            chain_id: chain_id::DEVNET,
             committee_json: committee,
         }];
         assert_ne!(7, epoch_for_round(42));
@@ -1267,10 +1272,10 @@ mod tests {
         let epoch = 7;
         assert_ne!(epoch, epoch_for_round(42));
         let (committee, header, seals) =
-            sealed_fixture_for_epoch(chain_id::TESTNET_V2, true, epoch);
+            sealed_fixture_for_epoch(chain_id::DEVNET, true, epoch);
         assert!(
             kovanica_light_ffi::verify_header(
-                chain_id::TESTNET_V2,
+                chain_id::DEVNET,
                 epoch,
                 committee.clone(),
                 header,
@@ -1281,7 +1286,7 @@ mod tests {
             "seals must verify for the header epoch"
         );
         let pins = [PinnedCommittee {
-            chain_id: chain_id::TESTNET_V2,
+            chain_id: chain_id::DEVNET,
             committee_json: committee,
         }];
         let status =
@@ -1361,28 +1366,28 @@ mod tests {
         fn with_signed_epoch(epoch: u64) -> Self {
             Self {
                 signed_epoch: Some(epoch),
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
         fn with_header_epoch(epoch: u64) -> Self {
             Self {
                 header_epoch: Some(epoch),
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
         fn with_committee_epoch(epoch: u64) -> Self {
             Self {
                 committee_epoch: Some(epoch),
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
         fn without_committee_info() -> Self {
             Self {
                 committee_info: false,
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
@@ -1402,14 +1407,14 @@ mod tests {
         fn unsigned() -> Self {
             Self {
                 seals: false,
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
         fn mismatched_height() -> Self {
             Self {
                 block_number: json!("0x11"),
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
@@ -1417,14 +1422,14 @@ mod tests {
             Self {
                 block_number: Value::String(block_number.to_string()),
                 header: Some(Value::Null),
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
 
         fn bad_height() -> Self {
             Self {
                 block_number: json!(1.5),
-                ..Self::new(chain_id::TESTNET_V2)
+                ..Self::new(chain_id::DEVNET)
             }
         }
     }

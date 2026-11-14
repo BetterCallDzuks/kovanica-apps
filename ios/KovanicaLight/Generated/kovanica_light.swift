@@ -1210,7 +1210,7 @@ public func signBondRaw(keystoreJson: String, passphrase: String, chainId: UInt6
 /**
  * Sign a contract call. `args_hex` is bincode-encoded calldata (`0x` optional).
  *
- * `value` is the native KUNA (atoms) sent to the contract, `0` when unused.
+ * `value` is the native KVNC (atoms) sent to the contract, `0` when unused.
  * `fee_rate` is atoms per byte from `kovanica_estimateFee`.
  */
 public func signCallRaw(keystoreJson: String, passphrase: String, chainId: UInt64, contract: String, value: UInt64, method: String, argsHex: String, gasLimit: UInt64, nonce: UInt64, feeRate: UInt64)throws  -> String  {

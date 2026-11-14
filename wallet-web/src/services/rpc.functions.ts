@@ -6,6 +6,7 @@ const RPC_METHODS = new Set([
   "kovanica_getBalance",
   "kovanica_getNonce",
   "kovanica_estimateFee",
+  "kovanica_estimateGas",
   "kovanica_sendRawTransaction",
   "kovanica_getTransactionReceipt",
   "kovanica_getTransaction",

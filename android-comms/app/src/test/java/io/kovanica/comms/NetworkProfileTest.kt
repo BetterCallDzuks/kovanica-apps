@@ -8,10 +8,11 @@ import org.junit.Test
 
 class NetworkProfileTest {
     @Test
-    fun testnetProfileIsTheLiveChain4() {
+    fun testnetProfileIsTheLiveChain2() {
         assertEquals("testnet", Networks.TESTNET.id)
         assertEquals(ChainIds.TESTNET, Networks.TESTNET.chainId)
-        assertEquals(4L, Networks.TESTNET.chainId)
+        assertEquals(2L, Networks.TESTNET.chainId)
+        assertEquals("Testnet (chain 2)", Networks.TESTNET.label)
         assertEquals("https://rpc-testnet.kovanica.online/rpc", Networks.TESTNET.rpcUrl)
     }
 

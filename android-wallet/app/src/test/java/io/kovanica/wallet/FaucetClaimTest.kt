@@ -8,11 +8,12 @@ import org.junit.Test
 class FaucetClaimTest {
     @Test
     fun faucet_is_only_for_dev_hybrid_and_local() {
-        assertTrue(FaucetClaim.allowed(5))
+        assertTrue(FaucetClaim.allowed(2))
         assertTrue(FaucetClaim.allowed(3))
         assertTrue(FaucetClaim.allowed(1337))
         assertFalse(FaucetClaim.allowed(1))
         assertFalse(FaucetClaim.allowed(4))
+        assertFalse(FaucetClaim.allowed(5))
         assertEquals(30_000L, FaucetClaim.remaining(1_000L, 31_000L))
     }
 

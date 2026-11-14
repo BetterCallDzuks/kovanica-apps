@@ -35,7 +35,7 @@ data class TokenInfo(
  *
  * ## Why this is hand-rolled
  *
- * Token balances are **not** native KUNA and have no view RPC — `token_balance`
+ * Token balances are **not** native KVNC and have no view RPC — `token_balance`
  * is explicitly unimplemented (`kovanica-rpc`). The only read path is the raw
  * contract slot, read with `kovanica_getStorageAt`, decoded with bincode. The light
  * FFI exposes no generic `Token` decoder, so the layout is reproduced here.

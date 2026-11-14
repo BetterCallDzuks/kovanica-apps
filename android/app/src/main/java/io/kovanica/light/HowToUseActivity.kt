@@ -81,7 +81,7 @@ class HowToUseActivity : Activity() {
         root.addStack(
             step(
                 number = 4,
-                title = "Receive KUNA",
+                title = "Receive KVNC",
                 body = "On the Wallet tab, tap Receive to show your address and a QR code, then " +
                     "copy or share it. Anyone can pay you at that address. Receiving is free " +
                     "and needs no passphrase.",
@@ -92,9 +92,9 @@ class HowToUseActivity : Activity() {
         root.addStack(
             step(
                 number = 5,
-                title = "Send KUNA",
+                title = "Send KVNC",
                 body = "On the Wallet tab, paste the recipient's address, enter the amount in " +
-                    "atoms (1 KUNA is 1,000,000,000 atoms), and tap Send. Before anything is " +
+                    "atoms (1 KVNC is 1,000,000,000 atoms), and tap Send. Before anything is " +
                     "signed, a review step shows the recipient, the amount, and the network " +
                     "fee. Confirm it, and the passphrase at the top unlocks the key on this " +
                     "phone.",
@@ -105,7 +105,7 @@ class HowToUseActivity : Activity() {
         root.addStack(
             step(
                 number = 6,
-                title = "Get testnet KUNA",
+                title = "Get testnet KVNC",
                 body = "On the Node tab, on a network that has a faucet, tap Request faucet to " +
                     "ask for test coins at your address. The button only appears on those " +
                     "networks — Mainnet has no faucet.",
@@ -117,7 +117,7 @@ class HowToUseActivity : Activity() {
             step(
                 number = 7,
                 title = "Watch and send tokens",
-                body = "Native KUNA lives in your balance; KVP-102 tokens live in their own " +
+                body = "Native KVNC lives in your balance; KVP-102 tokens live in their own " +
                     "contracts. On the Wallet tab, in the Tokens card, tap Add and paste a " +
                     "token's contract " +
                     "address to watch it — the app reads the symbol, supply, and your balance " +
@@ -125,7 +125,7 @@ class HowToUseActivity : Activity() {
                     "token row to open its send panel and move tokens in the token's base " +
                     "units. Long-press a token, or tap Stop watching, to remove it — that only " +
                     "clears it from this phone. The list is kept per network.",
-                tip = "Token amounts are separate from your KUNA balance and never count " +
+                tip = "Token amounts are separate from your KVNC balance and never count " +
                     "towards it.",
             ),
             14,
@@ -135,7 +135,7 @@ class HowToUseActivity : Activity() {
             step(
                 number = 8,
                 title = "Join as a light node",
-                body = "On the Node tab, tap Bond 100 KUNA to register this phone as a " +
+                body = "On the Node tab, tap Bond 100 KVNC to register this phone as a " +
                     "light node, and Submit witness once per epoch. Exit light node unbonds you " +
                     "and returns your stake. Each of those asks you to confirm before anything " +
                     "is signed. A desktop kovanica-lightnode can submit the witness while the " +
@@ -240,7 +240,7 @@ class HowToUseActivity : Activity() {
             WalletUi.caption(
                 this@HowToUseActivity,
                 "Your seed words and passphrase never leave this phone and are never sent to a " +
-                    "node or a relay. Anyone with your seed controls your KUNA, so keep it " +
+                    "node or a relay. Anyone with your seed controls your KVNC, so keep it " +
                     "offline and share it with no one. An address, by contrast, is safe to share.",
             ),
             0,

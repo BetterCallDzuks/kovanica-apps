@@ -34,7 +34,7 @@ describe("smart contracts & ABI UX", () => {
       const call = buildContractCall({
         contract: "htlc",
         method: "htlc_create",
-        chainId: 5,
+        chainId: 2,
         claimer: bobAddr,
         beneficiary: "",
         recipient: "",
@@ -81,7 +81,7 @@ describe("smart contracts & ABI UX", () => {
       const call = buildContractCall({
         contract: "vault",
         method: "vault_create",
-        chainId: 5,
+        chainId: 2,
         claimer: "",
         beneficiary: bobAddr,
         recipient: "",
@@ -137,7 +137,7 @@ describe("smart contracts & ABI UX", () => {
       const call = buildContractCall({
         contract: "multisig",
         method: "multisig_create",
-        chainId: 5,
+        chainId: 2,
         claimer: "",
         beneficiary: "",
         recipient: "",
@@ -165,7 +165,7 @@ describe("smart contracts & ABI UX", () => {
       const propose = buildContractCall({
         contract: "multisig",
         method: "multisig_propose",
-        chainId: 5,
+        chainId: 2,
         claimer: "",
         beneficiary: "",
         recipient: bobAddr,
@@ -193,7 +193,7 @@ describe("smart contracts & ABI UX", () => {
       const confirm = buildContractCall({
         contract: "multisig",
         method: "multisig_confirm",
-        chainId: 5,
+        chainId: 2,
         claimer: "",
         beneficiary: "",
         recipient: "",

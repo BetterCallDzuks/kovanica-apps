@@ -5,7 +5,7 @@ object FaucetClaim {
     const val ATOMS: String = "100000000000"
     const val COOLDOWN_MS: Long = 60_000L
 
-    fun allowed(chainId: Long): Boolean = chainId == 3L || chainId == 5L || chainId == 1337L
+    fun allowed(chainId: Long): Boolean = chainId == 2L || chainId == 3L || chainId == 1337L
 
     fun remaining(now: Long, until: Long): Long = (until - now).coerceAtLeast(0L)
 }

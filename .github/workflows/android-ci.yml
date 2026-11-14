@@ -3,13 +3,17 @@ name: android-ci
 on:
   pull_request:
     paths:
+      - 'android/**'
       - 'android-wallet/**'
+      - 'android-comms/**'
       - 'android-chain/**'
       - '.github/workflows/android-ci.yml'
   push:
     branches: [main]
     paths:
+      - 'android/**'
       - 'android-wallet/**'
+      - 'android-comms/**'
       - 'android-chain/**'
       - '.github/workflows/android-ci.yml'
 
@@ -65,6 +69,18 @@ jobs:
           rustup target add aarch64-linux-android
           cargo build --target aarch64-linux-android --release -p kovanica-light-ffi
           cp target/aarch64-linux-android/release/libkovanica_light_ffi.so ../android-wallet/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Run android unit tests
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Run android-comms unit tests
+        working-directory: android-comms
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --no-daemon
 
       - name: Run native symbols check and unit tests
         working-directory: android-wallet

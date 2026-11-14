@@ -92,13 +92,13 @@ fn reset_connection(app: tauri::AppHandle) -> Result<ConnectionConfig, String> {
     current_url(&app).map(config_for)
 }
 
-/// Parse a KUNA amount. The result is a decimal atom string.
+/// Parse a KVNC amount. The result is a decimal atom string.
 #[tauri::command]
 fn parse_kuna(amount: String) -> Result<String, String> {
     parse_kuna_atoms(&amount).map(|atoms| atoms.to_string())
 }
 
-/// Format an atom string as KUNA. The input is decimal, never a float.
+/// Format an atom string as KVNC. The input is decimal, never a float.
 #[tauri::command]
 fn format_kuna(atoms: String) -> Result<String, String> {
     let atoms = parse_atom_string(&atoms)?;
@@ -559,7 +559,7 @@ fn parse_atom_string(text: &str) -> Result<u64, String> {
         return Err("Enter an atom amount.".to_string());
     }
     text.parse::<u64>()
-        .map_err(|_| "That amount is larger than KUNA can send.".to_string())
+        .map_err(|_| "That amount is larger than KVNC can send.".to_string())
 }
 
 /// Ask the node for 100 KVNC. Refused on mainnet.

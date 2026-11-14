@@ -263,7 +263,7 @@ class HistoryActivity : Activity() {
 
     private fun coinFor(entry: HistoryEntry): View {
         val symbol = entry.symbol
-        return if (symbol.isNullOrBlank() || symbol.equals("KUNA", ignoreCase = true)) {
+        return if (symbol.isNullOrBlank() || symbol.equals("KVNC", ignoreCase = true) || symbol.equals("KUNA", ignoreCase = true)) {
             WalletUi.kunaCoin(this, 28)
         } else {
             WalletUi.tokenCoin(this, symbol, entry.contract ?: symbol, 28)

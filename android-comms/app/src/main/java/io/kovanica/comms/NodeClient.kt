@@ -48,7 +48,7 @@ class NodeClient(base: String, private val faucetUrl: String? = null) {
         return parseQuantity(call("kovanica_blockNumber", JSONArray()))
     }
 
-    /** Native KUNA balance in atoms for [address] (`kovanica_getBalance`). */
+    /** Native KVNC balance in atoms for [address] (`kovanica_getBalance`). */
     fun balance(address: String): ULong {
         return parseQuantity(call("kovanica_getBalance", JSONArray().put(address)))
     }

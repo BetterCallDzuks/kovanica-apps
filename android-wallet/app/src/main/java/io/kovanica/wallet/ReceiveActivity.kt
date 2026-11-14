@@ -73,7 +73,7 @@ class ReceiveActivity : Activity() {
             return
         }
 
-        setStatus("Share this address to receive KUNA.", Tone.NEUTRAL)
+        setStatus("Share this address to receive KVNC.", Tone.NEUTRAL)
         root.addStack(status, 18)
 
         val addressCard = WalletUi.card(this).apply {
@@ -113,7 +113,7 @@ class ReceiveActivity : Activity() {
             addStack(
                 WalletUi.caption(
                     this@ReceiveActivity,
-                    "The same address receives native KUNA and any KVP-102 token someone sends it.",
+                    "The same address receives native KVNC and any KVP-102 token someone sends it.",
                 ),
                 10,
             )
@@ -136,7 +136,7 @@ class ReceiveActivity : Activity() {
             return
         }
         clipboard.setPrimaryClip(ClipData.newPlainText("Kovanica address", address))
-        setStatus("Address copied. Share it to receive KUNA or tokens.", Tone.OK)
+        setStatus("Address copied. Share it to receive KVNC or tokens.", Tone.OK)
     }
 
     private fun shareAddress() {

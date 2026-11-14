@@ -14,11 +14,11 @@ class ChainIdSourceTest {
         assertEquals(ChainIds.TESTNET, Networks.TESTNET.chainId)
         assertEquals(ChainIds.LOCAL, Networks.LOCAL.chainId)
         assertEquals(
-            ChainIds.legacyAllowed(ChainIds.CHAIN_4),
-            KvncAddress.legacyAllowed(ChainIds.CHAIN_4),
+            ChainIds.legacyAllowed(ChainIds.TESTNET),
+            KvncAddress.legacyAllowed(ChainIds.TESTNET),
         )
         assertFalse(KvncAddress.legacyAllowed(ChainIds.MAINNET))
-        assertFalse(KvncAddress.legacyAllowed(ChainIds.TESTNET_V1))
+        assertFalse(KvncAddress.legacyAllowed(ChainIds.HYBRID))
         assertFalse(KvncAddress.legacyAllowed(ChainIds.TESTNET))
         assertFalse(KvncAddress.legacyAllowed(ChainIds.UNSPECIFIED))
     }

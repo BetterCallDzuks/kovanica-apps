@@ -99,7 +99,7 @@ class HistoryStore(context: Context) {
  * @property to recipient address, in whatever form was typed (native send, token transfer).
  * @property contract token contract, for the token kinds.
  * @property amount human-readable amount, already scaled by the asset's decimals.
- * @property symbol asset ticker shown next to the amount (`KUNA`, or a token's symbol).
+ * @property symbol asset ticker shown next to the amount (`KVNC`, or a token's symbol).
  * @property status submission state, then the receipt outcome when one arrives.
  * @property method contract method, when [kind] is a call.
  * @property receiptCode `0x1` or `0x0` once a receipt is decoded.

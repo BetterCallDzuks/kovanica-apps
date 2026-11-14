@@ -21,4 +21,4 @@ serde_json = "1"
 
 # Canonical comms identity (BLAKE3 domain-separated id). Shared byte-for-byte
 # with `packages/comms/src/identity.ts` and the `kovanica comms id` CLI harness.
-kovanica-comms-core = { path = "../../../crates/kovanica-comms-core" }
+kovanica-comms-core = { path = "../../../kovanica/crates/kovanica-comms-core" }

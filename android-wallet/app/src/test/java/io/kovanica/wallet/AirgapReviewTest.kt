@@ -11,12 +11,12 @@ import org.junit.Test
 class AirgapReviewTest {
     @Test
     fun refuses_a_payload_for_a_different_chain() {
-        assertFalse(AirgapReview.matches(5, 4))
+        assertFalse(AirgapReview.matches(2, 1))
         assertEquals(
-            "This transaction is for chain 5. This phone is set to chain 4. Signing is refused.",
-            AirgapReview.refusal(5, 4),
+            "This transaction is for chain 2. This phone is set to chain 1. Signing is refused.",
+            AirgapReview.refusal(2, 1),
         )
-        assertTrue(AirgapReview.matches(5, 5))
+        assertTrue(AirgapReview.matches(2, 2))
     }
 
     @Test
@@ -28,7 +28,7 @@ class AirgapReviewTest {
             .put("amount", "1000000000")
             .put("fee", "1000")
             .put("nonce", "7")
-            .put("chainId", 5)
+            .put("chainId", 2)
         val rows = AirgapReview.lines(transfer)
         assertTrue(rows.any { it == "Amount: 1 KVNC (1000000000 atoms)" })
         assertTrue(rows.any { it == "Fee: 1000 atoms" })
@@ -43,7 +43,7 @@ class AirgapReviewTest {
             .put("gas", "100000")
             .put("fee", "10")
             .put("nonce", "1")
-            .put("chainId", 5)
+            .put("chainId", 2)
         val callRows = AirgapReview.lines(call)
         assertTrue(callRows.any { it == "Method: withdraw" })
         assertTrue(callRows.any { it == "Arguments: aa" })

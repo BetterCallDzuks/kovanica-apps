@@ -18,7 +18,7 @@ import java.util.Locale
  * [normalizeHex] rejects it.
  *
  * Legacy hex (`kvnc` + 72 hex of key‖4-byte BLAKE3 + `dag`, or a bare / `0x`
- * 64-hex key) is accepted only on devnet 3, chain 4, and local 1337. Hex
+ * 64-hex key) is accepted only on devnet 3 and local 1337. Hex
  * digits are case-insensitive. The `kvnc` / `dag` affixes and the `0x` prefix
  * are lowercase, and the base32 body is lowercase.
  */
@@ -33,7 +33,7 @@ object KvncAddress {
     /** bech32 data alphabet (BIP-173), lower case only. */
     private const val ALPHABET: String = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
-    /** Devnet 3, chain 4, local 1337. Same set as `legacy_address_allowed`. */
+    /** Devnet 3, local 1337. Same set as `legacy_address_allowed`. */
     fun legacyAllowed(chainId: Long): Boolean = ChainIds.legacyAllowed(chainId)
 
     /**

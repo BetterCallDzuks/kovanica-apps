@@ -40,7 +40,7 @@ pub fn chain_label(chain_id: u64) -> Result<&'static str, String> {
             "chain id 1 is mainnet. This milestone cannot start mainnet, and it will not relabel the network."
                 .into(),
         ),
-        2 => Ok("legacy testnet (chain 2)"),
+        2 => Ok("testnet (chain 2)"),
         3 => Ok("devnet (chain 3)"),
         4 => Ok("testnet v2 (chain 4)"),
         5 => Ok("hybrid testnet (chain 5)"),

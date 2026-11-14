@@ -3,11 +3,11 @@
 Desktop app for Linux, Windows, and macOS. Version 0.1.0 shows whether a node
 is reachable and what chain it sealed.
 
-`apps/desktop` is the Comms client. This app lives beside it and does not
+`desktop` is the Comms client. This app lives beside it and does not
 replace it.
 
 ```
-apps/console-desktop/
+console-desktop/
 ├── src/                  connection screen (plain TypeScript)
 └── src-tauri/            Tauri v2 shell
 ```
@@ -18,7 +18,7 @@ The endpoint comes from a setting saved in the app data directory, then from
 `KOVANICA_RPC_URL`, then from `https://rpc-testnet.kovanica.online/rpc`.
 
 Above the endpoint field the screen offers the built-in networks:
-**Testnet (chain 4)** — the live public testnet, **Mainnet (chain 1)** —
+**Testnet (chain 2)** — the live public testnet, **Mainnet (chain 1)** —
 listed and not open yet, **Local (1337)** — a node on this machine, and
 **Custom**, which keeps the field editable. Picking one saves that endpoint and
 reads the node again.
@@ -36,7 +36,7 @@ and no filesystem plugin. RPC calls stay in the Rust process.
 Creating or importing a key uses the same keystore the Android wallet stores.
 The JSON is version 2: Argon2id (64 MiB, 3 iterations, parallelism 4) and
 XChaCha20-Poly1305. Android keeps that JSON under the `keystore` preference
-in `apps/android-wallet/app/src/main/java/io/kovanica/wallet/MainActivity.kt`
+in `android-wallet/app/src/main/java/io/kovanica/wallet/MainActivity.kt`
 (`onCreateWallet` and `onImportWallet`). The format is defined in
 `crates/kovanica-keystore/src/lib.rs`. This app writes those same bytes to
 `wallet.keystore.json` in the app data directory, mode `0600`, and refuses a
@@ -49,7 +49,7 @@ keystore, or `localStorage`. The screen does not copy it. The Android wallet
 does not either. A Rust timer clears the session after 5 minutes without activity,
 even when the screen is not polling. Only the explicit activity call moves
 that deadline. Status, quote, and send do not. Addresses, signing,
-and KUNA amounts stay in Rust (`kovanica-types`, `kovanica-crypto`, and
+and KVNC amounts stay in Rust (`kovanica-types`, `kovanica-crypto`, and
 `kovanica-light-ffi`), so a later address encoding arrives with the crates.
 
 A transfer shows the recipient, the amount, the fee, the chain id, and the
@@ -68,7 +68,7 @@ clears the session after 5 minutes without activity.
 ## Run
 
 ```sh
-cd apps/console-desktop
+cd console-desktop
 npm install
 npm test
 npm run tauri dev

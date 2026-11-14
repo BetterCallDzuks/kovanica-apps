@@ -477,7 +477,7 @@ class ContractCallActivity : Activity() {
     private fun requestFaucet() {
         val chain = NetworkPrefs.chainId(this)
         if (!ContractCalls.faucetQuick(chain)) {
-            setStatus("The inline faucet is only on chain 5 and chain 1337.", Tone.WARN)
+            setStatus("The inline faucet is only on chain 2 and chain 1337.", Tone.WARN)
             return
         }
         val left = FaucetClaim.remaining(System.currentTimeMillis(), prefs().getLong("faucet_until", 0L))

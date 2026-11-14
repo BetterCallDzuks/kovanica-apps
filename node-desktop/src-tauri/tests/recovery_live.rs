@@ -1,4 +1,4 @@
-//! Live chain-5 recovery for the Linux supervisor and its monitor.
+//! Live chain-2 recovery for the Linux supervisor and its monitor.
 //!
 //! Not part of `cargo test --lib`. `scripts/recovery-suite.sh` runs it only
 //! after the mocked regressions. Missing prerequisites exit 2 (BLOCKED) and
@@ -157,7 +157,7 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
     let producer_toml = root.join("producer.toml");
     let observer_toml = root.join("observer.toml");
     let producer_body = format!(
-        "chain_id = 5\n\
+        "chain_id = 2\n\
          data_dir = \"{}\"\n\
          listen_addr = \"127.0.0.1:{producer_p2p}\"\n\
          rpc_addr = \"127.0.0.1\"\n\
@@ -176,7 +176,7 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
         key_path.display()
     );
     let observer_body = format!(
-        "chain_id = 5\n\
+        "chain_id = 2\n\
          data_dir = \"{}\"\n\
          listen_addr = \"127.0.0.1:{observer_p2p}\"\n\
          rpc_addr = \"127.0.0.1\"\n\
@@ -272,9 +272,9 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
             Stop::Failed(err)
         }
     })?;
-    if checked.chain_id != 5 || checked.mining_enabled || checked.run_validator {
+    if checked.chain_id != 2 || checked.mining_enabled || checked.run_validator {
         return Err(Stop::Failed(
-            "check_setup did not keep chain 5, mining off, and run_validator false".into(),
+            "check_setup did not keep chain 2, mining off, and run_validator false".into(),
         ));
     }
     let session = Session::new(STOP_GRACE);
@@ -316,9 +316,9 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
             "nonzero admitted/committed/executed state was not reached: {before:?}"
         )));
     }
-    if !before.tag.starts_with("5-") {
+    if !before.tag.starts_with("2-") {
         return Err(Stop::Failed(format!(
-            "network tag {} is not chain 5. Chain 1337 was not requested.",
+            "network tag {} is not chain 2. Chain 1337 was not requested.",
             before.tag
         )));
     }
@@ -479,7 +479,7 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
             "features": "not exposed by the CLI. This suite does not infer debug, release, or a DAA fix from the path or from any L1 checkout.",
         },
         "network": {
-            "chain_id": 5,
+            "chain_id": 2,
             "network_tag": checkpoint.tag,
             "funded_accounts_sha256": funded_sha,
             "funded_address": faucet,
@@ -723,7 +723,7 @@ fn required_absolute(name: &str, executable: bool) -> Result<PathBuf, Stop> {
         let hint = if name == "NODE_RECOVERY_BIN" {
             "Pass the absolute path of a kovanica-node binary. This suite does not select the active L1 checkout and does not treat chain 1337 as recovery."
         } else {
-            "Point it at the chain-5 funded_accounts.toml published for the node image (L1 ops/docker/chain5/funded_accounts.toml). This suite does not embed that file."
+            "Point it at the chain-2 funded_accounts.toml published for the node image (L1 ops/docker/chain2/funded_accounts.toml). This suite does not embed that file."
         };
         return Err(Stop::Blocked(format!("{name} is unset. {hint}")));
     }

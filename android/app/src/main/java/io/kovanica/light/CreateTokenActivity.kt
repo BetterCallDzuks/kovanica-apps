@@ -37,7 +37,7 @@ import kotlin.math.roundToInt
  * Creating a token is **two** transactions, in this order:
  *
  * 1. A `Deploy` that publishes the token contract. Its fee scales with the
- *    contract's bytecode, so it costs more than a plain KUNA send.
+ *    contract's bytecode, so it costs more than a plain KVNC send.
  * 2. A `Call` into `token_create` that mints the opening supply.
  *
  * The contract address is **derived here**, not returned by the node: it is a
@@ -213,7 +213,7 @@ class CreateTokenActivity : Activity() {
         addStack(
             WalletUi.caption(
                 this@CreateTokenActivity,
-                "Decimals only describe the fractional part; 9 matches KUNA. The supply is a " +
+                "Decimals only describe the fractional part; 9 matches KVNC. The supply is a " +
                     "whole number of tokens and is scaled by the decimals you pick.",
             ),
             12,

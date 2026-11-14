@@ -88,7 +88,7 @@ class HistoryStore(context: Context) {
  * @property to recipient address, in whatever form was typed (native send, token transfer).
  * @property contract token contract, for the token kinds.
  * @property amount human-readable amount, already scaled by the asset's decimals.
- * @property symbol asset ticker shown next to the amount (`KUNA`, or a token's symbol).
+ * @property symbol asset ticker shown next to the amount (`KVNC`, or a token's symbol).
  * @property status always [STATUS_SUBMITTED]: the app has no confirmation feed.
  */
 data class HistoryEntry(

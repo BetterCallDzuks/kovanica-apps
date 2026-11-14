@@ -36,7 +36,7 @@ sealed interface TokenRead {
  * `token_transfer` calldata, signs a `Call` through the light FFI's
  * `sign_call_raw` (bound here as `uniffi.kovanica_light.signCallRaw`), and submits
  * the raw transaction with `kovanica_sendRawTransaction`. A token transfer moves
- * the contract's **own** balances and never touches native KUNA.
+ * the contract's **own** balances and never touches native KVNC.
  *
  * Call these off the UI thread — [NodeClient] is blocking and `signCallRaw`
  * decrypts the keystore (Argon2id).
@@ -70,9 +70,9 @@ class TokenClient(private val node: NodeClient) {
     /**
      * Move [amount] of the token at [contractHex] to [toHex], end to end.
      *
-     * This is a `token_transfer` call into the token contract, **not** a KUNA
+     * This is a `token_transfer` call into the token contract, **not** a KVNC
      * transfer: it updates the contract's own balance map and never moves
-     * native KUNA. The signed `Call.value` is therefore `0`.
+     * native KVNC. The signed `Call.value` is therefore `0`.
      *
      * The calldata is the bincode `(to: [u8;32], amount: u128)` tuple the
      * `token_transfer` entry point decodes — the exact bytes
@@ -135,7 +135,7 @@ class TokenClient(private val node: NodeClient) {
             chainId,
             KvncAddress.canonical(TokenCodec.hex(contract))
                 ?: throw IllegalArgumentException("That isn't a valid contract address."),
-            NO_NATIVE_VALUE, // a token transfer sends no KUNA
+            NO_NATIVE_VALUE, // a token transfer sends no KVNC
             TRANSFER_METHOD, // "token_transfer"
             argsHex,
             TRANSFER_GAS_LIMIT,
@@ -177,7 +177,7 @@ class TokenClient(private val node: NodeClient) {
         /** `token_transfer` — the kovanica-token entry point that moves internal balances. */
         const val TRANSFER_METHOD = "token_transfer"
 
-        /** A token transfer moves no native KUNA; the signed `value` stays 0. */
+        /** A token transfer moves no native KVNC; the signed `value` stays 0. */
         const val NO_NATIVE_VALUE = 0uL
 
         /**

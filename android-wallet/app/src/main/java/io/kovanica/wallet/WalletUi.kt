@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
  *
  * XML-free and dependency-free — plain `android.widget.*` on the ink surface
  * the rest of the app already uses. Token marks are drawn here; the native
- * KUNA mark is the official artwork bundled in `assets/kuna-logo.webp`.
+ * KVNC mark is the official artwork bundled in `assets/kuna-logo.webp`.
  */
 object WalletUi {
     // Ink-toned surface. Explicit so the screen reads the same on any device theme.
@@ -79,7 +79,7 @@ object WalletUi {
     }
 
     /**
-     * Round coin mark. Native KUNA is the official artwork from [kunaCoin];
+     * Round coin mark. Native KVNC is the official artwork from [kunaCoin];
      * this disc is its fallback and the shape every token mark shares. A token
      * uses [tokenCoin], the first two letters of its symbol on a colour chosen
      * from the contract address.
@@ -112,16 +112,16 @@ object WalletUi {
     }
 
     /**
-     * The KUNA mark: `assets/kuna-logo.webp`, the official artwork with its
+     * The KVNC mark: `assets/kuna-logo.webp`, the official artwork with its
      * backdrop clipped away, decoded once and shared by every row. A build
      * that lost the asset keeps the amber "K" disc so the native coin still
      * has a mark.
      */
     fun kunaCoin(ctx: Context, sizeDp: Int = 40): View {
         val art = kunaArt(ctx)
-            ?: return coinMark(ctx, "K", ACCENT, ACCENT_INK, sizeDp, "KUNA")
+            ?: return coinMark(ctx, "K", ACCENT, ACCENT_INK, sizeDp, "KVNC")
         return ImageView(ctx).apply {
-            contentDescription = "KUNA"
+            contentDescription = "KVNC"
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageBitmap(art)
             minimumWidth = dp(ctx, sizeDp)
@@ -251,7 +251,7 @@ object WalletUi {
     /** Icon marks are drawn at 36–40 dp; decode anything larger at ~[ICON_PX]. */
     private const val ICON_PX = 96
 
-    /** The official KUNA mark, shipped in `app/src/main/assets/`. */
+    /** The official KVNC mark, shipped in `app/src/main/assets/`. */
     private const val KUNA_ART = "kuna-logo.webp"
 
     /** Refuse to buffer a remote icon larger than this. */
