@@ -128,7 +128,7 @@ class SettingsActivity : Activity() {
         addStack(revealButton, 10)
 
         seedWarning = TextView(this@SettingsActivity).apply {
-            text = "Anyone with these words controls your KUNA. Never share them and never type " +
+            text = "Anyone with these words controls your KVNC. Never share them and never type " +
                 "them into a website or app. Write them down offline and keep them safe."
             setTextColor(WalletUi.BAD)
             textSize = 12f

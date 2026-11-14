@@ -9,11 +9,8 @@ package io.kovanica.chain
 object ChainIds {
     const val MAINNET: Long = 1
     const val TESTNET: Long = 2
-    const val TESTNET_V1: Long = 2
-    const val DEVNET: Long = 3
-    const val CHAIN_4: Long = 4
-    const val TESTNET_V2: Long = 4
     const val HYBRID: Long = 2
+    const val DEVNET: Long = 3
     const val LOCAL: Long = 1337
 
     /** No chain was configured. Legacy hex stays refused. */

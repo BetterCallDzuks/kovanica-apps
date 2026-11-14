@@ -44,7 +44,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
           <button type="button" className="min-h-11 px-3 text-muted" onClick={onClose}>Close</button>
         </div>
         <p className="mt-2 text-sm text-muted">The phrase is shown only after the password check, and it is not saved.</p>
-        <p className="mt-2 text-sm text-muted">Chain 5 uses Hybrid PoW and GHOSTDAG. K is 5, the target block is 4 seconds, and there is no stake in consensus. The desktop console verifies those headers. This preview only displays the fields the node returns.</p>
+        <p className="mt-2 text-sm text-muted">Chain 2 uses Hybrid PoW and GHOSTDAG. K is 5, the target block is 4 seconds, and there is no stake in consensus. The desktop console verifies those headers. This preview only displays the fields the node returns.</p>
         <form
           className="mt-5 grid gap-3"
           onSubmit={(event) => {
@@ -73,7 +73,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
         ) : null}
         {error ? <p className="mt-3 text-sm text-clay">{error}</p> : null}
         <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Network</h3>
-        <p className="mt-2 text-sm text-muted">Chain 5 is the recommended Hybrid PoW testnet. Local is chain 1337. Mainnet is chain 1 and stays read-only.</p>
+        <p className="mt-2 text-sm text-muted">Chain 2 is the recommended Hybrid PoW testnet. Local is chain 1337. Mainnet is chain 1 and stays read-only.</p>
         <div className="mt-3">
           <NetworkChoices />
         </div>

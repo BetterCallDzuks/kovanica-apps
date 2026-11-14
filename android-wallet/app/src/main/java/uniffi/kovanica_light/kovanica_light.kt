@@ -1927,7 +1927,7 @@ public object FfiConverterTypeMinedPowResult: FfiConverterRustBuffer<MinedPowRes
  */
 data class MobileNodeProfile (
     /**
-     * Network chain ID (`5` for `HYBRID_TESTNET`, `1` for `MAINNET`).
+     * Network chain ID (`2` for `HYBRID_TESTNET`, `1` for `MAINNET`).
      */
     var `chainId`: kotlin.ULong
     , 
@@ -2865,7 +2865,7 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
 
         /**
          * Run a bounded Proof-of-Work search (KovanicaHash) on the mobile device.
-         * Designed for thermal-gated micro-mining bursts on Chain 5 (Hybrid Testnet).
+         * Designed for thermal-gated micro-mining bursts on Chain 2 (Hybrid Testnet).
          */
     @Throws(LightFfiException::class) fun `minePowBlockHeader`(`headerJson`: kotlin.String, `maxHashes`: kotlin.ULong, `nonceStart`: kotlin.ULong): MinedPowResult {
             return FfiConverterTypeMinedPowResult.lift(
@@ -3018,7 +3018,7 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
         /**
          * Sign a contract call. `args_hex` is bincode-encoded calldata (`0x` optional).
          *
-         * `value` is the native KUNA (atoms) sent to the contract, `0` when unused.
+         * `value` is the native KVNC (atoms) sent to the contract, `0` when unused.
          * `fee_rate` is atoms per byte from `kovanica_estimateFee`.
          */
     @Throws(LightFfiException::class) fun `signCallRaw`(`keystoreJson`: kotlin.String, `passphrase`: kotlin.String, `chainId`: kotlin.ULong, `contract`: kotlin.String, `value`: kotlin.ULong, `method`: kotlin.String, `argsHex`: kotlin.String, `gasLimit`: kotlin.ULong, `nonce`: kotlin.ULong, `feeRate`: kotlin.ULong): kotlin.String {

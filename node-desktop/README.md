@@ -59,16 +59,16 @@ That is `scripts/recovery-suite.sh`. It runs the existing frontend tests and the
 
 | Exit | Meaning |
 |---|---|
-| 0 | Mocked checks passed and the live chain-5 run passed. |
+| 0 | Mocked checks passed and the live chain-2 run passed. |
 | 2 | Live half **BLOCKED**. Not a pass. `recovery-artifacts/report.json` names the missing prerequisite. |
 | other | An assertion, build, or timeout failed. |
 
 Live mode does not pick a binary from an L1 checkout and does not fall back to chain 1337. It does not set `KOVANICA_TEST_TARGET_BITS`. If that variable or any other `KOVANICA_*` name is set, the live half stops as BLOCKED and does not show the value. Required environment, both absolute paths:
 
 - `NODE_RECOVERY_BIN` — the `kovanica-node` executable to supervise and to use as the external producer
-- `NODE_RECOVERY_FUNDED_ACCOUNTS` — the chain-5 `funded_accounts.toml` published with that node's image (`ops/docker/chain5/funded_accounts.toml` in the L1 tree). This repo does not embed it.
+- `NODE_RECOVERY_FUNDED_ACCOUNTS` — the chain-2 `funded_accounts.toml` published with that node's image (`ops/docker/chain2/funded_accounts.toml` in the L1 tree). This repo does not embed it.
 
-The report records the binary path, SHA-256, and the `--version` probe. Cargo features are not exposed by the CLI, so the report says they were not inferred. It also records the chain-5 network tag, the funded-account file SHA-256, a sanitized config (`validator_key` redacted), and separate admitted (`kovanica_getDagTips` `max_round`), committed (`kovanica_syncStatus` `committedHeight`), and executed (`kovanica_getBalance`) results. Height alone is not a pass. The supervised process stays non-mining and non-validator. Stop is not allowed to kill the bystander the suite spawns. Disposable data directories created by the run are removed; other data directories are not.
+The report records the binary path, SHA-256, and the `--version` probe. Cargo features are not exposed by the CLI, so the report says they were not inferred. It also records the chain-2 network tag, the funded-account file SHA-256, a sanitized config (`validator_key` redacted), and separate admitted (`kovanica_getDagTips` `max_round`), committed (`kovanica_syncStatus` `committedHeight`), and executed (`kovanica_getBalance`) results. Height alone is not a pass. The supervised process stays non-mining and non-validator. Stop is not allowed to kill the bystander the suite spawns. Disposable data directories created by the run are removed; other data directories are not.
 
 CI runs `npm test` and `cargo test --lib` (see `.github/workflows/node-desktop.yml`). Those include the mocked restart, unexpected-exit, stale-monitor, and bystander regressions. CI does not start a `kovanica-node` and does not treat a missing live binary as a green recovery.
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// Desktop `kovanica-lightnode` submits witnesses while the phone is asleep.
 struct ContentView: View {
     @AppStorage("rpc") private var rpc = "http://127.0.0.1:8545"
-    @AppStorage("chainId") private var chainId = "1337"
+    @AppStorage("chainId") private var chainId = "2"
     @AppStorage("epoch") private var epoch = "0"
     @AppStorage("keystore") private var keystore = ""
     @AppStorage("header") private var header = ""
@@ -42,7 +42,7 @@ struct ContentView: View {
                 TextField("Amount (atoms)", text: $amount).textFieldStyle(.roundedBorder)
                 Button("Send") { run("sending", onSend) }
                 Text("Light node: a desktop kovanica-lightnode submits the witness while this phone is asleep. Open the app about once per day.")
-                Button("Bond 100 KUNA") { run("bonding", onBond) }
+                Button("Bond 100 KVNC") { run("bonding", onBond) }
                 Button("Submit witness") { run("witness", onWitness) }
                 Button("Exit light node") { run("exiting", onExit) }
                 if faucetAllowed(chainId: chainValue()) {

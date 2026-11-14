@@ -37,7 +37,7 @@ export const PHRASE_STILL_IN_WALLET =
   "The recovery phrase is still in this wallet. Enter the password to see it again.";
 
 export const MNEMONIC_WARNING =
-  "Anyone who reads this phrase can spend the KUNA. Write it down. This screen does not copy it.";
+  "Anyone who reads this phrase can spend the KVNC. Write it down. This screen does not copy it.";
 
 export const HISTORY_HEADING = "History (reported by node)";
 
@@ -185,9 +185,9 @@ export function reviewRows(quote: QuoteView): ReviewRow[] {
     { label: "Recipient", value: quote.recipient },
     {
       label: "Amount",
-      value: `${quote.amountDisplay} KUNA (${quote.amountAtoms} atoms)`,
+      value: `${quote.amountDisplay} KVNC (${quote.amountAtoms} atoms)`,
     },
-    { label: "Fee", value: `${quote.feeDisplay} KUNA (${quote.feeAtoms} atoms)` },
+    { label: "Fee", value: `${quote.feeDisplay} KVNC (${quote.feeAtoms} atoms)` },
     { label: "Chain id", value: quote.chainId },
     { label: "Nonce", value: quote.nonce },
   ];

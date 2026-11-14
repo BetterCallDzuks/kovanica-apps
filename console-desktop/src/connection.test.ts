@@ -4,7 +4,7 @@ import { endpointLine, peerLines, statusRows, type NodeStatus } from "./connecti
 
 function status(overrides: Partial<NodeStatus> = {}): NodeStatus {
   return {
-    chainId: "4",
+    chainId: "2",
     chainNote: "Proven by commit seals.",
     height: "1200",
     leaderRound: "3600",
@@ -27,7 +27,7 @@ describe("connection screen", () => {
       "Peers (reported by node)",
     ]);
     expect(rows.map((row) => row.value)).toEqual([
-      "4",
+      "2",
       "Proven by commit seals.",
       "1200",
       "3600",

@@ -43,7 +43,7 @@ const quote: QuoteView = {
   amountDisplay: "1",
   feeAtoms: "42",
   feeDisplay: "0.000000042",
-  chainId: "4",
+  chainId: "2",
   nonce: "7",
   feeRate: "1",
   draftRecipient: "typed-recipient",
@@ -55,7 +55,7 @@ function enabled(overrides: Partial<Parameters<typeof sendEnabled>[0]> = {}): bo
     phase: "open",
     recipient: quote.draftRecipient,
     amount: quote.draftAmount,
-    shownChainId: "4",
+    shownChainId: "2",
     quote,
     confirmMainnet: false,
     ...overrides,
@@ -66,9 +66,9 @@ describe("wallet form", () => {
   it("lists the recipient, amount, fee, chain, and nonce before sending", () => {
     expect(reviewRows(quote)).toEqual([
       { label: "Recipient", value: "kvnc-from-rust" },
-      { label: "Amount", value: "1 KUNA (1000000000 atoms)" },
-      { label: "Fee", value: "0.000000042 KUNA (42 atoms)" },
-      { label: "Chain id", value: "4" },
+      { label: "Amount", value: "1 KVNC (1000000000 atoms)" },
+      { label: "Fee", value: "0.000000042 KVNC (42 atoms)" },
+      { label: "Chain id", value: "2" },
       { label: "Nonce", value: "7" },
     ]);
   });
@@ -85,7 +85,7 @@ describe("wallet form", () => {
     expect(enabled({ quote: mainnet, shownChainId: "1", confirmMainnet: false })).toBe(false);
     expect(enabled({ quote: mainnet, shownChainId: "1", confirmMainnet: true })).toBe(true);
     expect(needsMainnetConfirm("1")).toBe(true);
-    expect(needsMainnetConfirm("4")).toBe(false);
+    expect(needsMainnetConfirm("2")).toBe(false);
   });
 
   it("warns before the phrase leaves the screen", () => {

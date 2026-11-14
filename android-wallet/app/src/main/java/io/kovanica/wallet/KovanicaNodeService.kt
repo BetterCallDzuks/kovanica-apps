@@ -23,7 +23,7 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Foreground poller for the Chain 5 pruned-node profile. It does not embed a
+ * Foreground poller for the Chain 2 pruned-node profile. It does not embed a
  * full node. It loads the mobile profile, waits for unmetered Wi-Fi and
  * charging when that profile asks, and verifies PoW headers on the phone.
  */
@@ -75,7 +75,7 @@ class KovanicaNodeService : Service() {
             Notification.Builder(this)
         }
             .setContentTitle("Kovanica node")
-            .setContentText("Checking the Chain 5 tip")
+            .setContentText("Checking the Chain 2 tip")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -117,7 +117,7 @@ class KovanicaNodeService : Service() {
         val tempTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
         val tempCelsius = tempTenths / 10.0f
         val thermalSafe = NodePow.isThermalSafe(tempTenths)
-        val miningConfigured = NodePrefs.microMiningEnabled(this) && chainId == HYBRID_CHAIN
+        val miningConfigured = NodePrefs.microMiningEnabled(this) && isHybridChain(chainId)
         val thermalGated = miningConfigured && !thermalSafe
 
         val base = NodeRuntime.Snapshot(
@@ -137,12 +137,12 @@ class KovanicaNodeService : Service() {
             storeBytes = NodeStore.databaseBytes(this).toString(),
             pruningBadge = NodeStore.BADGE,
             peerLine = "peers: — / ${profile.maxPeers} max",
-            intervalLine = if (chainId == HYBRID_CHAIN) {
+            intervalLine = if (isHybridChain(chainId)) {
                 AirgapReview.intervalLabel(NodeStore.recentTimestamps(this), profile.targetBlockMs.toLong())
             } else {
-                "Recent block interval: shown on chain 5"
+                "Recent block interval: shown on chain 2"
             },
-            intervalTone = if (chainId == HYBRID_CHAIN) {
+            intervalTone = if (isHybridChain(chainId)) {
                 AirgapReview.intervalTone(NodeStore.recentTimestamps(this), profile.targetBlockMs.toLong())
             } else {
                 "idle"
@@ -161,8 +161,8 @@ class KovanicaNodeService : Service() {
         val rpcUrl = NetworkPrefs.rpc(this)
         val client = NodeClient(rpcUrl)
         val withPeers = base.copy(peerLine = "peers: ${readPeerCount(client)} / ${profile.maxPeers} max")
-        if (chainId != HYBRID_CHAIN) {
-            NodeRuntime.publish(this, withPeers.copy(note = "PoW header checks run on chain 5. This profile is chain $chainId."))
+        if (!isHybridChain(chainId)) {
+            NodeRuntime.publish(this, withPeers.copy(note = "PoW header checks run on chain 2. This profile is chain $chainId."))
             schedule()
             return
         }
@@ -194,12 +194,12 @@ class KovanicaNodeService : Service() {
             }
             val now = System.currentTimeMillis().toULong()
             val parent = NodePow.parentJson(header)
-            val verified = verifyPowHeaderJson(HYBRID_CHAIN, header.toString(), parent, now)
+            val verified = verifyPowHeaderJson(chainId, header.toString(), parent, now)
             val cumulative = if (parent.isEmpty()) {
                 verified.work
             } else {
                 runCatching {
-                    verifyPowHeaderChainJson(HYBRID_CHAIN, "[$parent,${header}]", now)
+                    verifyPowHeaderChainJson(chainId, "[$parent,${header}]", now)
                 }.getOrDefault(verified.work)
             }
             val parentRound = parentRound(parent)
@@ -288,7 +288,8 @@ class KovanicaNodeService : Service() {
         private const val CHANNEL = "kovanica-node"
         private const val NOTIFICATION_ID = 7
         private const val POLL_MS = 20_000L
-        private val HYBRID_CHAIN = 5uL
+        private val HYBRID_CHAIN = 2uL
+        private fun isHybridChain(chainId: ULong): Boolean = chainId == 1uL || chainId == 2uL
     }
 }
 
@@ -414,7 +415,7 @@ object NodeStore {
         argsHex: String,
         value: ULong = 0uL,
         gasLimit: ULong = 100_000uL,
-        chainId: ULong = 5uL
+        chainId: ULong = 2uL
     ): uniffi.kovanica_light.LocalSimulationResult? {
         return runCatching {
             uniffi.kovanica_light.simulateLocalCall(
@@ -433,14 +434,14 @@ object NodeStore {
     fun executeBlock(
         context: Context,
         blockJson: String,
-        chainId: ULong = 5uL
+        chainId: ULong = 2uL
     ): uniffi.kovanica_light.BlockExecutionSummary? {
         return runCatching {
             uniffi.kovanica_light.executeBlockTransactions(localDbPath(context), blockJson, chainId)
         }.getOrNull()
     }
 
-    fun startLocalRpc(context: Context, bindAddr: String = "127.0.0.1:8545", chainId: ULong = 5uL): String? {
+    fun startLocalRpc(context: Context, bindAddr: String = "127.0.0.1:8545", chainId: ULong = 2uL): String? {
         return runCatching {
             uniffi.kovanica_light.startLocalRpcServer(localDbPath(context), bindAddr, chainId)
         }.getOrNull()

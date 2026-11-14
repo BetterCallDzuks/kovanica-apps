@@ -173,7 +173,7 @@ export function mountWallet(shownChainId: () => string | null): void {
     readout.replaceChildren();
     const rows: Array<[string, string]> = [["Address", address]];
     if (balance) {
-      rows.push([balance.label, `${balance.display} KUNA (${balance.atoms} atoms)`]);
+      rows.push([balance.label, `${balance.display} KVNC (${balance.atoms} atoms)`]);
     }
     for (const [label, value] of rows) {
       const term = document.createElement("dt");
@@ -240,7 +240,7 @@ export function mountWallet(shownChainId: () => string | null): void {
     for (const row of transfers) {
       const item = document.createElement("li");
       const where = row.pending ? "pending" : `height ${row.height ?? ""}`;
-      item.textContent = `${rowTitle(row.direction, "")} ${row.amountDisplay} KUNA (${row.amountAtoms} atoms) ${row.counterparty} ${where} ${row.transactionHash}`;
+      item.textContent = `${rowTitle(row.direction, "")} ${row.amountDisplay} KVNC (${row.amountAtoms} atoms) ${row.counterparty} ${where} ${row.transactionHash}`;
       historyList.append(item);
     }
   }

@@ -1775,7 +1775,7 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         /**
          * Sign a contract call. `args_hex` is bincode-encoded calldata (`0x` optional).
          *
-         * `value` is the native KUNA (atoms) sent to the contract, `0` when unused.
+         * `value` is the native KVNC (atoms) sent to the contract, `0` when unused.
          * `fee_rate` is atoms per byte from `kovanica_estimateFee`.
          */
     @Throws(LightFfiException::class) fun `signCallRaw`(`keystoreJson`: kotlin.String, `passphrase`: kotlin.String, `chainId`: kotlin.ULong, `contract`: kotlin.String, `value`: kotlin.ULong, `method`: kotlin.String, `argsHex`: kotlin.String, `gasLimit`: kotlin.ULong, `nonce`: kotlin.ULong, `feeRate`: kotlin.ULong): kotlin.String {

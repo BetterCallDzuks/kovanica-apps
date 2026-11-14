@@ -43,10 +43,10 @@ describe("execution receipts", () => {
     assert.equal(logs[0]?.hash, "def");
   });
 
-  it("fails closed when Chain 5 is down and decodes a live receipt when it is up", async () => {
+  it("fails closed when Chain 2 is down and decodes a live receipt when it is up", async () => {
     const extra = (globalThis as { process?: { env?: { KOVANICA_CHAIN5_RPC?: string } } }).process?.env?.KOVANICA_CHAIN5_RPC;
     const probe = await probeChain5(extra, 2000);
-    if (!probe.reachable || (probe.chainId !== 2 && probe.chainId !== 5)) {
+    if (!probe.reachable || probe.chainId !== 2) {
       assert.equal(probe.chainId, probe.reachable ? probe.chainId : null);
       assert.ok(probe.error);
       assert.notEqual(probe.error, "");

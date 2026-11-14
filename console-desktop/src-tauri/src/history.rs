@@ -240,7 +240,7 @@ fn legacy_label_refused(wallet: &str, chain_id: u64) -> bool {
         return false;
     }
     wallet.parse::<Address>().is_err()
-        && Address::parse_for_chain(wallet, kovanica_types::signing::chain_id::TESTNET_V2).is_ok()
+        && Address::parse_for_chain(wallet, kovanica_types::signing::chain_id::DEVNET).is_ok()
 }
 
 fn placement(owner: Address, from: Address, to: Address) -> Option<(String, String)> {
@@ -447,11 +447,11 @@ mod tests {
             reported_history(&rpc, wallet_text, chain)
         };
 
-        let on_v2 = page_for(Some(chain_id::TESTNET_V2), &wallet.encode_legacy_hex()).unwrap();
-        assert_eq!(on_v2.transfers.len(), 2);
-        assert!(on_v2.transfers[0].pending);
-        assert_eq!(on_v2.transfers[0].direction, "in");
-        assert_eq!(on_v2.transfers[0].counterparty, other.to_string());
+        let on_devnet = page_for(Some(chain_id::DEVNET), &wallet.encode_legacy_hex()).unwrap();
+        assert_eq!(on_devnet.transfers.len(), 2);
+        assert!(on_devnet.transfers[0].pending);
+        assert_eq!(on_devnet.transfers[0].direction, "in");
+        assert_eq!(on_devnet.transfers[0].counterparty, other.to_string());
 
         let legacy = wallet.encode_legacy_hex();
         let refused = page_for(Some(chain_id::MAINNET), &legacy).unwrap_err();
@@ -465,7 +465,7 @@ mod tests {
             parse_owner(&legacy, Some(chain_id::MAINNET)).unwrap_err(),
             "A legacy address label is not accepted on chain 1."
         );
-        assert!(parse_owner(&legacy, Some(chain_id::TESTNET_V2)).is_ok());
+        assert!(parse_owner(&legacy, Some(chain_id::DEVNET)).is_ok());
         assert!(parse_owner(&wallet.to_string(), Some(chain_id::MAINNET)).is_ok());
         assert_eq!(
             parse_owner("not-an-address", Some(chain_id::MAINNET)).unwrap_err(),

@@ -20,7 +20,7 @@ class NodePowTest {
     fun finds_a_nested_pow_header_and_ignores_a_bare_parent_reference() {
         val dag = JSONObject(
             """
-            {"tip":{"chainId":5,"round":2,"targetBits":524287,"parents":[{"author":0,"round":1,"digest":"aa"}]}}
+            {"tip":{"chainId":2,"round":2,"targetBits":524287,"parents":[{"author":0,"round":1,"digest":"aa"}]}}
             """.trimIndent(),
         )
         val header = NodePow.findHeader(dag)
@@ -52,12 +52,12 @@ class NodePowTest {
     fun finds_a_pow_header_from_block_with_decoded_fields() {
         val block = JSONObject(
             """
-            {"author":0,"number":"0xa","round":"0xa","chain_id":5,"target_bits":"0x217fffff","parents":[]}
+            {"author":0,"number":"0xa","round":"0xa","chain_id":2,"target_bits":"0x217fffff","parents":[]}
             """.trimIndent(),
         )
         val header = NodePow.findHeader(block)
         assertTrue(header != null)
-        assertEquals(5, header?.optInt("chain_id"))
+        assertEquals(2, header?.optInt("chain_id"))
     }
 
     @Test

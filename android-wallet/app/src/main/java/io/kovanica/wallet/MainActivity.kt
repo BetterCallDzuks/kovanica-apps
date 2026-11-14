@@ -108,7 +108,7 @@ class MainActivity : Activity() {
     private lateinit var amountPreview: TextView
     private lateinit var faucetButton: Button
 
-    // Wallet overview (native KUNA hero).
+    // Wallet overview (native KVNC hero).
     private lateinit var overviewValue: TextView
     private lateinit var kunaSuffix: TextView
     private lateinit var setupButton: Button
@@ -210,7 +210,7 @@ class MainActivity : Activity() {
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
         toField = field("Recipient address", "", mono = true)
-        amountField = field("Amount (KUNA)", "1", mono = true)
+        amountField = field("Amount (KVNC)", "1", mono = true)
         loading = false
 
         status = TextView(this).apply {
@@ -293,7 +293,7 @@ class MainActivity : Activity() {
         }
 
         val sendCard = card().apply {
-            addStack(sectionLabel("Send KUNA"))
+            addStack(sectionLabel("Send KVNC"))
             addStack(toField, 2)
             val recipientActions = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -325,7 +325,7 @@ class MainActivity : Activity() {
             addStack(button("Send") { send() }, 12)
             addStack(
                 caption(
-                    "Amounts are in KUNA — 1 KUNA is 1,000,000,000 atoms. Contacts fills the " +
+                    "Amounts are in KVNC — 1 KVNC is 1,000,000,000 atoms. Contacts fills the " +
                         "field from your saved list; Scan QR reads an address from a code.",
                 ),
                 12,
@@ -807,7 +807,7 @@ class MainActivity : Activity() {
 
     private fun send() {
         val to = toField.text.toString().trim()
-        // The field is typed in KUNA; the chain stores atoms (9 decimals).
+        // The field is typed in KVNC; the chain stores atoms (9 decimals).
         val parsed = Amounts.parse(amountField.text.toString(), NATIVE_DECIMALS)
         val amount = parsed?.toString()?.toULongOrNull()
         val passphrase = passField.text.toString()
@@ -815,7 +815,7 @@ class MainActivity : Activity() {
             setStatus("Enter the recipient address.", Tone.ERROR)
             return
         }
-        // Canonical base32 on every chain. Legacy hex only on 3, 4, and 1337.
+        // Canonical base32 on every chain. Legacy hex only on 3 and 1337.
         // The signer receives the base32 form, which `parse_for_chain` accepts
         // on the chain this transfer is signed for.
         val chain = chainIdField().toLong()
@@ -825,7 +825,7 @@ class MainActivity : Activity() {
             return
         }
         if (parsed == null) {
-            setStatus("Amount must be a KUNA value, like 1 or 0.5.", Tone.ERROR)
+            setStatus("Amount must be a KVNC value, like 1 or 0.5.", Tone.ERROR)
             return
         }
         if (amount == null) {
@@ -857,10 +857,10 @@ class MainActivity : Activity() {
         val known = addressBook.label(toHex)
         val name = if (known == null) "" else "\nSaved as: $known"
         AlertDialog.Builder(this)
-            .setTitle("Send KUNA?")
+            .setTitle("Send KVNC?")
             .setMessage(
                 "To: ${KvncAddress.short(toHex)}$name\n" +
-                    "Amount: $kuna KUNA\n" +
+                    "Amount: $kuna KVNC\n" +
                     "Fee rate: $rate atoms/byte",
             )
             .setNegativeButton("Cancel", null)
@@ -1020,7 +1020,7 @@ class MainActivity : Activity() {
 
     // --- wallet overview -----------------------------------------------------------------
 
-    /** The hero card: native KUNA balance, the address, and the Receive entry point. */
+    /** The hero card: native KVNC balance, the address, and the Receive entry point. */
     private fun walletOverviewCard(): LinearLayout = card().apply {
         addStack(sectionLabel("Balance"))
         val amountRow = LinearLayout(this@MainActivity).apply {
@@ -1039,7 +1039,7 @@ class MainActivity : Activity() {
         }
         amountRow.addView(overviewValue)
         kunaSuffix = TextView(this@MainActivity).apply {
-            text = "KUNA"
+            text = "KVNC"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(ACCENT)
@@ -1086,7 +1086,7 @@ class MainActivity : Activity() {
         claimButton.visibility = View.GONE
         addStack(claimButton, 8)
         addStack(
-            caption("Native KUNA from the node you selected. Tokens are listed below."),
+            caption("Native KVNC from the node you selected. Tokens are listed below."),
             12,
         )
     }
@@ -1388,7 +1388,7 @@ class MainActivity : Activity() {
         addStack(
             caption(
                 "Balances are read straight from the contract's own storage. Token amounts are " +
-                    "separate from your KUNA balance and never count towards it.",
+                    "separate from your KVNC balance and never count towards it.",
             ),
             12,
         )
@@ -1453,7 +1453,7 @@ class MainActivity : Activity() {
         if (watched.isEmpty()) {
             tokenList.addStack(
                 caption(
-                    "Tokens are held by their own contracts, not in your KUNA balance. " +
+                    "Tokens are held by their own contracts, not in your KVNC balance. " +
                         "Tap Add to watch one by address.",
                 ),
                 0,
@@ -1634,7 +1634,7 @@ class MainActivity : Activity() {
      * Inline token-send form. Send calls [TokenClient.sendTransfer], which
      * encodes the `token_transfer` calldata, signs it through the light FFI's
      * `signCallRaw` and submits it; the tx hash (or a clear error) lands in the
-     * status banner. This moves the token's own balances — never native KUNA.
+     * status banner. This moves the token's own balances — never native KVNC.
      */
     private fun sendPanel(contract: String, info: TokenInfo?): LinearLayout =
         LinearLayout(this).apply {
@@ -1644,7 +1644,7 @@ class MainActivity : Activity() {
             val symbol = info?.symbol ?: "token"
             addStack(
                 caption(
-                    "Sends $symbol held by this contract — this is a token transfer, not a KUNA payment.",
+                    "Sends $symbol held by this contract — this is a token transfer, not a KVNC payment.",
                 ),
             )
             val to = field("Recipient address", "", mono = true)
@@ -1830,7 +1830,7 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Shows what the entered atoms add up to in KUNA, so the field means something readable. */
+    /** Shows what the entered atoms add up to in KVNC, so the field means something readable. */
     private fun amountWatcher(): TextWatcher = object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
@@ -1950,7 +1950,7 @@ class MainActivity : Activity() {
         addStack(wifiToggle, 10)
         addStack(
             caption(
-                "Chain 5 PoW headers and Wasmi execution run locally on this phone. Micro-mining runs bounded bursts safely under 36.0°C thermal protection while on Wi-Fi and charging.",
+                "Chain 2 PoW headers and Wasmi execution run locally on this phone. Micro-mining runs bounded bursts safely under 36.0°C thermal protection while on Wi-Fi and charging.",
             ),
             12,
         )
@@ -1977,7 +1977,7 @@ class MainActivity : Activity() {
     }
 
     private fun miningLabel(): String =
-        if (NodePrefs.microMiningEnabled(this)) "Micro-mining on Chain 5: On" else "Micro-mining on Chain 5: Off"
+        if (NodePrefs.microMiningEnabled(this)) "Micro-mining on Chain 2: On" else "Micro-mining on Chain 2: Off"
 
     private fun toggleMicroMining() {
         NodePrefs.setMicroMiningEnabled(this, !NodePrefs.microMiningEnabled(this))
@@ -2027,7 +2027,7 @@ class MainActivity : Activity() {
             val therm = if (snapshot.isThermalGated) "⚠ GATED (${snapshot.miningTempCelsius}°C >= 36°C)" else "SAFE (${snapshot.miningTempCelsius}°C)"
             "Micro-mining: ${snapshot.miningHashRate}  ·  Mined: ${snapshot.blocksMined} blocks\nThermal protection: $therm"
         } else {
-            "Micro-mining on Chain 5: Off"
+            "Micro-mining on Chain 2: Off"
         }
         val stateRootLine = if (snapshot.stateRoot != "—") "State Root: ${snapshot.stateRoot}" else ""
 
@@ -2201,7 +2201,7 @@ class MainActivity : Activity() {
 
     /**
      * Entry into the in-app guide. A tappable card sitting above the day-to-day flow
-     * so a first-time user can read the walkthrough before moving KUNA.
+     * so a first-time user can read the walkthrough before moving KVNC.
      */
     private fun guideCard(): LinearLayout = card().apply {
         isClickable = true
@@ -2466,11 +2466,11 @@ class MainActivity : Activity() {
         /** SharedPreferences file for this app's wallet state. */
         private const val PREFS: String = "kvnc"
 
-        /** KUNA has 9 decimals; token decimals come from each token's own state. */
+        /** KVNC has 9 decimals; token decimals come from each token's own state. */
         private const val NATIVE_DECIMALS: Int = 9
 
         /** Native ticker shown next to amounts in the local history. */
-        private const val NATIVE_SYMBOL: String = "KUNA"
+        private const val NATIVE_SYMBOL: String = "KVNC"
 
         // Palette lives in WalletUi so new surfaces cannot drift from the shipped theme.
         private val INK = WalletUi.INK

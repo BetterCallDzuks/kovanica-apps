@@ -299,7 +299,7 @@ object ContractCalls {
     fun shortfall(balance: BigInteger, need: BigInteger): BigInteger =
         if (balance >= need) BigInteger.ZERO else need.subtract(balance)
 
-    /** Inline faucet on the contract form. Chain 5 and local 1337 only. */
+    /** Inline faucet on the contract form. Chain 2 and local 1337 only. */
     fun faucetQuick(chainId: Long): Boolean = chainId == ChainIds.HYBRID || chainId == ChainIds.LOCAL
 
     /**

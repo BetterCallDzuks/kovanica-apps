@@ -9,7 +9,7 @@ import io.kovanica.chain.ChainIds
  *
  * @property id stable key persisted as `network_id` (`"testnet"` | `"local"`).
  * @property label human-readable name shown in the selector.
- * @property chainId chain id used for signing and address checks (`4` testnet, `1337` local).
+ * @property chainId chain id used for signing and address checks (`2` testnet, `1337` local).
  * @property rpcUrl full JSON-RPC base, including the `/rpc` path ([NodeClient] tolerates either form).
  */
 data class Network(
@@ -22,14 +22,14 @@ data class Network(
 /**
  * Built-in network profiles (mirrors `packages/console/src/network.ts`).
  *
- * The live public testnet is chain 4, so it is the default a fresh install
+ * The live public testnet is chain 2, so it is the default a fresh install
  * opens on. [LOCAL] (`10.0.2.2`, the emulator loopback) stays selectable for
  * development. Mainnet has no preset yet; it opens with the chain rather than
  * here.
  */
 object Networks {
     val TESTNET: Network = Network(
-        "testnet", "Testnet (chain 4)", ChainIds.TESTNET,
+        "testnet", "Testnet (chain 2)", ChainIds.TESTNET,
         "https://rpc-testnet.kovanica.online/rpc",
     )
     val LOCAL: Network = Network(

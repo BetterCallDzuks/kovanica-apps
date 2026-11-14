@@ -16,7 +16,7 @@ export const PRESETS: NetworkPreset[] = [
   {
     id: "mainnet",
     label: "Mainnet (1) · read-only",
-    rpcUrl: "https://rpc.kovanica.online:8545",
+    rpcUrl: "https://rpc.kovanica.online/rpc",
     expectedChainId: 1,
     localOnly: false,
     frozen: true,
@@ -49,12 +49,10 @@ export const CHAIN_NAMES: Record<number, string> = {
   1: "Mainnet",
   2: "Testnet",
   3: "Devnet",
-  4: "Testnet v2",
-  5: "Hybrid PoW",
   1337: "Local",
 };
 
-export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online:8545";
+export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online/rpc";
 
 export function chainName(chainId: number | null): string {
   if (chainId == null) return "Not probed";

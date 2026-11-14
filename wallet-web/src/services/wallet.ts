@@ -400,7 +400,7 @@ export async function refreshDesktopSession(): Promise<void> {
   const meta = loadDesktopMeta();
   try {
     const status = await tauriInvoke<Record<string, unknown>>("wallet_status");
-    const unlocked = status.unlocked === true || status.phase === "unlocked";
+    const unlocked = status.unlocked === true || status.phase === "unlocked" || status.phase === "open";
     const address = typeof status.address === "string" ? status.address : meta?.accounts[0]?.address;
     if (!meta && address) {
       const kind: VaultKind = status.kind === "legacy" || status.legacy === true ? "legacy" : "hd";

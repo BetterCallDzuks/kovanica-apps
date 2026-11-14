@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One bounded recovery command for the Linux node supervisor and monitor.
-# Exit 0: mocked regressions passed and the live chain-5 run passed.
+# Exit 0: mocked regressions passed and the live chain-2 run passed.
 # Exit 2: live half BLOCKED. That is not a pass.
 # Any other non-zero status: a real assertion or build failure.
 set -euo pipefail
@@ -39,7 +39,7 @@ report = {
     "result": "blocked",
     "blocked": reason,
     "limitations": [
-        "Live chain-5 recovery did not run. A missing prerequisite is not a pass.",
+        "Live chain-2 recovery did not run. A missing prerequisite is not a pass.",
         "Chain 1337 was not substituted. KOVANICA_TEST_TARGET_BITS was not enabled.",
     ],
     "checks": [],
@@ -69,13 +69,13 @@ if [[ ! -x "${NODE_RECOVERY_BIN}" ]]; then
   blocked "NODE_RECOVERY_BIN is not an executable file: ${NODE_RECOVERY_BIN}"
 fi
 if [[ -z "${NODE_RECOVERY_FUNDED_ACCOUNTS:-}" ]]; then
-  blocked "NODE_RECOVERY_FUNDED_ACCOUNTS is unset. Point it at the chain-5 funded_accounts.toml published for the node image (L1 ops/docker/chain5/funded_accounts.toml). This suite does not embed that file."
+  blocked "NODE_RECOVERY_FUNDED_ACCOUNTS is unset. Point it at the chain-2 funded_accounts.toml published for the node image (L1 ops/docker/chain2/funded_accounts.toml). This suite does not embed that file."
 fi
 if [[ "${NODE_RECOVERY_FUNDED_ACCOUNTS}" != /* || ! -f "${NODE_RECOVERY_FUNDED_ACCOUNTS}" ]]; then
   blocked "NODE_RECOVERY_FUNDED_ACCOUNTS must be an absolute file path. This suite does not invent a funded-account fixture."
 fi
 
-echo "=== live chain-5 recovery ==="
+echo "=== live chain-2 recovery ==="
 if ! command -v timeout >/dev/null 2>&1; then
   blocked "timeout(1) is missing, so the live half has no outer bound. It was not run."
 fi

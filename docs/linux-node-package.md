@@ -1,6 +1,6 @@
 # Linux Node package plan
 
-Status: proposal for Toni. Nothing in this document is packaged, installed, or released.
+Status: implemented in `node-desktop` (`src-tauri/tauri.conf.json`, `scripts/check-deb.sh`) and verified in CI (`.github/workflows/node-desktop.yml`). No package is uploaded or released automatically.
 
 Base: `c09fe0d51d6b1479f19aacaef355653d7dfaf1c3` (`origin/main`, merge of [PR #7](https://github.com/KovanicaDAG/kovanica-apps/pull/7)). That commit matches the reference. No drift. Main `node-desktop` run [42396544477](https://github.com/KovanicaDAG/kovanica-apps/actions/runs/42396544477) succeeded. This plan does not repeat the chain-5 recovery work merged there.
 
@@ -38,7 +38,7 @@ Use these. Do not re-specify them as new behavior.
 | Close uses that stop. Unconfirmed stop keeps the window open. Parent-death reaper is the same binary, same grace, pid and start time checked | [`IPC-CONTRACT.md`](../node-desktop/IPC-CONTRACT.md), `enable_parent_death_reaper` |
 | No shell plugin and no filesystem plugin | [`capabilities/default.json`](../node-desktop/src-tauri/capabilities/default.json) |
 | Window copy already says paths are absolute and the app does not search `PATH`, download a binary, or write a config | [`index.html`](../node-desktop/index.html) |
-| Icons listed for the bundler are placeholders, not the KUNA logo | [`icons/README.md`](../node-desktop/src-tauri/icons/README.md) |
+| Icons listed for the bundler are placeholders, not the KVNC logo | [`icons/README.md`](../node-desktop/src-tauri/icons/README.md) |
 | Version `0.2.0` in `package.json`, `src-tauri/Cargo.toml`, and `tauri.conf.json` | those three files |
 | Recovery command and exit 2 = BLOCKED | [`README.md`](../node-desktop/README.md), `npm run recovery` |
 | CI gates, no node process, no physical desktop | [`.github/workflows/node-desktop.yml`](../.github/workflows/node-desktop.yml) |
@@ -89,7 +89,7 @@ Type=Application
 
 `Categories=` is empty because `tauri.conf.json` sets no category. The implementation sets `bundle.category` to `Utility` and then reads the installed desktop file. `Categories=` must be non-empty and include `Utility`. If this CLI emits a different token, stop and record the actual line. Do not add a second category to force a menu.
 
-`Icon` and the hicolor file name follow the binary name, `kovanica-node-desktop`. Keep the placeholder PNGs already listed in `bundle.icon`. Do not draw a new logo in the packaging change. `icon.icns` and `icon.ico` are already in the config for other Tauri targets; they are not a reason to put those files on Linux, and they are not the KUNA mark.
+`Icon` and the hicolor file name follow the binary name, `kovanica-node-desktop`. Keep the placeholder PNGs already listed in `bundle.icon`. Do not draw a new logo in the packaging change. `icon.icns` and `icon.ico` are already in the config for other Tauri targets; they are not a reason to put those files on Linux, and they are not the KVNC mark.
 
 The bundler writes `Depends` only when `deb.depends` is non-empty. An empty array omits `Depends`. There is no `dpkg-shlibdeps` step in that CLI. The implementation replaces `[]` with the explicit list below. It does not add maintainer scripts (`preinst`, `postinst`, `prerm`, `postrm`). A script is the wrong place to stop a process or delete a directory.
 
