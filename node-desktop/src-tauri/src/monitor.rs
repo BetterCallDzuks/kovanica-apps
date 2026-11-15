@@ -1,13 +1,18 @@
 //! Read-only loopback monitor.
 //!
 //! Wire shapes were read from KovanicaDAG/kovanica
-//! `74045cf3e27a70569c32af35aec24ada5dd9ff79`, not from kovanica-sdk.
+//! `6fba95d0d66027c0d4e257a8960e1a12758a45bd`, not from kovanica-sdk.
 //!
 //! `GET /health` flattens `HealthSnapshot` beside `status` and `peer_count`
-//! (`crates/kovanica-rpc/src/lib.rs` health_check, `health.rs`).
+//! (`crates/kovanica-rpc/src/lib.rs` `health_check`). HTTP 200 with
+//! `status: "ok"` means healthy. HTTP 503 with `status: "degraded"` means
+//! `HealthSnapshot.healthy` is false, including a commit stall
+//! (`crates/kovanica-rpc/src/health.rs` `commit_stalled` / `is_healthy`)
+//! while component `state` can still be `running`. This monitor shows that
+//! 503 as `unhealthy / stalled`.
 //! `kovanica_syncStatus` uses camelCase (`committedHeight`, `peerCount`,
 //! `networkTag`, peer `peerId` / `reportedTipRound`) in
-//! `crates/kovanica-rpc/src/chain_methods.rs`.
+//! `crates/kovanica-rpc/src/chain_methods.rs` `SyncStatus`.
 //!
 //! A missing or wrong-typed field is unknown. It is never shown as zero.
 //! An explicit numeric zero stays zero. `catchingUp: false` is not a claim
@@ -21,6 +26,9 @@ use serde_json::Value;
 pub const HEALTH_TIMEOUT: Duration = Duration::from_secs(3);
 pub const BASE_POLL: Duration = Duration::from_secs(2);
 pub const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Shown for HTTP 503 from `/health`. Distinct from a failed read and from healthy.
+pub const UNHEALTHY_STALLED: &str = "unhealthy / stalled";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,12 +213,12 @@ pub fn next_wait(failures: u32) -> Duration {
 
 pub fn parse_health(http_status: u16, body: &str) -> HealthView {
     let Ok(value) = serde_json::from_str::<Value>(body) else {
-        return HealthView::blank(true);
+        return health_when_body_unusable(http_status);
     };
     let Some(object) = value.as_object() else {
-        return HealthView::blank(true);
+        return health_when_body_unusable(http_status);
     };
-    HealthView {
+    let mut view = HealthView {
         http_status: Field::value(http_status.to_string()),
         status: match object.get("status") {
             Some(Value::String(text)) if text == "ok" || text == "degraded" => Field::value(text),
@@ -226,7 +234,28 @@ pub fn parse_health(http_status: u16, body: &str) -> HealthView {
             Some(Value::Null) | None => Field::unknown(),
             Some(_) => Field::unknown(),
         },
+    };
+    if http_status == 503 {
+        // L1 uses this status for every unhealthy snapshot, including a commit
+        // stall whose component states are still `running`.
+        view.status = Field::value(UNHEALTHY_STALLED);
+        if view.healthy == Field::value("true") {
+            view.healthy = Field::value("false");
+        }
     }
+    view
+}
+
+/// A 503 with an unreadable body is still the stalled state. Other failures stay unavailable.
+fn health_when_body_unusable(http_status: u16) -> HealthView {
+    if http_status != 503 {
+        return HealthView::blank(true);
+    }
+    let mut view = HealthView::blank(false);
+    view.http_status = Field::value(http_status.to_string());
+    view.status = Field::value(UNHEALTHY_STALLED);
+    view.healthy = Field::value("false");
+    view
 }
 
 pub fn parse_sync_envelope(body: &str) -> SyncView {
@@ -499,7 +528,33 @@ mod tests {
         );
         assert_eq!(errored.committed_height, Field::unavailable());
         assert_eq!(parse_health(200, "[]").status, Field::unavailable());
-        assert_eq!(parse_health(503, r#"{"status":"degraded","healthy":false,"peer_count":3,"execution":{"state":"running"},"consensus":{"state":"running"}}"#).status, Field::value("degraded"));
+    }
+
+    #[test]
+    fn health_http_503_is_unhealthy_stalled() {
+        let stalled = parse_health(
+            503,
+            r#"{"status":"degraded","healthy":false,"peer_count":1,"execution":{"state":"running"},"consensus":{"state":"running","seconds_since_last_commit":200,"commit_stall_secs":120}}"#,
+        );
+        assert_eq!(stalled.http_status, Field::value("503"));
+        assert_eq!(stalled.status, Field::value(UNHEALTHY_STALLED));
+        assert_ne!(stalled.status.kind, FieldKind::Unavailable);
+        assert_ne!(stalled.healthy, Field::value("true"));
+        assert_eq!(stalled.healthy, Field::value("false"));
+        assert_eq!(stalled.peer_count, Field::value("1"));
+        assert_eq!(stalled.execution_state, Field::value("running"));
+        assert_eq!(stalled.consensus_state, Field::value("running"));
+
+        let unparsed = parse_health(503, "not-json");
+        assert_eq!(unparsed.status, Field::value(UNHEALTHY_STALLED));
+        assert_ne!(unparsed.status.kind, FieldKind::Unavailable);
+        assert_ne!(unparsed.healthy, Field::value("true"));
+        assert_eq!(unparsed.execution_state.kind, FieldKind::Unknown);
+
+        let healthy = parse_health(200, HEALTH_OK);
+        assert_eq!(healthy.status, Field::value("ok"));
+        assert_eq!(healthy.healthy, Field::value("true"));
+        assert_ne!(healthy.status, Field::value(UNHEALTHY_STALLED));
     }
 
     #[test]

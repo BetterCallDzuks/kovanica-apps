@@ -202,7 +202,7 @@ function snapshot(options: {
     },
     monitorSeq: options.monitorSeq,
     setup: null,
-    reviewedNodeSource: "74045cf3e27a70569c32af35aec24ada5dd9ff79",
+    reviewedNodeSource: "6fba95d0d66027c0d4e257a8960e1a12758a45bd",
     stopGraceSecs: 10,
     exitStopsOwnedChild: true,
   };
@@ -459,6 +459,53 @@ test("older snapshots and late errors do not overwrite a newer lifecycle", async
   await world.flush();
   assert.equal(world.nodes.get("setup-error")!.hidden, true);
   assert.equal(readout(world.nodes.get("process-readout")!).Process, "exited");
+  world.dispose();
+});
+
+test("http 503 health is shown as unhealthy / stalled", async () => {
+  const world = harness();
+  const view = snapshot({
+    state: "running",
+    statusSeq: 1,
+    monitorSeq: 2,
+    rpc: "reachable",
+    lastSuccessAgeMs: 0,
+    height: "3",
+    catchingUp: "false",
+    pid: 7,
+  });
+  view.monitor.health = {
+    status: field("value", "unhealthy / stalled"),
+    httpStatus: field("value", "503"),
+    healthy: field("value", "false"),
+    peerCount: field("value", "1"),
+    executionState: field("value", "running"),
+    consensusState: field("value", "running"),
+    lastError: field("unknown"),
+  };
+  await boot(world, view);
+  const rows = readout(world.nodes.get("monitor-readout")!);
+  assert.equal(rows["Health status"], "unhealthy / stalled");
+  assert.equal(rows["Health HTTP"], "503");
+  assert.equal(rows["Health flag"], "false");
+  assert.equal(rows.Execution, "running");
+  assert.equal(rows.Consensus, "running");
+  assert.notEqual(rows["Health status"], "unavailable");
+  assert.notEqual(rows["Health status"], "healthy");
+  assert.notEqual(rows["Health flag"], "true");
+  world.dispose();
+});
+
+test("omitted chain id says the node default is in use", async () => {
+  const world = harness();
+  await boot(world);
+  const tuple = fillPaths(world);
+  world.nodes.get("check-button")!.press("Enter");
+  const pending = world.take("inspect_setup");
+  pending.resolve({ ...checked(tuple), chainIdFromFile: false, chainId: 1337, chainLabel: "local (chain 1337)" });
+  await world.flush();
+  assert.match(world.nodes.get("setup-summary")!.textContent, /node default; chain_id is not in the file/);
+  assert.match(world.nodes.get("setup-summary")!.textContent, /local \(chain 1337\)/);
   world.dispose();
 });
 
