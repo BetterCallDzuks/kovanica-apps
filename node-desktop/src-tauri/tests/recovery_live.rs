@@ -61,7 +61,7 @@ fn main_outcome() {
 }
 
 #[test]
-fn live_chain5_recovery() {
+fn live_chain2_recovery() {
     main_outcome();
 }
 
@@ -158,6 +158,8 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
     let observer_toml = root.join("observer.toml");
     let producer_body = format!(
         "chain_id = 2\n\
+         emission_policy = \"no-stake-82m\"\n\
+         treasury_address = \"kvncqctcedn03kfascq6rcfrrqsdfu23nn83pr00hmvukvku82u2cgz0r5jkddag\"\n\
          data_dir = \"{}\"\n\
          listen_addr = \"127.0.0.1:{producer_p2p}\"\n\
          rpc_addr = \"127.0.0.1\"\n\
@@ -177,6 +179,8 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
     );
     let observer_body = format!(
         "chain_id = 2\n\
+         emission_policy = \"no-stake-82m\"\n\
+         treasury_address = \"kvncqctcedn03kfascq6rcfrrqsdfu23nn83pr00hmvukvku82u2cgz0r5jkddag\"\n\
          data_dir = \"{}\"\n\
          listen_addr = \"127.0.0.1:{observer_p2p}\"\n\
          rpc_addr = \"127.0.0.1\"\n\
