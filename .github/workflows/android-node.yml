@@ -53,6 +53,14 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
 
+      # kovanica-core/rust-toolchain.toml selects channel 1.91. Rustup may
+      # auto-install that toolchain without the Android std the step above
+      # attached to a different toolchain. Add the targets on the toolchain
+      # cargo will actually use.
+      - name: Add Android targets to the L1 toolchain
+        working-directory: kovanica-core
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
       - name: Set up Android NDK
         uses: nttld/setup-ndk@v1
         with:
@@ -79,6 +87,10 @@ jobs:
           export AR_x86_64_linux_android="${TOOLCHAIN}/bin/llvm-ar"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${TOOLCHAIN}/bin/x86_64-linux-android24-clang"
           cd kovanica-core
+          # L1 pins its own toolchain file. The targets have to be added to
+          # that toolchain, not only to the one the setup action installed.
+          rustup target add aarch64-linux-android x86_64-linux-android
+          rustup show
           build_ffi() {
             local triple="$1"
             local abi="$2"
