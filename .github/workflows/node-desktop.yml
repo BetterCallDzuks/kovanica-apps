@@ -140,3 +140,33 @@ jobs:
           bash scripts/check-deb.sh
           # The package stays in the runner workspace and is discarded with the job.
           # Do not upload it and do not start kovanica-node.
+          deb_dir="src-tauri/target/release/bundle/deb"
+          mapfile -t debs < <(find "$deb_dir" -maxdepth 1 -type f -name '*.deb' | sort)
+          if [[ "${#debs[@]}" -ne 1 ]]; then
+            echo "expected exactly one .deb to summarize, found ${#debs[@]}" >&2
+            exit 1
+          fi
+          deb="${debs[0]}"
+          deb_name="$(basename "$deb")"
+          deb_size="$(stat -c '%s' "$deb")"
+          deb_sha="$(sha256sum "$deb" | awk '{print $1}')"
+          extract="$(mktemp -d)"
+          dpkg-deb -x "$deb" "$extract"
+          bin="$extract/usr/bin/kovanica-node-desktop"
+          if [[ ! -f "$bin" ]]; then
+            echo "extracted supervisor binary missing" >&2
+            rm -rf "$extract"
+            exit 1
+          fi
+          bin_sha="$(sha256sum "$bin" | awk '{print $1}')"
+          rm -rf "$extract"
+          {
+            echo "### Debian 12 package checksums"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| File | \`$deb_name\` |"
+            echo "| Size | ${deb_size} bytes |"
+            echo "| SHA-256 | \`$deb_sha\` |"
+            echo "| \`/usr/bin/kovanica-node-desktop\` SHA-256 | \`$bin_sha\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

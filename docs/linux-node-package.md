@@ -2,7 +2,7 @@
 
 Status: implemented in `node-desktop` (`src-tauri/tauri.conf.json`, `scripts/check-deb.sh`) and verified in CI (`.github/workflows/node-desktop.yml`). No package is uploaded or released automatically.
 
-Base: `c09fe0d51d6b1479f19aacaef355653d7dfaf1c3` (`origin/main`, merge of [PR #7](https://github.com/KovanicaDAG/kovanica-apps/pull/7)). That commit matches the reference. No drift. Main `node-desktop` run [42396544477](https://github.com/KovanicaDAG/kovanica-apps/actions/runs/42396544477) succeeded. This plan does not repeat the chain-5 recovery work merged there.
+Base: `c09fe0d51d6b1479f19aacaef355653d7dfaf1c3` (`origin/main`, merge of [PR #7](https://github.com/KovanicaDAG/kovanica-apps/pull/7)). That commit matches the reference. No drift. Main `node-desktop` run [42396544477](https://github.com/KovanicaDAG/kovanica-apps/actions/runs/42396544477) succeeded. This plan does not repeat the historical chain-5 recovery work merged there. Chain 5 is not an accepted network.
 
 Scope: the Linux supervisor and its read-only monitor in [`node-desktop`](../node-desktop/README.md). Not Wallet, mining UI, Android, Windows, Comms, `console-desktop`, L1, chain-2 activation, or a cleanup of old data directories.
 
@@ -45,7 +45,7 @@ Use these. Do not re-specify them as new behavior.
 
 `bundle.linux.deb.depends` is `[]`. That is a gap, not a finished dependency list. See Runtime dependencies.
 
-Reviewed L1 source pin `74045cf3e27a70569c32af35aec24ada5dd9ff79` (`REVIEWED_NODE_SOURCE`) stays a policy constant. It is not a file inside the package. The historical binary checksums in the README are records of earlier runs. They are not approved contents, and the active DAA working tree is not an approved binary.
+Reviewed L1 source pin `6fba95d0d66027c0d4e257a8960e1a12758a45bd` (`REVIEWED_NODE_SOURCE`) stays a policy constant. It is not a file inside the package. The historical binary checksums in the README are records of earlier runs, including the retired chain-5 recovery. They are not approved contents, and the active DAA working tree is not an approved binary.
 
 ## Package contents
 

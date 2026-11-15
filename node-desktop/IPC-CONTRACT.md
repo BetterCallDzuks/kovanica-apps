@@ -28,6 +28,7 @@ There is no wallet, stake, mining, or key command.
 - `process.statusSeq`: increases when that owned process changes state. The window applies a process section only when this is newer than the one already shown.
 - `monitor.rpc`: `unknown`, `reachable`, `unreachable`
 - `monitor.health` and `monitor.sync` fields: `{ kind: "value" \| "unknown" \| "unavailable", value }`
+- `monitor.health.status` is `unhealthy / stalled` when `/health` returns HTTP 503. That value is a successful read of an unhealthy node, including a commit stall. A failed read stays `unavailable`.
 - `monitor.stale`, `monitor.lastSuccessAgeMs`, `monitor.detail`
 - `monitorSeq`: increases when the retained monitor view changes. An older sequence cannot replace a newer one. A newer `statusSeq` still carries the monitor view taken with that process observation, so a delayed healthy read cannot repaint a stopped or replaced process.
 - `setup`, `reviewedNodeSource`, `stopGraceSecs`, `exitStopsOwnedChild`

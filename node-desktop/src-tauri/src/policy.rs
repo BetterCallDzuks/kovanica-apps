@@ -1,12 +1,16 @@
 //! Checks a selected `kovanica-node` config before the process is spawned.
 //!
 //! Semantics match `NodeConfig` defaults and CLI behavior reviewed in
-//! KovanicaDAG/kovanica `74045cf3e27a70569c32af35aec24ada5dd9ff79`:
+//! KovanicaDAG/kovanica `6fba95d0d66027c0d4e257a8960e1a12758a45bd`:
 //! `kovanica-node --config <file>` (no `--data-dir` flag). `data_dir` lives in
-//! the file. `run_validator` defaults to true. `mining.enabled` defaults to
-//! false. `chain_id` defaults to 1337. `rpc_addr` defaults to `127.0.0.1`
-//! and `rpc_port` to 8545. `KOVANICA_*` environment variables override the
-//! file inside the node, so this supervisor refuses to start while any are set.
+//! the file and defaults to `./data`. `run_validator` defaults to true.
+//! `mining.enabled` defaults to false. `chain_id` defaults to 1337.
+//! Registered ids there are 1, 2, 3, and 1337. This milestone accepts 2, 3,
+//! and 1337. `rpc_addr` defaults to `127.0.0.1` and `rpc_port` to 8545.
+//! A miner payout address is consulted only when mining is enabled on a hybrid
+//! chain. This app refuses mining, so it does not ask for one.
+//! `KOVANICA_*` environment variables override the file inside the node, so
+//! this supervisor refuses to start while any are set.
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -14,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-pub const REVIEWED_NODE_SOURCE: &str = "74045cf3e27a70569c32af35aec24ada5dd9ff79";
+pub const REVIEWED_NODE_SOURCE: &str = "6fba95d0d66027c0d4e257a8960e1a12758a45bd";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,13 +44,11 @@ pub fn chain_label(chain_id: u64) -> Result<&'static str, String> {
             "chain id 1 is mainnet. This milestone cannot start mainnet, and it will not relabel the network."
                 .into(),
         ),
-        2 => Ok("testnet (chain 2)"),
+        2 => Ok("testnet (chain 2, hybrid PoW+GHOSTDAG)"),
         3 => Ok("devnet (chain 3)"),
-        4 => Ok("testnet v2 (chain 4)"),
-        5 => Ok("hybrid testnet (chain 5)"),
         1337 => Ok("local (chain 1337)"),
         other => Err(format!(
-            "chain id {other} is not a supported development network in this milestone (allowed: 2, 3, 4, 5, 1337). It was not relabelled."
+            "chain id {other} is not a supported development network in this milestone (allowed: 2, 3, 1337). It was not relabelled."
         )),
     }
 }
@@ -335,7 +337,53 @@ mod tests {
     }
 
     #[test]
-    fn rejects_mainnet_public_rpc_mining_and_validator() {
+    fn accepts_chain_2_devnet_and_local() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path().join("chaindata");
+        fs::create_dir(&data).unwrap();
+        let binary = executable(tmp.path());
+        for (id, label) in [
+            (2_u64, "testnet (chain 2, hybrid PoW+GHOSTDAG)"),
+            (3, "devnet (chain 3)"),
+            (1337, "local (chain 1337)"),
+        ] {
+            let config = write_config(
+                tmp.path(),
+                &format!(
+                    "chain_id = {id}\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n\n[mining]\nenabled = false\n",
+                    data.display()
+                ),
+            );
+            let checked = check_setup(&binary, &config, &data, &[]).unwrap();
+            assert_eq!(checked.chain_id, id);
+            assert_eq!(checked.chain_label, label);
+            assert!(checked.chain_id_from_file);
+            assert!(!checked.mining_enabled);
+            assert!(!checked.run_validator);
+        }
+    }
+
+    #[test]
+    fn omitted_chain_id_stays_local_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path().join("chaindata");
+        fs::create_dir(&data).unwrap();
+        let binary = executable(tmp.path());
+        let config = write_config(
+            tmp.path(),
+            &format!(
+                "data_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n",
+                data.display()
+            ),
+        );
+        let checked = check_setup(&binary, &config, &data, &[]).unwrap();
+        assert_eq!(checked.chain_id, 1337);
+        assert!(!checked.chain_id_from_file);
+        assert_eq!(checked.chain_label, "local (chain 1337)");
+    }
+
+    #[test]
+    fn rejects_mainnet_public_rpc_mining_validator_and_retired_chains() {
         let tmp = tempfile::tempdir().unwrap();
         let data = tmp.path().join("chaindata");
         let binary = executable(tmp.path());
@@ -349,10 +397,24 @@ mod tests {
         let err = check_setup(&binary, &mainnet, &data, &[]).unwrap_err();
         assert!(err.contains("mainnet"), "{err}");
 
+        for retired in [4_u64, 5] {
+            let config = write_config(
+                tmp.path(),
+                &format!(
+                    "chain_id = {retired}\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n",
+                    data.display()
+                ),
+            );
+            let err = check_setup(&binary, &config, &data, &[]).unwrap_err();
+            assert!(err.contains("not a supported"), "{err}");
+            assert!(!err.contains("testnet v2"), "{err}");
+            assert!(!err.contains("hybrid testnet"), "{err}");
+        }
+
         let public_rpc = write_config(
             tmp.path(),
             &format!(
-                "chain_id = 4\ndata_dir = \"{}\"\nrpc_addr = \"0.0.0.0\"\nrun_validator = false\n",
+                "chain_id = 2\ndata_dir = \"{}\"\nrpc_addr = \"0.0.0.0\"\nrun_validator = false\n",
                 data.display()
             ),
         );
@@ -362,7 +424,7 @@ mod tests {
         let mining = write_config(
             tmp.path(),
             &format!(
-                "chain_id = 5\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n\n[mining]\nenabled = true\n",
+                "chain_id = 3\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n\n[mining]\nenabled = true\n",
                 data.display()
             ),
         );
@@ -372,7 +434,7 @@ mod tests {
         let validator = write_config(
             tmp.path(),
             &format!(
-                "chain_id = 4\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = true\n",
+                "chain_id = 1337\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = true\n",
                 data.display()
             ),
         );
