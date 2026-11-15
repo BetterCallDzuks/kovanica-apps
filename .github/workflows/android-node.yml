@@ -116,11 +116,12 @@ jobs:
                 "../android-node/app/src/main/jniLibs/${abi}/libkovanica_node.so"
               "${TOOLCHAIN}/bin/llvm-strip" --strip-unneeded \
                 "../android-node/app/src/main/jniLibs/${abi}/libkovanica_node.so"
-              echo "full node ${abi}: built" >> "${GITHUB_STEP_SUMMARY}"
+              echo "full node ${abi}: built" | tee -a "${GITHUB_STEP_SUMMARY}"
+              echo "full node ${abi} stripped bytes: $(stat -c%s "../android-node/app/src/main/jniLibs/${abi}/libkovanica_node.so")" | tee -a "${GITHUB_STEP_SUMMARY}"
             else
-              echo "full node ${abi}: not packaged (L1 cross-compile failed, exit ${code}). Light mode is the fallback." >> "${GITHUB_STEP_SUMMARY}"
+              echo "full node ${abi}: not packaged (L1 cross-compile failed, exit ${code}). Light mode is the fallback." | tee -a "${GITHUB_STEP_SUMMARY}"
               echo '```' >> "${GITHUB_STEP_SUMMARY}"
-              tail -n 40 "${log}" >> "${GITHUB_STEP_SUMMARY}"
+              tail -n 40 "${log}" | tee -a "${GITHUB_STEP_SUMMARY}"
               echo '```' >> "${GITHUB_STEP_SUMMARY}"
             fi
           }
@@ -148,4 +149,4 @@ jobs:
             echo "- size: ${size} bytes"
             echo "- sha256: ${hash}"
             echo "- L1: ${L1_SHA}"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
