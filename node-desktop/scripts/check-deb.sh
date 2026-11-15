@@ -119,7 +119,7 @@ objdump -T "$bin" | awk '/GLIBC_/ {print $5}' | sed 's/.*GLIBC_//; s/).*//' | so
 objdump -p "$bin" | awk '/NEEDED/ {print $2}' > "$work/needed"
 while read -r so; do
   [[ -n "$so" ]] || continue
-  path="$(ldconfig -p | awk -v so="$so" '$1==so {print $NF; exit}')"
+  path="$(ldconfig -p | awk -v so="$so" '$1==so && !p {p=$NF} END {if (p) print p}')"
   if [[ -z "$path" ]]; then
     echo "cannot map $so on this system" >&2
     exit 1
