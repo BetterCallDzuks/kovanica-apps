@@ -34,10 +34,11 @@ jobs:
       - name: Checkout apps
         uses: actions/checkout@v4
 
+      # L1 checkout of KovanicaDAG/kovanica-l1. The Rust workspace stays in that repo.
       - name: Checkout L1 at the pinned commit
         uses: actions/checkout@v4
         with:
-          repository: KovanicaDAG/kovanica
+          repository: KovanicaDAG/kovanica-l1
           ref: 6fba95d0d66027c0d4e257a8960e1a12758a45bd
           path: kovanica-core
 

@@ -1,7 +1,7 @@
 //! Checks a selected `kovanica-node` config before the process is spawned.
 //!
 //! Semantics match `NodeConfig` defaults and CLI behavior reviewed in
-//! KovanicaDAG/kovanica `6fba95d0d66027c0d4e257a8960e1a12758a45bd`:
+//! KovanicaDAG/kovanica-l1 `6fba95d0d66027c0d4e257a8960e1a12758a45bd`:
 //! `kovanica-node --config <file>` (no `--data-dir` flag). `data_dir` lives in
 //! the file and defaults to `./data`. `run_validator` defaults to true.
 //! `mining.enabled` defaults to false. `chain_id` defaults to 1337.

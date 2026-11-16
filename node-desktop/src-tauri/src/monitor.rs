@@ -1,6 +1,6 @@
 //! Read-only loopback monitor.
 //!
-//! Wire shapes were read from KovanicaDAG/kovanica
+//! Wire shapes were read from KovanicaDAG/kovanica-l1
 //! `6fba95d0d66027c0d4e257a8960e1a12758a45bd`, not from kovanica-sdk.
 //!
 //! `GET /health` flattens `HealthSnapshot` beside `status` and `peer_count`
