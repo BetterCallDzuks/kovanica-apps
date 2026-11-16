@@ -35,13 +35,15 @@ Migrated from `apps/*` at tip `e98b5e008331056d6bea55014982d4077e745b77` (flatte
 
 Build the native FFI from L1 (`kovanica-light-ffi`) and point `node-desktop` at a `kovanica-node` executable you built yourself. See [node-desktop/README.md](node-desktop/README.md) and [docs/linux-node-package.md](docs/linux-node-package.md) for Debian 12 `.deb` packaging (`npm run tauri -- build --bundles deb` and `scripts/check-deb.sh`).
 
-`console-desktop` and `desktop` resolve L1 crates and packages from a sibling checkout of [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) (`../../../kovanica-l1/crates/...` and `../../kovanica-l1/packages/...`). Light-ffi stays in that repo.
+`console-desktop` and `desktop` resolve L1 crates and packages from a sibling checkout of [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) (`../../../kovanica-l1/crates/...` and `../../kovanica-l1/packages/...`). Light-ffi stays in that repo. The local sibling folder must be named `kovanica-l1` (not `kovanica`) for those relative paths.
 
 ## Standing rules
 
 - Branch + PR; no force-push to `main`
 - No secrets, `.env`, or private IPs in commits
 - Do not reintroduce `kovanica-light-ffi` into this repo
+
+Agent rules and the full-scope plan: [docs/AGENT-RULES.md](https://github.com/KovanicaDAG/kovanica-l1/blob/main/docs/AGENT-RULES.md) and [docs/PLAN-FULL-SCOPE.md](https://github.com/KovanicaDAG/kovanica-l1/blob/main/docs/PLAN-FULL-SCOPE.md) in KovanicaDAG/kovanica-l1.
 
 ## Source
 
