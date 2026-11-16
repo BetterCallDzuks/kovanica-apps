@@ -20,5 +20,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Canonical comms identity (BLAKE3 domain-separated id). Shared byte-for-byte
-# with `packages/comms/src/identity.ts` and the `kovanica comms id` CLI harness.
-kovanica-comms-core = { path = "../../../kovanica/crates/kovanica-comms-core" }
+# with `packages/comms/src/identity.ts` in KovanicaDAG/kovanica-l1 and the
+# `kovanica comms id` CLI harness. light-ffi is not vendored here.
+kovanica-comms-core = { path = "../../../kovanica-l1/crates/kovanica-comms-core" }

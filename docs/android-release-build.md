@@ -55,7 +55,7 @@ must uninstall the previous certificate's build before installing the new one.
 ## Native library
 
 The wallet APK packages `libkovanica_light_ffi.so` for `arm64-v8a`, built from
-`KovanicaDAG/kovanica` crate `kovanica-light-ffi` with 16 KB page alignment.
+`KovanicaDAG/kovanica-l1` crate `kovanica-light-ffi` with 16 KB page alignment. The crate stays in that repo.
 `android-wallet`'s `checkNativeSymbols` task fails the build if the packaged library
 is missing symbols that the UniFFI bindings register at launch. Comms does not
 package a native library.

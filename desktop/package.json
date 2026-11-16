@@ -11,9 +11,9 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@kovanica/api-client": "file:../../kovanica/packages/api-client",
-    "@kovanica/comms": "file:../../kovanica/packages/comms",
-    "@kovanica/signer": "file:../../kovanica/packages/signer",
+    "@kovanica/api-client": "file:../../kovanica-l1/packages/api-client",
+    "@kovanica/comms": "file:../../kovanica-l1/packages/comms",
+    "@kovanica/signer": "file:../../kovanica-l1/packages/signer",
     "@tauri-apps/api": "^2.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

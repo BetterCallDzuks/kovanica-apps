@@ -33,10 +33,11 @@ jobs:
       - name: Checkout wallet repository
         uses: actions/checkout@v4
 
-      - name: Checkout kovanica core repository
+      # L1 checkout. light-ffi is built from this tree and is not copied into the apps repo.
+      - name: Checkout KovanicaDAG/kovanica-l1
         uses: actions/checkout@v4
         with:
-          repository: KovanicaDAG/kovanica
+          repository: KovanicaDAG/kovanica-l1
           path: kovanica-core
 
       - name: Set up JDK 17

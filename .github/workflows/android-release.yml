@@ -50,10 +50,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # L1 checkout of KovanicaDAG/kovanica-l1. light-ffi stays in that repo.
       - uses: actions/checkout@v4
         if: matrix.native
         with:
-          repository: KovanicaDAG/kovanica
+          repository: KovanicaDAG/kovanica-l1
           path: kovanica-core
 
       - uses: actions/setup-java@v4
@@ -120,10 +121,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # L1 checkout of KovanicaDAG/kovanica-l1. light-ffi stays in that repo.
       - uses: actions/checkout@v4
         if: matrix.native
         with:
-          repository: KovanicaDAG/kovanica
+          repository: KovanicaDAG/kovanica-l1
           path: kovanica-core
 
       - uses: actions/setup-java@v4
