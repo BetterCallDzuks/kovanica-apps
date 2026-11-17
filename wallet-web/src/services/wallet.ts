@@ -1,5 +1,5 @@
 import { decodeAddress } from "@/core/address";
-import { entropyFromPhrase, isValidMnemonic, mnemonicWordCount, normalizeMnemonic } from "@/core/hd";
+import { entropyFromPhrase, isValidMnemonic, mnemonicWordCount, normalizeMnemonic, phraseFromEntropy } from "@/core/hd";
 import { openVault, sealVault, type PublicAccount, type VaultFile, type VaultKind } from "@/core/keystore";
 import {
   derivePublicAccount,
@@ -142,6 +142,40 @@ export async function importWallet(input: {
   bip39Passphrase: string;
 }): Promise<void> {
   requirePassword(input.password);
+  const trimmed = input.phrase.trim();
+  const isRawHex = /^(0x)?[0-9a-fA-F]{64}$/.test(trimmed);
+
+  if (isRawHex) {
+    const hex = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
+    const rawSeed = hexToBytes(hex);
+    if (isDesktopShell()) {
+      const imported = await tauriInvoke<{ phase: string; address: string }>("wallet_import", {
+        mnemonic: phraseFromEntropy(rawSeed),
+        passphrase: input.password,
+      });
+      const meta: DesktopMeta = {
+        kind: "legacy",
+        wordCount: null,
+        usesBip39Passphrase: false,
+        accounts: [publicAccount("legacy", 0, imported.address)],
+      };
+      saveDesktopMeta(meta);
+      useSession.getState().openSession({ ...meta, active: 0 });
+      return;
+    }
+    unlockSession({ kind: "legacy", seed: rawSeed }, "");
+    const account = derivePublicAccount({ account: 0, change: 0, index: 0 });
+    const file = await sealVault(
+      { kind: "legacy", seed: rawSeed.slice() },
+      input.password,
+      { kind: "legacy", wordCount: null, usesBip39Passphrase: false, accounts: [account] },
+    );
+    wipe(rawSeed);
+    saveVault(file);
+    useSession.getState().setUnlocked(file.accounts, 0);
+    return;
+  }
+
   const phrase = normalizeMnemonic(input.phrase);
   if (!isValidMnemonic(phrase)) throw new Error("checksum does not match this word list");
   const count = mnemonicWordCount(phrase);

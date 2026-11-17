@@ -2,9 +2,10 @@ import { hmac } from "@noble/hashes/hmac.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 import { entropyToMnemonic, mnemonicToEntropy, mnemonicToSeedSync, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
+import { KOVANICA_COIN_TYPE, formatBip44Path } from "kovanica-sdk";
 import { wipe } from "./bytes";
 
-export const COIN_TYPE = 3007;
+export const COIN_TYPE = KOVANICA_COIN_TYPE;
 const HARDENED = 0x80000000;
 const ED25519_HMAC_KEY = new TextEncoder().encode("ed25519 seed");
 
@@ -38,7 +39,7 @@ export function deriveHardened(parent: Slip10Node, index: number): Slip10Node {
 }
 
 export function formatBip44(account: number, change: number, index: number): string {
-  return `m/44'/${COIN_TYPE}'/${account}'/${change}'/${index}'`;
+  return formatBip44Path(account, change, index, COIN_TYPE);
 }
 
 export function deriveBip44(seed64: Uint8Array, account: number, change: number, index: number): Uint8Array {

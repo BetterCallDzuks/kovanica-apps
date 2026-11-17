@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatAddressForChain } from "@/core/address";
 import { formatAtoms, formatKvnc } from "@/core/format";
 import type { TxPreview } from "@/core/session";
 import { AddressBook } from "@/components/contacts/AddressBook";
@@ -48,6 +49,8 @@ export function WalletApp() {
   const lockState = signingLock(net);
   const account = session.accounts[session.active];
   const accountAddress = account?.address;
+  const currentChainId = net.probedChainId ?? presetById(net.presetId).expectedChainId ?? null;
+  const displayAddress = account ? formatAddressForChain(account.address, currentChainId) : "";
 
   useEffect(() => {
     const stopBackup = subscribeBackup(setBackup);
@@ -316,12 +319,20 @@ export function WalletApp() {
         </aside>
         <section className="px-5 py-6">
           <div className="mb-5 flex gap-2 overflow-x-auto">
-            {session.accounts.map((item, index) => (
-              <button key={`${item.pathLabel}-${index}`} type="button" className={`min-h-11 shrink-0 rounded-full border px-4 text-left text-sm ${index === session.active ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => selectAccount(index)}>
-                <span className="block">{item.pathLabel === "Legacy account" ? "Legacy account" : `Account ${item.account}`}</span>
-                <span className="block text-xs">{item.pathLabel}</span>
-              </button>
-            ))}
+            {session.accounts.map((item, index) => {
+              const itemDisplayAddress = formatAddressForChain(item.address, currentChainId);
+              return (
+                <button
+                  key={`${item.pathLabel}-${index}`}
+                  type="button"
+                  className={`min-h-11 shrink-0 rounded-full border px-4 text-left text-sm ${index === session.active ? "border-copper text-paper" : "border-line text-muted"}`}
+                  onClick={() => selectAccount(index)}
+                >
+                  <span className="block">{item.pathLabel === "Legacy account" ? "Legacy account" : `Account ${item.account}`}</span>
+                  <span className="block text-xs">{item.pathLabel} · {itemDisplayAddress.slice(0, 10)}…{itemDisplayAddress.slice(-6)}</span>
+                </button>
+              );
+            })}
             {session.kind === "hd" ? (
               <button type="button" className="min-h-11 shrink-0 rounded-full border border-line px-4 text-sm text-paper" onClick={() => void addAccount().catch((error: unknown) => toast(error instanceof Error ? error.message : "Could not add an account"))}>
                 Add account
@@ -334,8 +345,8 @@ export function WalletApp() {
               {session.kind === "legacy" ? <p className="w-fit rounded-full border border-copper px-3 py-1 text-sm text-copper">Legacy account</p> : null}
               <p className="text-5xl font-semibold tabular-nums">{net.balanceAtoms == null ? "—" : formatKvnc(net.balanceAtoms)}</p>
               <p className="text-muted">{net.balanceAtoms == null ? "Balance unavailable" : `${formatAtoms(net.balanceAtoms)} atoms`}</p>
-              {account ? <FaucetButton address={account.address} /> : null}
-              <p className="mono text-sm break-all">{account?.address}</p>
+              {account ? <FaucetButton address={displayAddress} /> : null}
+              <p className="mono text-sm break-all" data-testid="account-address">{displayAddress}</p>
               <div className="flex gap-3">
                 <button type="button" className="min-h-11 rounded-full bg-copper px-5 font-medium text-copper-ink" onClick={() => setTab("send")}>Send</button>
                 <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => setTab("receive")}>Receive</button>
@@ -353,7 +364,7 @@ export function WalletApp() {
             </div>
           ) : null}
           {tab === "send" ? <SendForm onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefillTo={sendTo} quoteTick={quoteTick} /> : null}
-          {tab === "receive" && account ? <Receive address={account.address} pathLabel={account.pathLabel} /> : null}
+          {tab === "receive" && account ? <Receive address={displayAddress} pathLabel={account.pathLabel} /> : null}
           {tab === "activity" ? <ActivityList /> : null}
           {tab === "contracts" ? <Contracts onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefill={contractPrefill} ownerAddress={account?.address ?? ""} /> : null}
           {tab === "watch" ? (

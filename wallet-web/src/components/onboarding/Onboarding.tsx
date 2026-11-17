@@ -25,6 +25,7 @@ export function Onboarding({ mode }: { mode: Mode }) {
 
   const list = useMemo(() => normalizeMnemonic(phrase).split(" ").filter(Boolean), [phrase]);
   const positions = quizPositions(list.length);
+  const isHexSeed = /^(0x)?[0-9a-fA-F]{64}$/.test(phrase.trim());
   const valid = isValidMnemonic(phrase);
   const count = mnemonicWordCount(phrase);
 
@@ -84,16 +85,16 @@ export function Onboarding({ mode }: { mode: Mode }) {
 
   async function sealImport() {
     setError(null);
-    if (!valid) return setError("The phrase checksum does not match.");
-    if (count === 24 && !importMode) return setError("Choose hierarchical or legacy. They are not the same key.");
+    if (!valid && !isHexSeed) return setError("The phrase checksum does not match.");
+    if (!isHexSeed && count === 24 && !importMode) return setError("Choose hierarchical or legacy. They are not the same key.");
     if (password.length < 8) return setError("Password must be at least 8 characters.");
     setBusy(true);
     try {
       await importWallet({
-        phrase,
-        mode: count === 12 ? "hd" : (importMode ?? "hd"),
+        phrase: phrase.trim(),
+        mode: isHexSeed ? "legacy" : (count === 12 ? "hd" : (importMode ?? "hd")),
         password,
-        bip39Passphrase: importMode === "legacy" ? "" : bip39,
+        bip39Passphrase: isHexSeed || importMode === "legacy" ? "" : bip39,
       });
       setPhrase("");
       setPassword("");
@@ -214,7 +215,7 @@ export function Onboarding({ mode }: { mode: Mode }) {
       {screen === "import" ? (
         <form className="mt-8 grid gap-3" onSubmit={(e) => { e.preventDefault(); void sealImport(); }}>
           <label className="grid gap-1 text-sm text-muted">
-            Recovery phrase
+            Recovery phrase or 32-byte secret key
             <textarea
               className="min-h-28 rounded-2xl border border-line bg-ink px-4 py-3 text-paper"
               value={phrase}
@@ -246,8 +247,14 @@ export function Onboarding({ mode }: { mode: Mode }) {
               ))}
             </div>
           ) : null}
-          <p className={valid ? "text-sm text-sage" : "text-sm text-muted"}>{phrase.trim() ? (valid ? `Checksum matches · ${count} words` : "Checksum does not match yet") : "English BIP-39 words only"}</p>
-          {count === 24 && valid ? (
+          {isHexSeed ? (
+            <p className="text-sm text-sage">Raw 32-byte secret key (legacy account) detected</p>
+          ) : (
+            <p className={valid ? "text-sm text-sage" : "text-sm text-muted"}>
+              {phrase.trim() ? (valid ? `Checksum matches · ${count} words` : "Checksum does not match yet") : "English BIP-39 words or 32-byte hex secret key"}
+            </p>
+          )}
+          {!isHexSeed && count === 24 && valid ? (
             <fieldset className="grid gap-2">
               <legend className="text-sm text-muted">This 24-word phrase is</legend>
               <button type="button" className={`min-h-11 rounded-2xl border px-4 text-left ${importMode === "hd" ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => setImportMode("hd")}>
@@ -258,7 +265,7 @@ export function Onboarding({ mode }: { mode: Mode }) {
               </button>
             </fieldset>
           ) : null}
-          {importMode !== "legacy" ? (
+          {!isHexSeed && importMode !== "legacy" ? (
             <label className="grid gap-1 text-sm text-muted">
               BIP-39 passphrase, if you used one
               <input className="min-h-11 rounded-2xl border border-line bg-ink px-4 text-paper" type="password" value={bip39} onChange={(e) => setBip39(e.target.value)} />
