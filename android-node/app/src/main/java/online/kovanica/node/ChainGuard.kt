@@ -33,6 +33,25 @@ object ChainGuard {
         else -> null
     }
 
+    /**
+     * Validates a peer genesis digest against official network tags.
+     * Matches if the hex digest starts with the tag's 16-hex prefix.
+     */
+    fun validatePeerGenesis(chainId: Long, genesisDigestHex: String): Boolean {
+        val expectedTag = officialNetworkTag(chainId) ?: return false
+        val expectedPrefix = expectedTag.substringAfter("-").lowercase()
+        val cleaned = genesisDigestHex.trim().removePrefix("0x").removePrefix("0X").lowercase()
+        return cleaned.startsWith(expectedPrefix)
+    }
+
+    /**
+     * Validates a peer's network tag (e.g. "1-f35df34c92001436" or "2-acfdf6a6c80fd28a").
+     */
+    fun validatePeerNetworkTag(chainId: Long, tag: String): Boolean {
+        val expectedTag = officialNetworkTag(chainId) ?: return false
+        return tag.trim().equals(expectedTag, ignoreCase = true)
+    }
+
     fun evaluate(chainId: Long): Decision {
         val name = networkName(chainId)
         return when (chainId) {

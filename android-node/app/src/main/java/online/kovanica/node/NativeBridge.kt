@@ -1,15 +1,40 @@
 package online.kovanica.node
 
 /**
- * Calls into `libkovanica_light_ffi.so` once the UniFFI classes built from
- * L1 9a3813c are on the classpath. Until that library is packaged, every
- * call reports that the native library is absent. No seed, token or
- * recovery words are logged.
+ * Calls into `libkovanica_ffi.so` (native mobile node engine) and
+ * `libkovanica_light_ffi.so` (UniFFI wallet/crypto functions).
+ * Until libraries are packaged, calls report that the native library is absent.
+ * No seed, token or recovery words are logged.
  */
 object NativeBridge {
     data class Created(val address: String, val keystoreJson: String)
 
-    fun available(): Boolean = impl != null
+    private var nativeLoaded: Boolean = false
+
+    init {
+        try {
+            System.loadLibrary("kovanica_ffi")
+            nativeLoaded = true
+        } catch (_: UnsatisfiedLinkError) {
+            nativeLoaded = false
+        }
+    }
+
+    fun isNativeLoaded(): Boolean = nativeLoaded
+
+    @JvmStatic
+    external fun nodeStart(configPath: String): Int
+
+    @JvmStatic
+    external fun nodeStop(): Int
+
+    @JvmStatic
+    external fun nodeStatus(): String
+
+    @JvmStatic
+    external fun nodeSyncProgress(): String
+
+    fun available(): Boolean = impl != null || nativeLoaded
 
     fun createHd(passphrase: String): Created =
         impl?.createHd(passphrase) ?: error("native library is not packaged")

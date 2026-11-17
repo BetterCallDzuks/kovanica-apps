@@ -3,6 +3,18 @@ package online.kovanica.node
 import io.kovanica.chain.ChainIds
 
 /**
+ * Startup configuration representing the node mode, storage, and validation settings.
+ */
+data class NodeStartupConfig(
+    val chainId: Long,
+    val dataDir: String,
+    val isFullNode: Boolean = true,
+    val storageEnabled: Boolean = true,
+    val blockValidationActive: Boolean = true,
+    val configText: String = "",
+)
+
+/**
  * App-generated node config. RPC and the P2P listener stay on loopback.
  * The L1 default listener is all interfaces on port 8000; this file overrides
  * that so nothing off the device can dial in. Outbound dials still use the
@@ -14,6 +26,17 @@ import io.kovanica.chain.ChainIds
 object NodeConfigText {
     const val RPC_PORT: Int = 8545
     const val P2P_PORT: Int = 8000
+
+    fun defaultStartupConfig(dataDir: String, chainId: Long = ChainIds.TESTNET): NodeStartupConfig {
+        return NodeStartupConfig(
+            chainId = chainId,
+            dataDir = dataDir,
+            isFullNode = true,
+            storageEnabled = true,
+            blockValidationActive = true,
+            configText = render(dataDir, chainId),
+        )
+    }
 
     fun render(dataDir: String, chainId: Long = ChainIds.TESTNET): String {
         val guard = ChainGuard.evaluate(chainId)

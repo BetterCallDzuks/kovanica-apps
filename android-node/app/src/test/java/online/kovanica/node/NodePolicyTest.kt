@@ -1,9 +1,14 @@
 package online.kovanica.node
 
 import io.kovanica.chain.ChainIds
+import java.io.File
 import java.math.BigInteger
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,6 +44,37 @@ class NodePolicyTest {
             assertTrue(decision.message.contains("chain ID $id"))
             assertFalse(decision.message.contains("Chain "))
         }
+    }
+
+    @Test
+    fun chainGuardValidatesPeerGenesisDigestsAgainstOfficialTags() {
+        // Tag format: <chain_id>-<16 hex chars of genesis digest>
+        // Mainnet tag: 1-f35df34c92001436
+        // Testnet tag: 2-acfdf6a6c80fd28a
+        assertEquals("1-f35df34c92001436", ChainGuard.MAINNET_NETWORK_TAG)
+        assertEquals("2-acfdf6a6c80fd28a", ChainGuard.TESTNET_NETWORK_TAG)
+
+        // Peer network tag validation
+        assertTrue(ChainGuard.validatePeerNetworkTag(ChainIds.MAINNET, "1-f35df34c92001436"))
+        assertTrue(ChainGuard.validatePeerNetworkTag(ChainIds.TESTNET, "2-acfdf6a6c80fd28a"))
+        assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.MAINNET, "2-acfdf6a6c80fd28a"))
+        assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.TESTNET, "1-f35df34c92001436"))
+        assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.DEVNET, "3-0000000000000000"))
+
+        // Peer genesis digest validation (32 bytes hex = 64 characters)
+        val mainnetGenesisHex = "f35df34c92001436" + "ab".repeat(24)
+        val testnetGenesisHex = "acfdf6a6c80fd28a" + "cd".repeat(24)
+        val tamperedGenesisHex = "deadbeefcafebabe" + "00".repeat(24)
+
+        assertTrue(ChainGuard.validatePeerGenesis(ChainIds.MAINNET, mainnetGenesisHex))
+        assertTrue(ChainGuard.validatePeerGenesis(ChainIds.MAINNET, "0x$mainnetGenesisHex"))
+        assertFalse(ChainGuard.validatePeerGenesis(ChainIds.MAINNET, testnetGenesisHex))
+        assertFalse(ChainGuard.validatePeerGenesis(ChainIds.MAINNET, tamperedGenesisHex))
+
+        assertTrue(ChainGuard.validatePeerGenesis(ChainIds.TESTNET, testnetGenesisHex))
+        assertTrue(ChainGuard.validatePeerGenesis(ChainIds.TESTNET, "0x$testnetGenesisHex"))
+        assertFalse(ChainGuard.validatePeerGenesis(ChainIds.TESTNET, mainnetGenesisHex))
+        assertFalse(ChainGuard.validatePeerGenesis(ChainIds.TESTNET, tamperedGenesisHex))
     }
 
     @Test
@@ -95,6 +131,79 @@ class NodePolicyTest {
     }
 
     @Test
+    fun defaultStartupConfigSetsFullNodeMode() {
+        val path = "/data/user/0/online.kovanica.node.android/files/chaindata"
+        val config = NodeConfigText.defaultStartupConfig(path, ChainIds.TESTNET)
+
+        // Verifies Locked Product Truth: full-node mode by default, storage enabled, block validation active
+        assertTrue("Startup config must set full-node mode by default", config.isFullNode)
+        assertTrue("Storage must be enabled for full-node mode", config.storageEnabled)
+        assertTrue("Block validation must be active for full-node mode", config.blockValidationActive)
+        assertEquals(ChainIds.TESTNET, config.chainId)
+        assertEquals(path, config.dataDir)
+        assertTrue(config.configText.contains("chain_id = ${ChainIds.TESTNET}"))
+        assertTrue(config.configText.contains("data_dir = \"$path\""))
+        assertTrue(config.configText.contains("listen_addr = \"127.0.0.1:8000\""))
+        assertTrue(config.configText.contains("rpc_port = 8545"))
+    }
+
+    @Test
+    fun fallbackTriggersLightOnLowMemoryThermalBattery() {
+        val ok = Fallback.Report(
+            freeDiskBytes = Fallback.MIN_FREE_DISK_BYTES,
+            totalRamBytes = Fallback.MIN_TOTAL_RAM_BYTES,
+            abi = "arm64-v8a",
+            binaryPresent = true,
+            processStarted = true,
+            reachedPeer = true,
+            recentCrashes = 0,
+            freeRamBytes = Fallback.MIN_FREE_RAM_BYTES,
+            thermalThrottling = false,
+            lowBattery = false,
+        )
+        assertTrue(Fallback.decide(ok).fullMode)
+        assertNull(Fallback.decide(ok).reason)
+
+        // Memory threshold fallback: < 256MB free RAM triggers light mode
+        assertLight(ok.copy(freeRamBytes = Fallback.MIN_FREE_RAM_BYTES - 1), "256 MiB free RAM")
+        assertLight(ok.copy(freeRamBytes = 100L * 1024L * 1024L), "256 MiB free RAM")
+
+        // Thermal throttling triggers light mode
+        assertLight(ok.copy(thermalThrottling = true), "thermal throttling")
+
+        // Low battery triggers light mode
+        assertLight(ok.copy(lowBattery = true), "Low battery")
+    }
+
+    @Test
+    fun fallbackRecoversToFullNodeWhenConditionsNormalize() {
+        // Degraded report due to resource constraints
+        val degraded = Fallback.Report(
+            freeDiskBytes = Fallback.MIN_FREE_DISK_BYTES,
+            totalRamBytes = Fallback.MIN_TOTAL_RAM_BYTES,
+            abi = "arm64-v8a",
+            binaryPresent = true,
+            processStarted = true,
+            reachedPeer = true,
+            recentCrashes = 0,
+            freeRamBytes = 128L * 1024L * 1024L, // low memory
+            thermalThrottling = true,             // thermal throttling
+            lowBattery = true,                    // battery warning
+        )
+        assertFalse(Fallback.decide(degraded).fullMode)
+
+        // Conditions normalize: free RAM >= 256MB, thermal throttling ceases, battery restored
+        val normalized = degraded.copy(
+            freeRamBytes = 512L * 1024L * 1024L,
+            thermalThrottling = false,
+            lowBattery = false,
+        )
+        val recovery = Fallback.evaluateRecovery(normalized)
+        assertTrue("Node should recover back to full mode once conditions normalize", recovery.fullMode)
+        assertNull(recovery.reason)
+    }
+
+    @Test
     fun eachPreflightFailureSelectsLightMode() {
         val ok = Fallback.Report(
             freeDiskBytes = Fallback.MIN_FREE_DISK_BYTES,
@@ -104,6 +213,9 @@ class NodePolicyTest {
             processStarted = true,
             reachedPeer = true,
             recentCrashes = 0,
+            freeRamBytes = Fallback.MIN_FREE_RAM_BYTES,
+            thermalThrottling = false,
+            lowBattery = false,
         )
         assertTrue(Fallback.decide(ok).fullMode)
         assertNull(Fallback.decide(ok).reason)
@@ -120,6 +232,228 @@ class NodePolicyTest {
         assertTrue(Fallback.readyToStart(beforeStart).fullMode)
         assertNull(Fallback.readyToStart(beforeStart).reason)
         assertFalse(Fallback.readyToStart(beforeStart.copy(binaryPresent = false)).fullMode)
+    }
+
+    @Test
+    fun jniNativeBridgeExportedDeclarations() {
+        // Verifies that NativeBridge declares the 4 required JNI methods:
+        // nodeStart, nodeStop, nodeStatus, nodeSyncProgress
+        val methods = NativeBridge::class.java.declaredMethods
+        val names = methods.map { it.name }.toSet()
+
+        assertTrue("NativeBridge must declare nodeStart", names.contains("nodeStart"))
+        assertTrue("NativeBridge must declare nodeStop", names.contains("nodeStop"))
+        assertTrue("NativeBridge must declare nodeStatus", names.contains("nodeStatus"))
+        assertTrue("NativeBridge must declare nodeSyncProgress", names.contains("nodeSyncProgress"))
+
+        val nodeStart = methods.first { it.name == "nodeStart" }
+        assertEquals(Int::class.javaPrimitiveType, nodeStart.returnType)
+        assertEquals(listOf(String::class.java), nodeStart.parameterTypes.toList())
+
+        val nodeStop = methods.first { it.name == "nodeStop" }
+        assertEquals(Int::class.javaPrimitiveType, nodeStop.returnType)
+        assertEquals(0, nodeStop.parameterTypes.size)
+
+        val nodeStatus = methods.first { it.name == "nodeStatus" }
+        assertEquals(String::class.java, nodeStatus.returnType)
+        assertEquals(0, nodeStatus.parameterTypes.size)
+
+        val nodeSyncProgress = methods.first { it.name == "nodeSyncProgress" }
+        assertEquals(String::class.java, nodeSyncProgress.returnType)
+        assertEquals(0, nodeSyncProgress.parameterTypes.size)
+    }
+
+    @Test
+    fun nativeLibrarySymbolsVerification() {
+        // Inspects compiled libkovanica_ffi.so libraries across supported ABIs (arm64-v8a, x86_64)
+        for (abi in listOf("arm64-v8a", "x86_64")) {
+            val so = File("src/main/jniLibs/$abi/libkovanica_ffi.so")
+            if (so.exists()) {
+                val process = ProcessBuilder("nm", "-D", "--defined-only", so.absolutePath)
+                    .redirectErrorStream(true)
+                    .start()
+                val text = process.inputStream.bufferedReader().readText()
+                val code = process.waitFor()
+                if (code == 0) {
+                    val symbols = text.lines().mapNotNull { line ->
+                        line.trim().split(Regex("\\s+")).lastOrNull()
+                    }.toSet()
+
+                    assertTrue(
+                        "libkovanica_ffi.so ($abi) missing Java_online_kovanica_node_NativeBridge_nodeStart",
+                        symbols.contains("Java_online_kovanica_node_NativeBridge_nodeStart"),
+                    )
+                    assertTrue(
+                        "libkovanica_ffi.so ($abi) missing Java_online_kovanica_node_NativeBridge_nodeStop",
+                        symbols.contains("Java_online_kovanica_node_NativeBridge_nodeStop"),
+                    )
+                    assertTrue(
+                        "libkovanica_ffi.so ($abi) missing Java_online_kovanica_node_NativeBridge_nodeStatus",
+                        symbols.contains("Java_online_kovanica_node_NativeBridge_nodeStatus"),
+                    )
+                    assertTrue(
+                        "libkovanica_ffi.so ($abi) missing Java_online_kovanica_node_NativeBridge_nodeSyncProgress",
+                        symbols.contains("Java_online_kovanica_node_NativeBridge_nodeSyncProgress"),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun nodeServiceInitializesNativeBridgeWithInternalFilesDir() {
+        val tempDir = java.nio.file.Files.createTempDirectory("kovanica-node-test").toFile()
+        try {
+            val result = NodeService.initNativeBridge(tempDir, ChainIds.TESTNET)
+            assertEquals(0, result)
+
+            val chaindata = File(tempDir, "chaindata")
+            assertTrue("chaindata directory should be created in files dir", chaindata.exists() && chaindata.isDirectory)
+
+            val configFile = File(tempDir, "node.toml")
+            assertTrue("node.toml configuration file should exist in files dir", configFile.exists() && configFile.isFile)
+            val configText = configFile.readText()
+            assertTrue(configText.contains("chain_id = ${ChainIds.TESTNET}"))
+            assertTrue(configText.contains("data_dir = \"${chaindata.absolutePath}\""))
+            assertTrue(configText.contains("127.0.0.1"))
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun nodeServiceForegroundNotificationDisplaysProgressHeightAndPeers() {
+        val text = NodeService.formatNotificationText(
+            syncProgress = "syncing",
+            committedHeight = 7890L,
+            peerCount = 6L,
+        )
+        assertTrue("Notification must display sync progress", text.contains("syncing"))
+        assertTrue("Notification must display committed DAG height", text.contains("7890"))
+        assertTrue("Notification must display peer count", text.contains("6"))
+        assertTrue("Notification text must label sync progress", text.contains("Sync progress"))
+        assertTrue("Notification text must label committed DAG height", text.contains("Committed DAG height"))
+        assertTrue("Notification text must label peer count", text.contains("Peer count"))
+
+        val syncedText = NodeService.formatNotificationText(
+            syncProgress = "synced",
+            committedHeight = 8000L,
+            peerCount = 10L,
+        )
+        assertTrue(syncedText.contains("synced"))
+        assertTrue(syncedText.contains("8000"))
+        assertTrue(syncedText.contains("10"))
+    }
+
+    @Test
+    fun nodeServiceGracefulTeardownCallsNodeStop() {
+        val result = NodeService.stopNativeNode()
+        assertEquals(0, result)
+    }
+
+    @Test
+    fun ipcSmokeOverLoopbackRpcPort() {
+        // Smoke test verifying JSON-RPC IPC communication between wallet-web (webview)
+        // and local Android node service over 127.0.0.1:8545
+        var server: ServerSocket? = null
+        val running = AtomicBoolean(true)
+        val port = NodeConfigText.RPC_PORT
+        try {
+            server = try {
+                ServerSocket().apply {
+                    bind(InetSocketAddress("127.0.0.1", port))
+                }
+            } catch (_: Exception) {
+                ServerSocket().apply {
+                    bind(InetSocketAddress("127.0.0.1", 0))
+                }
+            }
+
+            val actualPort = server.localPort
+            val base = "http://127.0.0.1:$actualPort"
+
+            val serverThread = Thread {
+                while (running.get()) {
+                    try {
+                        val socket = server.accept()
+                        Thread {
+                            socket.use { s ->
+                                val reader = s.getInputStream().bufferedReader()
+                                val firstLine = reader.readLine() ?: return@use
+                                var contentLength = 0
+                                while (true) {
+                                    val header = reader.readLine() ?: break
+                                    if (header.isEmpty()) break
+                                    if (header.lowercase().startsWith("content-length:")) {
+                                        contentLength = header.substringAfter(":").trim().toIntOrNull() ?: 0
+                                    }
+                                }
+                                val body = if (contentLength > 0) {
+                                    val chars = CharArray(contentLength)
+                                    var read = 0
+                                    while (read < contentLength) {
+                                        val count = reader.read(chars, read, contentLength - read)
+                                        if (count < 0) break
+                                        read += count
+                                    }
+                                    String(chars, 0, read)
+                                } else ""
+
+                                val responseBody = when {
+                                    firstLine.startsWith("GET /health") ->
+                                        """{"status":"healthy","network":"kovanica testnet","peer_count":8}"""
+                                    body.contains("kovanica_chainId") ->
+                                        """{"jsonrpc":"2.0","id":1,"result":"0x2"}"""
+                                    body.contains("kovanica_syncStatus") ->
+                                        """{"jsonrpc":"2.0","id":1,"result":{"committedHeight":5400,"catchingUp":false,"peerCount":8,"tips":["0xabcdef0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d"]}}"""
+                                    body.contains("kovanica_getBalance") ->
+                                        """{"jsonrpc":"2.0","id":1,"result":"0x3b9aca00"}""" // 1 KVNC
+                                    else ->
+                                        """{"jsonrpc":"2.0","id":1,"result":"ok"}"""
+                                }
+                                val bytes = responseBody.toByteArray(Charsets.UTF_8)
+                                val out = s.getOutputStream()
+                                out.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.UTF_8))
+                                out.write(bytes)
+                                out.flush()
+                            }
+                        }.start()
+                    } catch (_: Exception) {
+                        break
+                    }
+                }
+            }
+            serverThread.isDaemon = true
+            serverThread.start()
+
+            // 1. Health endpoint check
+            val healthReply = NodeHttp.get(NodeHttp.healthUrl(base))
+            assertEquals(200, healthReply.status)
+            assertTrue(healthReply.body.contains("healthy"))
+
+            // 2. Chain ID RPC check
+            val chainReply = NodeHttp.rpc(base, "kovanica_chainId", "[]")
+            assertEquals(200, chainReply.status)
+            assertTrue(chainReply.body.contains("0x2"))
+
+            // 3. Sync status RPC check
+            val syncReply = NodeHttp.rpc(base, "kovanica_syncStatus", "[]")
+            assertEquals(200, syncReply.status)
+            val snap = RpcJson.snapshot(healthReply.status, healthReply.body, syncReply.body)
+            assertEquals(5400L, snap.committedHeight)
+            assertEquals(8L, snap.peerCount)
+            assertEquals(false, snap.catchingUp)
+
+            // 4. Balance query check
+            val balReply = NodeHttp.rpc(base, "kovanica_getBalance", "[\"$sample\"]")
+            assertEquals(200, balReply.status)
+            assertEquals(1_000_000_000L, RpcJson.quantityResult(balReply.body))
+        } finally {
+            running.set(false)
+            try {
+                server?.close()
+            } catch (_: Exception) {}
+        }
     }
 
     @Test

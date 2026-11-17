@@ -22,13 +22,21 @@ export function NetworkChoices() {
         <button
           key={preset.id}
           type="button"
-          className={`min-h-11 rounded-2xl border px-3 text-left text-xs ${net.presetId === preset.id ? "border-copper text-copper" : "border-line text-muted"}`}
+          className={`min-h-11 rounded-2xl border px-3 text-left text-xs ${net.presetId === preset.id && !net.localNodeMode ? "border-copper text-copper" : "border-line text-muted"}`}
           onClick={() => useNetwork.getState().selectPreset(preset.id)}
         >
           <span className="block">{preset.recommended ? "Recommended" : preset.frozen ? "Frozen" : "Network"}</span>
           <span className="block text-sm text-paper">{preset.label}</span>
         </button>
       ))}
+      <button
+        type="button"
+        className={`min-h-11 rounded-2xl border px-3 text-left text-xs ${net.localNodeMode ? "border-copper text-copper" : "border-line text-muted"}`}
+        onClick={() => useNetwork.getState().setLocalNodeMode(true)}
+      >
+        <span className="block">Local Mobile Node</span>
+        <span className="block text-sm text-paper">Local Node (127.0.0.1:8545)</span>
+      </button>
       <p className="break-all text-xs text-muted">{net.rpcUrl}</p>
       {!net.online && !net.probing ? (
         <div className="grid gap-2 rounded-2xl border border-line p-3">

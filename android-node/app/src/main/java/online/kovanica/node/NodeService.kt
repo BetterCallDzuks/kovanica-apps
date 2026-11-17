@@ -10,29 +10,33 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import io.kovanica.chain.ChainIds
 import java.io.File
 
 /**
- * Foreground service that runs the packaged full node as its own process.
- * The executable is `libkovanica_node.so` extracted into nativeLibraryDir.
- * Stop sends destroy, then destroyForcibly. No token is placed in the environment.
+ * Foreground service that runs the packaged full node as its own process or JNI runtime.
+ * The native engine is accessed via [NativeBridge] or extracted `libkovanica_node.so`.
+ * Teardown calls [NativeBridge.nodeStop] and destroys any child process.
  */
 class NodeService : Service() {
     private var process: Process? = null
+    private var updateThread: Thread? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                stopProcess()
+                stopNode()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             else -> {
+                initNativeBridge(this)
                 startInForeground()
-                if (!process.running()) {
+                startNotificationUpdater()
+                if (!process.running() && binary(this).isFile) {
                     process = launch(this)
                 }
             }
@@ -41,7 +45,7 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
-        stopProcess()
+        stopNode()
         super.onDestroy()
     }
 
@@ -51,29 +55,48 @@ class NodeService : Service() {
             val channel = NotificationChannel(CHANNEL, "Kovanica Node", NotificationManager.IMPORTANCE_LOW)
             manager.createNotificationChannel(channel)
         }
-        val open = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-            .setContentTitle("Kovanica Node")
-            .setContentText("Full node is running on this device")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentIntent(open)
-            .setOngoing(true)
-            .build()
+        val info = querySyncInfo(this)
+        val notification = buildNotification(this, info.syncProgress, info.committedHeight, info.peerCount)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun startNotificationUpdater() {
+        if (updateThread != null) return
+        val thread = Thread {
+            val manager = getSystemService(NotificationManager::class.java)
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    Thread.sleep(5_000)
+                    val info = querySyncInfo(this)
+                    val notification = buildNotification(this, info.syncProgress, info.committedHeight, info.peerCount)
+                    manager?.notify(NOTIFICATION_ID, notification)
+                } catch (_: InterruptedException) {
+                    break
+                } catch (_: Throwable) {}
+            }
+        }
+        thread.isDaemon = true
+        thread.start()
+        updateThread = thread
+    }
+
+    private fun stopNotificationUpdater() {
+        updateThread?.interrupt()
+        updateThread = null
+    }
+
+    private fun stopNode() {
+        stopNotificationUpdater()
+        if (NativeBridge.isNativeLoaded()) {
+            try {
+                NativeBridge.nodeStop()
+            } catch (_: Throwable) {}
+        }
+        stopProcess()
     }
 
     private fun stopProcess() {
@@ -123,6 +146,12 @@ class NodeService : Service() {
         return !waiter.isAlive
     }
 
+    data class NodeSyncInfo(
+        val syncProgress: String,
+        val committedHeight: Long,
+        val peerCount: Long,
+    )
+
     companion object {
         const val ACTION_STOP = "online.kovanica.node.STOP"
         private const val CHANNEL = "kovanica-node"
@@ -143,6 +172,139 @@ class NodeService : Service() {
             dir.mkdirs()
             copyGenesis(context, dir, chainId)
             configFile(context).writeText(NodeConfigText.render(dir.absolutePath, chainId))
+        }
+
+        /**
+         * Initializes NativeBridge with the app internal files directory on startup.
+         */
+        fun initNativeBridge(context: Context, chainId: Long = ChainIds.TESTNET): Int {
+            prepare(context, chainId)
+            val config = configFile(context)
+            return if (NativeBridge.isNativeLoaded()) {
+                NativeBridge.nodeStart(config.absolutePath)
+            } else {
+                0
+            }
+        }
+
+        /**
+         * Overload for file directory based initialization in tests or harness environments.
+         */
+        fun initNativeBridge(filesDir: File, chainId: Long = ChainIds.TESTNET): Int {
+            val dir = File(filesDir, "chaindata")
+            dir.mkdirs()
+            val configFile = File(filesDir, "node.toml")
+            if (!configFile.exists()) {
+                configFile.writeText(NodeConfigText.render(dir.absolutePath, chainId))
+            }
+            return if (NativeBridge.isNativeLoaded()) {
+                NativeBridge.nodeStart(configFile.absolutePath)
+            } else {
+                0
+            }
+        }
+
+        /**
+         * Graceful teardown stopping the native engine via nodeStop.
+         */
+        fun stopNativeNode(): Int {
+            return if (NativeBridge.isNativeLoaded()) {
+                try {
+                    NativeBridge.nodeStop()
+                } catch (_: Throwable) {
+                    0
+                }
+            } else {
+                0
+            }
+        }
+
+        /**
+         * Formats foreground notification text displaying current sync progress,
+         * committed DAG height, and peer count.
+         */
+        fun formatNotificationText(
+            syncProgress: String,
+            committedHeight: Long,
+            peerCount: Long,
+        ): String =
+            "Sync progress: $syncProgress · Committed DAG height: $committedHeight · Peer count: $peerCount"
+
+        /**
+         * Builds the foreground service notification.
+         */
+        fun buildNotification(
+            context: Context,
+            syncProgress: String = "synced",
+            committedHeight: Long = 0L,
+            peerCount: Long = 0L,
+        ): Notification {
+            val contentText = formatNotificationText(syncProgress, committedHeight, peerCount)
+            val open = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, CHANNEL)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(context)
+            }
+            return builder
+                .setContentTitle("Kovanica Node")
+                .setContentText(contentText)
+                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentIntent(open)
+                .setOngoing(true)
+                .build()
+        }
+
+        /**
+         * Queries the current sync progress, committed height, and peer count
+         * from NativeBridge and loopback RPC.
+         */
+        fun querySyncInfo(context: Context): NodeSyncInfo {
+            var height = 0L
+            var progress = "synced"
+            var peers = 0L
+
+            if (NativeBridge.isNativeLoaded()) {
+                try {
+                    val progressJson = NativeBridge.nodeSyncProgress()
+                    if (progressJson.isNotEmpty() && !progressJson.contains("error")) {
+                        val currentHeight = RpcJson.longField(progressJson, "current_height")
+                        val catchingUp = progressJson.contains("\"catching_up\":true") || progressJson.contains("\"syncing\":true")
+                        if (currentHeight != null) {
+                            height = currentHeight
+                            progress = if (catchingUp) "syncing" else "synced"
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            try {
+                val base = "http://127.0.0.1:${NodeConfigText.RPC_PORT}"
+                val sync = NodeHttp.rpc(base, "kovanica_syncStatus", "[]")
+                if (sync.status == 200) {
+                    val rpcHeight = RpcJson.longField(sync.body, "committedHeight")
+                        ?: RpcJson.longField(sync.body, "localHeight")
+                    val rpcPeers = RpcJson.longField(sync.body, "peerCount")
+                    val catchingUp = RpcJson.boolField(sync.body, "catchingUp")
+                    if (rpcHeight != null) height = rpcHeight
+                    if (rpcPeers != null) peers = rpcPeers
+                    if (catchingUp != null) {
+                        progress = if (catchingUp) "syncing" else "synced"
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            return NodeSyncInfo(
+                syncProgress = progress,
+                committedHeight = height,
+                peerCount = peers,
+            )
         }
 
         fun launch(context: Context): Process? {

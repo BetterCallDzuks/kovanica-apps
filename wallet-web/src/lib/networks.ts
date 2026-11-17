@@ -73,6 +73,17 @@ export const CHAIN_NAMES: Record<number, string> = {
 };
 
 export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online/rpc";
+export const LOCAL_NODE_RPC = "http://127.0.0.1:8545";
+
+export function isLocalRpc(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "localhost";
+  } catch {
+    return url.startsWith("http://127.0.0.1:8545") || url.startsWith("http://localhost:8545");
+  }
+}
 
 export function chainName(chainId: number | null): string {
   if (chainId == null) return "Not probed";

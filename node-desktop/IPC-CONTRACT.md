@@ -21,6 +21,12 @@ There is no wallet, stake, mining, or key command.
 
 `binarySha256` is the SHA-256 of the selected file bytes. It is not a publisher signature.
 
+## RPC endpoint conventions
+
+`rpc_addr` defaults to `127.0.0.1` and `rpc_port` defaults to `8545` when the selected config omits them. `CheckedSetup` reports the resolved `rpc_addr`, `rpc_port`, and `rpc_http` (for example `http://127.0.0.1:8545`). `monitor_refresh` reads only that loopback endpoint, and the snapshot's `/health` and `kovanica_syncStatus` values come from it.
+
+The supervised process is the native `kovanica-node` binary. The Android packaging of that native full node is dual-ABI (`arm64-v8a` and `x86_64`); this Linux supervisor runs a Linux executable selected in the form, not an Android ABI package.
+
 ## Snapshot
 
 - `process.state`: `stopped`, `starting`, `running`, `stopping`, `exited`

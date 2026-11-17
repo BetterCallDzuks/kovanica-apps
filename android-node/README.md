@@ -2,7 +2,7 @@
 
 Android app `online.kovanica.node.android` ("Kovanica Node"). It tries to run a full node on **kovanica testnet** (chain ID 2, network tag `2-acfdf6a6c80fd28a`) on the device: outbound P2P, full header validation, and local chain storage. A minimal KVNC wallet can show a receive address and sign a send. Mining is not part of this app.
 
-The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `9a3813cd3f61c8a99d33457eb4eb0dbeef6826d1`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
+The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `fecc84cca95b8f0aef5d445999e0e7858e63f326`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
 
 ## Full node
 
@@ -62,7 +62,7 @@ From `android-node/`:
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-Unit tests do not need the native libraries. CI (`.github/workflows/android-node.yml`) checks out L1 at the pin above, cross-compiles `kovanica-node` and `libkovanica_light_ffi.so` for `arm64-v8a` and `x86_64`, strips unneeded symbols, then runs those Gradle tasks and writes the debug APK name, size, and SHA-256 to the job summary. The APK is not uploaded and is not signed for release. A local debug arm64 build of the node was 374 MiB before strip and 23 MiB after; CI ships the stripped release build.
+Unit tests do not need the native libraries. CI (`.github/workflows/android-node.yml`) checks out L1 at the pin above, cross-compiles `kovanica-node` and `libkovanica_light_ffi.so` for `arm64-v8a` and `x86_64`, strips unneeded symbols, then runs those Gradle tasks and writes the debug APK name, size, and SHA-256 to the job summary. The debug APK is uploaded as the `android-node-debug-apk` artifact; it is not signed for release. A local debug arm64 build of the node was 374 MiB before strip and 23 MiB after; CI ships the stripped release build.
 
 ## Known limits
 

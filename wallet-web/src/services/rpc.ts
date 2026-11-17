@@ -9,6 +9,7 @@ export type SyncProbe = {
   height: number | null;
   peerCount: number | null;
   latencyMs: number | null;
+  nodeMode?: "full" | "light" | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -64,11 +65,32 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
       const chainId = pickNumber(record, ["chainId", "chain_id", "chainID"]) ?? parseNetworkTagChainId(networkTag);
       const height = pickNumber(record, ["committedHeight", "committed_height"]);
       const peerCount = pickNumber(record, ["peerCount", "peer_count"]);
+      let nodeMode: "full" | "light" | null = null;
+      const rawMode = record.mode ?? record.nodeMode ?? record.node_mode;
+      if (rawMode === "full" || rawMode === "light") {
+        nodeMode = rawMode;
+      } else if (record.fullMode === true) {
+        nodeMode = "full";
+      } else if (record.fullMode === false) {
+        nodeMode = "light";
+      } else {
+        try {
+          const status = await post(candidate, "kovanica_nodeStatus", []);
+          const rec = asRecord(status);
+          const m = rec?.mode ?? rec?.status;
+          if (m === "full" || m === "light") {
+            nodeMode = m;
+          }
+        } catch {
+          // kovanica_nodeStatus not supported
+        }
+      }
       return {
         chainId,
         networkTag,
         height,
         peerCount,
+        nodeMode,
         latencyMs: health?.ms ?? Date.now() - started,
         online: true,
         error: chainId == null ? "Node responded, but it did not report a chain id." : null,
@@ -77,7 +99,7 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
       last = error instanceof Error ? error.message : last;
     }
   }
-  return { chainId: null, networkTag: null, height: null, peerCount: null, latencyMs: null, online: false, error: last };
+  return { chainId: null, networkTag: null, height: null, peerCount: null, latencyMs: null, nodeMode: null, online: false, error: last };
 }
 
 function quantity(value: unknown): bigint | null {

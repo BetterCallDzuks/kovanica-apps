@@ -8,6 +8,7 @@ package online.kovanica.node
 object Fallback {
     const val MIN_FREE_DISK_BYTES: Long = 512L * 1024L * 1024L
     const val MIN_TOTAL_RAM_BYTES: Long = 1536L * 1024L * 1024L
+    const val MIN_FREE_RAM_BYTES: Long = 256L * 1024L * 1024L
     const val CRASH_LIMIT: Int = 3
 
     val SUPPORTED_ABIS: Set<String> = setOf("arm64-v8a", "x86_64")
@@ -20,6 +21,9 @@ object Fallback {
         val processStarted: Boolean,
         val reachedPeer: Boolean,
         val recentCrashes: Int,
+        val freeRamBytes: Long = MIN_FREE_RAM_BYTES,
+        val thermalThrottling: Boolean = false,
+        val lowBattery: Boolean = false,
     )
 
     data class Decision(
@@ -33,6 +37,15 @@ object Fallback {
         }
         if (report.totalRamBytes < MIN_TOTAL_RAM_BYTES) {
             return light("Not enough RAM for a full node (need 1536 MiB).")
+        }
+        if (report.freeRamBytes < MIN_FREE_RAM_BYTES) {
+            return light("Low memory: less than 256 MiB free RAM.")
+        }
+        if (report.thermalThrottling) {
+            return light("Device is thermal throttling.")
+        }
+        if (report.lowBattery) {
+            return light("Low battery: power saving mode active.")
         }
         if (report.abi !in SUPPORTED_ABIS) {
             return light("This device ABI (${report.abi}) has no full node build.")
@@ -53,12 +66,17 @@ object Fallback {
     }
 
     /**
-     * Checks that run before the process is started: free disk, RAM, ABI,
-     * the packaged executable, and the crash count. Whether the process stays
-     * up and reaches a peer is [decide] after the start attempt.
+     * Checks that run before the process is started: free disk, RAM, free RAM,
+     * thermal, battery, ABI, the packaged executable, and the crash count.
+     * Whether the process stays up and reaches a peer is [decide] after the start attempt.
      */
     fun readyToStart(report: Report): Decision =
         decide(report.copy(processStarted = true, reachedPeer = true))
+
+    /**
+     * Evaluates recovery to full node when conditions normalize.
+     */
+    fun evaluateRecovery(report: Report): Decision = readyToStart(report)
 
     private fun light(reason: String) = Decision(fullMode = false, reason = reason)
 }

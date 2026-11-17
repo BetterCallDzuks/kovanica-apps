@@ -243,6 +243,23 @@ export function WalletApp() {
     setTab("activity");
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (data && typeof data === "object") {
+        if (data.type === "kovanica-fallback-state" || data.type === "node-mode-change") {
+          const mode = data.mode;
+          if (mode === "full" || mode === "light") {
+            useNetwork.getState().setNodeMode(mode);
+          }
+        }
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
   if (session.status !== "unlocked") {
     return (
       <main className="grid min-h-screen place-items-center bg-ink text-paper">
@@ -259,12 +276,28 @@ export function WalletApp() {
         <aside className="border-b border-line px-5 py-6 md:border-r md:border-b-0">
           <p className="text-xs tracking-[0.22em] text-copper uppercase">Kovanica</p>
           <h1 className="mt-2 text-2xl font-semibold">Wallet</h1>
-          <div className="mt-6 flex items-center gap-2 text-sm">
+          <div className="mt-6 flex flex-wrap items-center gap-2 text-sm">
             <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
             <span>{lockState.networkName}</span>
+            {net.localNodeMode || net.nodeMode ? (
+              <span
+                data-testid="node-mode-indicator"
+                className={`rounded-full px-2 py-0.5 text-xs font-medium border ${
+                  net.nodeMode === "light"
+                    ? "bg-amber-950/60 text-amber-400 border-amber-800/80"
+                    : "bg-surface text-copper border-line"
+                }`}
+              >
+                {net.nodeMode === "light" ? "Light Mode" : "Full Node"}
+              </span>
+            ) : null}
           </div>
-          <p className="mt-2 text-xs text-muted">
-            {net.probing ? "Probing…" : net.online ? `height ${net.committedHeight ?? "—"} · ${net.latencyMs ?? "—"} ms` : (net.error ?? "Offline")}
+          <p className="mt-2 text-xs text-muted" data-testid="node-status-text">
+            {net.probing
+              ? "Probing…"
+              : net.online
+                ? `${net.nodeMode === "light" ? "Light Mode (fallback) · " : net.nodeMode === "full" ? "Full Node · " : ""}height ${net.committedHeight ?? "—"} · ${net.latencyMs ?? "—"} ms`
+                : (net.error ?? "Offline")}
           </p>
           {lockState.locked ? <p className="mt-3 text-sm text-clay">{lockState.reason}</p> : null}
           <div className="mt-4">

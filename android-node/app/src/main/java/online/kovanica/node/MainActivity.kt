@@ -318,6 +318,7 @@ class MainActivity : Activity() {
             processStarted = false,
             reachedPeer = false,
             recentCrashes = prefs().getInt(KEY_CRASHES, 0),
+            freeRamBytes = memory.availMem,
         )
     }
 

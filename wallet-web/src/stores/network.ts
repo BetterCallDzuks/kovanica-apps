@@ -1,11 +1,15 @@
 import { create } from "zustand";
-import { chainName, presetById, type PresetId } from "@/lib/networks";
+import { chainName, isLocalRpc, LOCAL_NODE_RPC, presetById, type PresetId } from "@/lib/networks";
 
 const CHOICE_KEY = "kvnc.network.v1";
+
+export type NodeMode = "full" | "light" | null;
 
 type NetworkState = {
   presetId: PresetId;
   rpcUrl: string;
+  localNodeMode: boolean;
+  nodeMode: NodeMode;
   probedChainId: number | null;
   committedHeight: number | null;
   latencyMs: number | null;
@@ -20,6 +24,8 @@ type NetworkState = {
   setIndexerUrl: (indexerUrl: string) => void;
   selectPreset: (presetId: PresetId) => void;
   setRpcUrl: (rpcUrl: string, presetId?: PresetId) => void;
+  setLocalNodeMode: (active: boolean) => void;
+  setNodeMode: (mode: NodeMode) => void;
   applyProbe: (probe: {
     chainId: number | null;
     height: number | null;
@@ -27,6 +33,7 @@ type NetworkState = {
     peerCount: number | null;
     online: boolean;
     error: string | null;
+    nodeMode?: NodeMode;
   }) => void;
   setAccountState: (balanceAtoms: bigint | null, nonce: bigint | null, feeAtoms: bigint | null) => void;
   setProbing: (probing: boolean) => void;
@@ -49,9 +56,11 @@ export function savedNetworkChoice(): { presetId: PresetId; rpcUrl: string } | n
   }
 }
 
-export const useNetwork = create<NetworkState>((set) => ({
+export const useNetwork = create<NetworkState>((set, get) => ({
   presetId: "testnet",
   rpcUrl: presetById("testnet").rpcUrl,
+  localNodeMode: isLocalRpc(presetById("testnet").rpcUrl),
+  nodeMode: isLocalRpc(presetById("testnet").rpcUrl) ? "full" : null,
   probedChainId: null,
   committedHeight: null,
   latencyMs: null,
@@ -65,11 +74,15 @@ export const useNetwork = create<NetworkState>((set) => ({
   indexerUrl: "",
   setIndexerUrl: (indexerUrl) => set({ indexerUrl }),
   selectPreset: (presetId) => {
-    const rpcUrl = presetById(presetId).rpcUrl;
+    const preset = presetById(presetId);
+    const rpcUrl = preset.rpcUrl;
+    const isLocal = preset.localOnly || isLocalRpc(rpcUrl);
     persistChoice(presetId, rpcUrl);
     set({
       presetId,
       rpcUrl,
+      localNodeMode: isLocal,
+      nodeMode: isLocal ? (get().nodeMode ?? "full") : null,
       probedChainId: null,
       committedHeight: null,
       online: false,
@@ -82,10 +95,13 @@ export const useNetwork = create<NetworkState>((set) => ({
   setRpcUrl: (rpcUrl, presetId) =>
     set((state) => {
       const nextId = presetId ?? state.presetId;
+      const isLocal = isLocalRpc(rpcUrl);
       persistChoice(nextId, rpcUrl);
       return {
         presetId: nextId,
         rpcUrl,
+        localNodeMode: isLocal,
+        nodeMode: isLocal ? (state.nodeMode ?? "full") : null,
         probedChainId: null,
         committedHeight: null,
         online: false,
@@ -95,16 +111,41 @@ export const useNetwork = create<NetworkState>((set) => ({
         feeAtoms: null,
       };
     }),
+  setLocalNodeMode: (active) =>
+    set((state) => {
+      if (active) {
+        persistChoice(state.presetId, LOCAL_NODE_RPC);
+        return {
+          localNodeMode: true,
+          rpcUrl: LOCAL_NODE_RPC,
+          nodeMode: state.nodeMode ?? "full",
+          probedChainId: null,
+          committedHeight: null,
+          online: false,
+          error: null,
+        };
+      }
+      const defaultUrl = presetById(state.presetId).rpcUrl;
+      const isLocal = isLocalRpc(defaultUrl);
+      persistChoice(state.presetId, defaultUrl);
+      return {
+        localNodeMode: isLocal,
+        rpcUrl: defaultUrl,
+        nodeMode: isLocal ? (state.nodeMode ?? "full") : null,
+      };
+    }),
+  setNodeMode: (mode) => set({ nodeMode: mode }),
   applyProbe: (probe) =>
-    set({
+    set((state) => ({
       probedChainId: probe.chainId,
       committedHeight: probe.height,
       latencyMs: probe.latencyMs,
       peerCount: probe.peerCount,
       online: probe.online,
       error: probe.error,
+      nodeMode: probe.nodeMode !== undefined ? probe.nodeMode : state.nodeMode,
       probing: false,
-    }),
+    })),
   setAccountState: (balanceAtoms, nonce, feeAtoms) => set({ balanceAtoms, nonce, feeAtoms }),
   setProbing: (probing) => set({ probing }),
 }));
