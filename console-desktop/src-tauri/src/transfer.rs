@@ -752,8 +752,8 @@ mod tests {
         let legacy = recipient.encode_legacy_hex();
         let bare = recipient.to_hex();
         let prefixed = format!("0x{bare}");
-        let allowed = [chain_id::DEVNET, chain_id::LOCAL];
-        let refused = [chain_id::MAINNET, chain_id::TESTNET, 4, 0, 42];
+        let allowed = [chain_id::DEVNET];
+        let refused = [chain_id::MAINNET, chain_id::TESTNET, 4, 0, 42, 1337];
         for chain in allowed {
             for form in [&legacy, &bare, &prefixed] {
                 let quote = build_quote(sender, form, "1", chain, 0, 1).unwrap();
@@ -804,7 +804,7 @@ mod tests {
         let err = wallet_address(&label, chain_id::MAINNET).unwrap_err();
         assert_eq!(err, "A legacy address label is not accepted on chain 1.");
         assert!(wallet_address(&label, chain_id::DEVNET).is_ok());
-        assert!(wallet_address(&label, chain_id::LOCAL).is_ok());
+        assert!(wallet_address(&label, 1337).is_err());
         let canonical = Address([9; 32]).to_string();
         assert!(wallet_address(&canonical, chain_id::MAINNET).is_ok());
         assert_eq!(

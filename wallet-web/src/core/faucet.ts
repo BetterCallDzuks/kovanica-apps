@@ -2,9 +2,9 @@ export const FAUCET_ATOMS = "100000000000";
 export const FAUCET_COOLDOWN_MS = 60_000;
 const KEY = "kvnc.faucet.v1";
 
-/** Chain 2 (testnet), devnet 3, and local 1337. Mainnet is never included. */
+/** Chain 2 (testnet) and devnet 3. Mainnet and the retired chain 1337 are never included. */
 export function faucetChain(chainId: number | null): boolean {
-  return chainId === 2 || chainId === 3 || chainId === 1337;
+  return chainId === 2 || chainId === 3;
 }
 
 export function cooldownRemaining(chainId: number | null, address: string, now: number): number {

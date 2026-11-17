@@ -815,7 +815,7 @@ class MainActivity : Activity() {
             setStatus("Enter the recipient address.", Tone.ERROR)
             return
         }
-        // Canonical base32 on every chain. Legacy hex only on 3 and 1337.
+        // Canonical base32 on every chain. Legacy hex only on devnet (3).
         // The signer receives the base32 form, which `parse_for_chain` accepts
         // on the chain this transfer is signed for.
         val chain = chainIdField().toLong()

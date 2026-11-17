@@ -73,7 +73,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
         ) : null}
         {error ? <p className="mt-3 text-sm text-clay">{error}</p> : null}
         <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Network</h3>
-        <p className="mt-2 text-sm text-muted">Chain 2 is the recommended Hybrid PoW testnet. Local is chain 1337. Mainnet is chain 1 and stays read-only.</p>
+        <p className="mt-2 text-sm text-muted">Chain 2 is the recommended Hybrid PoW testnet. Devnet is chain 3, including local single-node testing. Mainnet is chain 1 and stays read-only.</p>
         <div className="mt-3">
           <NetworkChoices />
         </div>

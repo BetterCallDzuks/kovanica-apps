@@ -42,7 +42,7 @@ Sync status on both modes: `syncing` when `/health` is 200 and `catchingUp` is t
 
 ## Chain guard
 
-The app reads `chain_id` from the node and compares it with the config. It allows kovanica testnet (chain ID 2), kovanica devnet (chain ID 3), and local (chain ID 1337). It refuses kovanica mainnet (chain ID 1) and every other id, including 4 and 5, with a screen that does not relabel them. This build always configures kovanica testnet.
+The app reads `chain_id` from the node and compares it with the config. It allows kovanica testnet (chain ID 2) and kovanica devnet (chain ID 3, including local single-node testing). It refuses kovanica mainnet (chain ID 1) and every other id, including the retired 1337, 4, and 5, with a screen that does not relabel them. This build always configures kovanica testnet.
 
 ## Wallet
 

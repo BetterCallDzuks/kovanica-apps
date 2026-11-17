@@ -19,7 +19,7 @@ The endpoint comes from a setting saved in the app data directory, then from
 
 Above the endpoint field the screen offers the built-in networks:
 **Testnet (chain 2)** — the live public testnet, **Mainnet (chain 1)** —
-listed and not open yet, **Local (1337)** — a node on this machine, and
+listed and not open yet, **Devnet (chain 3)** — a node on this machine, and
 **Custom**, which keeps the field editable. Picking one saves that endpoint and
 reads the node again.
 

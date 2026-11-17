@@ -22,7 +22,7 @@ class NetworkProfileTest {
     fun otherProfilesKeepTheirChainIds() {
         assertEquals(1L, Networks.MAINNET.chainId)
         assertEquals(2L, Networks.HYBRID.chainId)
-        assertEquals(1337L, Networks.LOCAL.chainId)
+        assertEquals(3L, Networks.DEVNET.chainId)
     }
 
     @Test

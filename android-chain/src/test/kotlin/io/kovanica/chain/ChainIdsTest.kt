@@ -11,7 +11,7 @@ class ChainIdsTest {
         assertTrue(ChainIds.legacyAllowed(ChainIds.DEVNET))
         assertFalse(ChainIds.legacyAllowed(ChainIds.TESTNET))
         assertFalse(ChainIds.legacyAllowed(ChainIds.HYBRID))
-        assertTrue(ChainIds.legacyAllowed(ChainIds.LOCAL))
+        assertFalse(ChainIds.legacyAllowed(1337))
         assertFalse(ChainIds.legacyAllowed(ChainIds.MAINNET))
         assertFalse(ChainIds.legacyAllowed(ChainIds.UNSPECIFIED))
         assertFalse(ChainIds.legacyAllowed(0))
@@ -23,7 +23,7 @@ class ChainIdsTest {
         assertEquals(ChainIds.TESTNET.toULong(), ChainIds.resolve("", ChainIds.TESTNET))
         assertEquals(ChainIds.TESTNET.toULong(), ChainIds.resolve("   ", ChainIds.TESTNET))
         assertEquals(ChainIds.TESTNET.toULong(), ChainIds.resolve("nope", ChainIds.TESTNET))
-        assertEquals(ChainIds.LOCAL.toULong(), ChainIds.resolve("", ChainIds.LOCAL))
+        assertEquals(ChainIds.DEVNET.toULong(), ChainIds.resolve("", ChainIds.DEVNET))
         assertEquals(1UL, ChainIds.resolve("1", ChainIds.TESTNET))
         assertEquals(0UL, ChainIds.resolve("0", ChainIds.TESTNET))
     }

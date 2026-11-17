@@ -32,7 +32,7 @@ There is no `--data-dir` flag on that CLI. `data_dir` is a field in the config. 
 
 | Setting | Rule |
 |---|---|
-| `chain_id` | 2, 3, or 1337. Chain 2 is labelled `testnet (chain 2, hybrid PoW+GHOSTDAG)`. Chain 3 is devnet. Chain 1337 is local. Chain 1 (mainnet) is blocked. Chains 4 and 5 are not accepted. Any other id is blocked and is not relabelled. If the key is omitted the node default is 1337 and the window says so. |
+| `chain_id` | 2 or 3. Chain 2 is labelled `testnet (chain 2, hybrid PoW+GHOSTDAG)`. Chain 3 is devnet, including local single-node testing. Chain 1 (mainnet) is blocked. Chain 1337 (retired), chains 4 and 5, and any other id are not accepted and are not relabelled. If the key is omitted the node default is 3 and the window says so. |
 | `run_validator` | Must be `false`. The node default is `true`, so an omitted key is rejected. |
 | `[mining] enabled` | Must not be `true`. Omitted means the node default, which is off. |
 | `mining.on_demand` | Leave at the default `false`. It only takes effect when `[mining] enabled = true`, which this app refuses, so the key cannot start mining. |
@@ -46,7 +46,7 @@ Check setup enforces the rows above except the three lifecycle keys (`mining.on_
 
 P2P `listen_addr` is shown and left as written. This milestone does not rewrite it.
 
-The executable SHA-256 shown after Check setup identifies the file bytes. It does not prove who built them. Historical: a debug `kovanica-node` was built from the earlier reviewed source `74045cf3e27a70569c32af35aec24ada5dd9ff79` outside this repo and was not committed. Its SHA-256 is `93767a3f0d272877a4cafb62138960990f5dde8d3d77598605012907543fca73`. Package version in that tree is `0.0.31`. The binary has no `--version` flag. A non-validator, non-mining chain-1337 loopback process, built from that earlier source, reports `committedHeight` 0 before and after restart on the same data directory. `catchingUp: false` at height 0 is not a synced claim. Displayed height is not executed-state recovery.
+The executable SHA-256 shown after Check setup identifies the file bytes. It does not prove who built them. Historical: a debug `kovanica-node` was built from the earlier reviewed source `74045cf3e27a70569c32af35aec24ada5dd9ff79` outside this repo and was not committed. Its SHA-256 is `93767a3f0d272877a4cafb62138960990f5dde8d3d77598605012907543fca73`. Package version in that tree is `0.0.31`. The binary has no `--version` flag. A non-validator, non-mining development-chain loopback process (chain 1337, since retired), built from that earlier source, reports `committedHeight` 0 before and after restart on the same data directory. `catchingUp: false` at height 0 is not a synced claim. Displayed height is not executed-state recovery.
 
 Historical record (2026-11-07), retired chain 5. Chain 5 is not accepted by this policy. The run was on Xvfb `:99` (openbox; the form was filled and the buttons were activated with xdotool, not on a physical display). The supervised binary was a debug `kovanica-node` built outside this repo and outside the active L1 checkout, from `KovanicaDAG/kovanica-l1` `ee5db899e8b5e2f2d922fbe5034fc2dc1e7fab12` (main CI run 42380882775, success). Its SHA-256 is `9b1ece82d180a77f48c5fdcbfc67c63e4c323445f43735491156948d149a3973`. Docker was not installed here, so the producer was that same binary as a native process in the then chain-5 compose node1 shape: loopback only (`127.0.0.1:8545`, `127.0.0.1:8000`), empty bootnodes, a fresh data directory, the published `funded_accounts.toml`, mining author 0, and a mode-0600 seed file generated the way `ops/docker/entrypoint.sh` does. `KOVANICA_TEST_TARGET_BITS` was not set. This app supervised only the observer: retired chain 5, `run_validator = false`, mining disabled, RPC `127.0.0.1:8548`, bootnode `127.0.0.1:8000`, absolute paths, no `KOVANICA_*` in the child environment, and the selected config was not rewritten.
 
@@ -70,7 +70,7 @@ That is `scripts/recovery-suite.sh`. It runs the existing frontend tests and the
 | 2 | Live half **BLOCKED**. Not a pass. `recovery-artifacts/report.json` names the missing prerequisite. |
 | other | An assertion, build, or timeout failed. |
 
-Live mode does not pick a binary from an L1 checkout and does not fall back to chain 1337. It does not set `KOVANICA_TEST_TARGET_BITS`. If that variable or any other `KOVANICA_*` name is set, the live half stops as BLOCKED and does not show the value. Required environment, both absolute paths:
+Live mode does not pick a binary from an L1 checkout and does not fall back to a retired chain. It does not set `KOVANICA_TEST_TARGET_BITS`. If that variable or any other `KOVANICA_*` name is set, the live half stops as BLOCKED and does not show the value. Required environment, both absolute paths:
 
 - `NODE_RECOVERY_BIN` — the `kovanica-node` executable to supervise and to use as the external producer
 - `NODE_RECOVERY_FUNDED_ACCOUNTS` — the chain-2 `funded_accounts.toml` published with that node's image (`ops/docker/chain2/funded_accounts.toml` in the L1 tree). This repo does not embed it.

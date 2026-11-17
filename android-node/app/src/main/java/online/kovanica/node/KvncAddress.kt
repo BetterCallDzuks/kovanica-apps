@@ -11,7 +11,7 @@ import java.util.Locale
  * Those 57 characters are 285 bits, most significant first: the 32-byte key,
  * then the first 29 bits of unkeyed BLAKE3 over it.
  *
- * Legacy hex is accepted only on kovanica devnet and local.
+ * Legacy hex is accepted only on kovanica devnet (chain 3).
  */
 object KvncAddress {
     const val PREFIX: String = "kvnc"

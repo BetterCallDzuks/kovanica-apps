@@ -23,8 +23,9 @@ describe("contract history rows", () => {
     assert.equal(shortfall(4000n, 6000n), 2000n);
     assert.equal(shortfall(6000n, 6000n), 0n);
     assert.equal(faucetQuick(2), true);
-    assert.equal(faucetQuick(1337), true);
+    assert.equal(faucetQuick(3), true);
     assert.equal(faucetQuick(1), false);
     assert.equal(faucetQuick(4), false);
+    assert.equal(faucetQuick(1337), false);
   });
 });

@@ -225,7 +225,7 @@ struct ContentView: View {
         return keystore
     }
 
-    private func chainValue() -> UInt64 { UInt64(chainId) ?? 1337 }
+    private func chainValue() -> UInt64 { UInt64(chainId) ?? 3 }
     private func epochValue() -> UInt64 { UInt64(epoch) ?? 0 }
     private func hex(_ value: UInt64) -> String { String(format: "0x%llx", value) }
 

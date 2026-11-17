@@ -483,7 +483,7 @@ class MessagesActivity : Activity() {
 
     /**
      * Canonical registry address for this phone's chain, or null.
-     * Legacy hex is accepted only on chains 3, 4, and 1337.
+     * Legacy hex is accepted only on devnet (chain 3).
      */
     private fun registryCanonical(raw: String): String? {
         val key = KvncAddress.normalizeHex(raw, NetworkPrefs.chainId(this)) ?: return null

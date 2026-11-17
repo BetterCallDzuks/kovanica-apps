@@ -12,7 +12,7 @@ class ChainIdSourceTest {
     fun profilesAndAddressPolicyShareChainIds() {
         assertEquals(ChainIds.MAINNET, Networks.MAINNET.chainId)
         assertEquals(ChainIds.TESTNET, Networks.TESTNET.chainId)
-        assertEquals(ChainIds.LOCAL, Networks.LOCAL.chainId)
+        assertEquals(ChainIds.DEVNET, Networks.DEVNET.chainId)
         assertEquals(
             ChainIds.legacyAllowed(ChainIds.TESTNET),
             KvncAddress.legacyAllowed(ChainIds.TESTNET),

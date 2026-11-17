@@ -7,9 +7,9 @@ import io.kovanica.chain.ChainIds
 /**
  * One selectable network profile.
  *
- * @property id stable key persisted as `network_id` (`"mainnet"` | `"testnet"` | `"local"`).
+ * @property id stable key persisted as `network_id` (`"mainnet"` | `"testnet"` | `"devnet"`).
  * @property label human-readable name shown in the selector.
- * @property chainId chain id used for signing (`1` mainnet, `2` testnet, `3` devnet, `1337` local).
+ * @property chainId chain id used for signing (`1` mainnet, `2` testnet, `3` devnet).
  * @property rpcUrl full JSON-RPC base, including the `/rpc` path ([NodeClient] tolerates either form).
  * @property faucetUrl full faucet `POST` target, or `null` when the network has no faucet.
  * @property enabled when `false` the entry is shown but not selectable.
@@ -28,13 +28,12 @@ data class Network(
 /**
  * Built-in network profiles (mirrors `packages/console/src/network.ts`).
  *
- * Chain ids are mainnet 1, testnet 2, devnet 3, and local 1337. Devnet has no
- * preset here. Mainnet stays listed but disabled until it is open. Every
- * endpoint stays editable once selected.
+ * Chain ids are mainnet 1, testnet 2, and devnet 3. Mainnet stays listed but
+ * disabled until it is open. Every endpoint stays editable once selected.
  *
  * The live public testnet is chain 2, so it is the default a fresh install
- * opens on. [LOCAL] (`10.0.2.2`, the emulator loopback) stays selectable for
- * development.
+ * opens on. [DEVNET] (`10.0.2.2`, the emulator loopback, chain 3) is the
+ * development preset for local single-node testing.
  */
 object Networks {
     val MAINNET: Network = Network(
@@ -50,12 +49,12 @@ object Networks {
         // faucet button would always fail on a fresh install.
         "https://seed3.kovanica.online/faucet", enabled = true,
     )
-    val LOCAL: Network = Network(
-        "local", "Local", ChainIds.LOCAL,
+    val DEVNET: Network = Network(
+        "devnet", "Devnet (chain 3)", ChainIds.DEVNET,
         "http://10.0.2.2:8545/rpc", "http://10.0.2.2:8080/faucet", enabled = true,
     )
 
-    val ALL: List<Network> = listOf(MAINNET, TESTNET, LOCAL)
+    val ALL: List<Network> = listOf(MAINNET, TESTNET, DEVNET)
     val DEFAULT: Network = TESTNET
 
     /** Look up a profile by id; `null` when unknown (including `null`). */

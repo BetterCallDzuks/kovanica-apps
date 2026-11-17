@@ -71,7 +71,6 @@ if (checkAddress("0x" + "ab".repeat(32), 1).ok) throw new Error("chain 1 accepte
 if (checkAddress(`kvnc${"ab".repeat(32)}dag`, 1).ok) throw new Error("chain 1 accepted kvnc hex");
 if (checkAddress("0x" + "11".repeat(32), 4).ok) throw new Error("chain 4 accepted legacy hex");
 if (!checkAddress("0x" + "11".repeat(32), 3).ok) throw new Error("chain 3 rejected legacy hex");
-if (!checkAddress("0x" + "11".repeat(32), 1337).ok) throw new Error("local rejected legacy hex");
 
 const recipient = encodeAddress(to);
 const hashlock = new Uint8Array(32).fill(0x44);

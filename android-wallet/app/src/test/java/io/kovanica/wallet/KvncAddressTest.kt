@@ -47,8 +47,8 @@ class KvncAddressTest {
 
     @Test
     fun legacyHexFollowsTheChainPolicy() {
-        val allowed = longArrayOf(3, 1337)
-        val refused = longArrayOf(1, 2, 4, 0, 42, Long.MAX_VALUE)
+        val allowed = longArrayOf(3)
+        val refused = longArrayOf(1, 2, 4, 0, 42, 1337, Long.MAX_VALUE)
         val forms = listOf(senderLegacy, sender, "0x$sender", recipientLegacy, sampleLegacy, zeroLegacy)
         for (chain in allowed) {
             assertTrue(KvncAddress.legacyAllowed(chain))
@@ -78,7 +78,7 @@ class KvncAddressTest {
     fun legacyHexDigitsAreCaseInsensitiveAndBase32IsLowercase() {
         val upperHex = sender.uppercase()
         assertEquals(sender, KvncAddress.normalizeHex(upperHex, 3))
-        assertEquals(sender, KvncAddress.normalizeHex("0x$upperHex", 1337))
+        assertEquals(sender, KvncAddress.normalizeHex("0x$upperHex", 3))
         val body = senderLegacy.substring(4, senderLegacy.length - 3)
         val upperLegacy = "kvnc${body.uppercase()}dag"
         assertEquals(sender, KvncAddress.normalizeHex(upperLegacy, 3))
@@ -110,7 +110,7 @@ class KvncAddressTest {
         assertEquals(71, oldLabel.length)
         assertNull(KvncAddress.normalizeHex(oldLabel, 4))
         assertNull(KvncAddress.normalizeHex(oldLabel, 1))
-        assertFalse(KvncAddress.isValid(oldLabel, 1337))
+        assertFalse(KvncAddress.isValid(oldLabel, 3))
         val brokenLegacy = sampleLegacy.replaceRange(sampleLegacy.length - 4, sampleLegacy.length - 3, "0")
         assertNull(KvncAddress.normalizeHex(brokenLegacy, 4))
     }

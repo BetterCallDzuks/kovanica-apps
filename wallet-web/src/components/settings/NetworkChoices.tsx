@@ -7,7 +7,7 @@ export function NetworkChoices() {
   const net = useNetwork();
   const [host, setHost] = useState("");
 
-  function submitHost(raw: string, presetId?: "testnet" | "hybrid" | "local" | "mainnet") {
+  function submitHost(raw: string, presetId?: "testnet" | "hybrid" | "devnet" | "mainnet") {
     try {
       useNetwork.getState().setRpcUrl(normalizeRpc(raw), presetId);
       setHost("");

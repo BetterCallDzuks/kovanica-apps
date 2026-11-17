@@ -260,7 +260,7 @@ pub fn pinned_committees() -> &'static [PinnedCommittee] {
 
 /// Chain ids that may receive `kovanica_requestAirdrop`. Mainnet is never included.
 pub fn faucet_chain_allowed(chain_id: &str) -> bool {
-    matches!(chain_id, "2" | "3" | "1337")
+    matches!(chain_id, "2" | "3")
 }
 
 /// Hash from a string result or an object carrying `hash`, `txHash`, or `transactionHash`.
@@ -282,7 +282,7 @@ pub fn airdrop_hash(value: &serde_json::Value) -> Option<String> {
 }
 
 /// Proven chain wins. An unproven node can still be a faucet when sync status
-/// reports chain 3, 5, or 1337. A proven other chain never falls through.
+/// reports chain 2 or 3. A proven other chain never falls through.
 pub fn faucet_chain_id(proven: Option<&str>, sync: &Value) -> Option<String> {
     if let Some(id) = proven {
         return faucet_chain_allowed(id).then(|| id.to_string());
@@ -631,7 +631,6 @@ pub fn registered_chain_ids() -> &'static [u64] {
         chain_id::MAINNET,
         chain_id::TESTNET,
         chain_id::DEVNET,
-        chain_id::LOCAL,
     ]
 }
 
@@ -919,10 +918,10 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn faucet_allows_devnet_hybrid_and_local_only() {
+    fn faucet_allows_testnet_and_devnet_only() {
         assert!(faucet_chain_allowed("2"));
         assert!(faucet_chain_allowed("3"));
-        assert!(faucet_chain_allowed("1337"));
+        assert!(!faucet_chain_allowed("1337"));
         assert!(!faucet_chain_allowed("1"));
         assert!(!faucet_chain_allowed("4"));
         assert!(!faucet_chain_allowed("5"));
@@ -941,9 +940,10 @@ mod tests {
             Some("2")
         );
         assert_eq!(
-            faucet_chain_id(None, &json!({"chain_id": "1337"})).as_deref(),
-            Some("1337")
+            faucet_chain_id(None, &json!({"chain_id": "3"})).as_deref(),
+            Some("3")
         );
+        assert_eq!(faucet_chain_id(None, &json!({"chain_id": "1337"})), None);
         assert_eq!(faucet_chain_id(None, &json!({"chainId": 4})), None);
     }
 

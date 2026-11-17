@@ -4,9 +4,9 @@
 //! KovanicaDAG/kovanica-l1 `6fba95d0d66027c0d4e257a8960e1a12758a45bd`:
 //! `kovanica-node --config <file>` (no `--data-dir` flag). `data_dir` lives in
 //! the file and defaults to `./data`. `run_validator` defaults to true.
-//! `mining.enabled` defaults to false. `chain_id` defaults to 1337.
-//! Registered ids there are 1, 2, 3, and 1337. This milestone accepts 2, 3,
-//! and 1337. `rpc_addr` defaults to `127.0.0.1` and `rpc_port` to 8545.
+//! `mining.enabled` defaults to false. `chain_id` defaults to 3.
+//! Registered ids there are 1, 2, and 3. This milestone accepts 2 and 3.
+//! `rpc_addr` defaults to `127.0.0.1` and `rpc_port` to 8545.
 //! A miner payout address is consulted only when mining is enabled on a hybrid
 //! chain. This app refuses mining, so it does not ask for one.
 //! `KOVANICA_*` environment variables override the file inside the node, so
@@ -46,9 +46,8 @@ pub fn chain_label(chain_id: u64) -> Result<&'static str, String> {
         ),
         2 => Ok("testnet (chain 2, hybrid PoW+GHOSTDAG)"),
         3 => Ok("devnet (chain 3)"),
-        1337 => Ok("local (chain 1337)"),
         other => Err(format!(
-            "chain id {other} is not a supported development network in this milestone (allowed: 2, 3, 1337). It was not relabelled."
+            "chain id {other} is not a supported development network in this milestone (allowed: 2, 3). It was not relabelled."
         )),
     }
 }
@@ -102,7 +101,7 @@ pub fn check_setup(
     let table = value.as_table().ok_or("config root must be a TOML table")?;
 
     let (chain_id, chain_id_from_file) = match table.get("chain_id") {
-        None => (1337_u64, false),
+        None => (3_u64, false),
         Some(toml::Value::Integer(id)) if *id >= 0 => (*id as u64, true),
         Some(_) => {
             return Err(
@@ -315,7 +314,7 @@ mod tests {
 
     fn ok_body(data_dir: &Path) -> String {
         format!(
-            "chain_id = 1337\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrpc_port = 8545\nrun_validator = false\n\n[mining]\nenabled = false\n",
+            "chain_id = 3\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrpc_port = 8545\nrun_validator = false\n\n[mining]\nenabled = false\n",
             data_dir.display()
         )
     }
@@ -328,7 +327,7 @@ mod tests {
         let binary = executable(tmp.path());
         let config = write_config(tmp.path(), &ok_body(&data));
         let checked = check_setup(&binary, &config, &data, &[]).unwrap();
-        assert_eq!(checked.chain_id, 1337);
+        assert_eq!(checked.chain_id, 3);
         assert!(checked.chain_id_from_file);
         assert!(!checked.run_validator);
         assert!(!checked.mining_enabled);
@@ -337,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_chain_2_devnet_and_local() {
+    fn accepts_chain_2_and_devnet() {
         let tmp = tempfile::tempdir().unwrap();
         let data = tmp.path().join("chaindata");
         fs::create_dir(&data).unwrap();
@@ -345,7 +344,6 @@ mod tests {
         for (id, label) in [
             (2_u64, "testnet (chain 2, hybrid PoW+GHOSTDAG)"),
             (3, "devnet (chain 3)"),
-            (1337, "local (chain 1337)"),
         ] {
             let config = write_config(
                 tmp.path(),
@@ -364,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn omitted_chain_id_stays_local_default() {
+    fn omitted_chain_id_stays_devnet_default() {
         let tmp = tempfile::tempdir().unwrap();
         let data = tmp.path().join("chaindata");
         fs::create_dir(&data).unwrap();
@@ -377,9 +375,9 @@ mod tests {
             ),
         );
         let checked = check_setup(&binary, &config, &data, &[]).unwrap();
-        assert_eq!(checked.chain_id, 1337);
+        assert_eq!(checked.chain_id, 3);
         assert!(!checked.chain_id_from_file);
-        assert_eq!(checked.chain_label, "local (chain 1337)");
+        assert_eq!(checked.chain_label, "devnet (chain 3)");
     }
 
     #[test]
@@ -434,7 +432,7 @@ mod tests {
         let validator = write_config(
             tmp.path(),
             &format!(
-                "chain_id = 1337\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = true\n",
+                "chain_id = 3\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = true\n",
                 data.display()
             ),
         );
@@ -450,7 +448,7 @@ mod tests {
         let omitted = write_config(
             tmp.path(),
             &format!(
-                "chain_id = 1337\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\n",
+                "chain_id = 3\ndata_dir = \"{}\"\nrpc_addr = \"127.0.0.1\"\n",
                 data.display()
             ),
         );
@@ -459,7 +457,7 @@ mod tests {
 
         let relative = write_config(
             tmp.path(),
-            "chain_id = 1337\ndata_dir = \"data\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n",
+            "chain_id = 3\ndata_dir = \"data\"\nrpc_addr = \"127.0.0.1\"\nrun_validator = false\n",
         );
         let err = check_setup(&binary, &relative, &data, &[]).unwrap_err();
         assert!(err.contains("relative"), "{err}");

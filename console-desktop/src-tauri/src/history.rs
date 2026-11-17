@@ -477,7 +477,7 @@ mod tests {
         assert!(!base32_only.transfers[0].pending);
 
         assert_eq!(proven_chain_id(Some("4")), Some(4));
-        assert_eq!(proven_chain_id(Some(" 1337 ")), Some(1337));
+        assert_eq!(proven_chain_id(Some(" 3 ")), Some(3));
         assert_eq!(proven_chain_id(Some("")), None);
         assert_eq!(proven_chain_id(Some("nope")), None);
         assert_eq!(proven_chain_id(None), None);

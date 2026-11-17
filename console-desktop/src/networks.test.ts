@@ -12,16 +12,17 @@ describe("connection network switch", () => {
     });
   });
 
-  it("keeps mainnet listed and local for development", () => {
+  it("keeps mainnet listed and devnet for development", () => {
     expect(presetById("mainnet")?.chainId).toBe(1);
-    expect(presetById("local")?.chainId).toBe(1337);
+    expect(presetById("devnet")?.chainId).toBe(3);
+    expect(presetById("local")).toBeNull();
     expect(presetById("nope")).toBeNull();
   });
 
   it("matches a saved endpoint including a trailing slash", () => {
     expect(presetFor("https://rpc-testnet.kovanica.online/rpc")?.id).toBe("testnet");
     expect(presetFor("  https://rpc-testnet.kovanica.online/rpc/  ")?.id).toBe("testnet");
-    expect(presetFor("http://127.0.0.1:8545/rpc")?.id).toBe("local");
+    expect(presetFor("http://127.0.0.1:8545/rpc")?.id).toBe("devnet");
     expect(presetFor("http://localhost:9999/rpc")).toBeNull();
   });
 });

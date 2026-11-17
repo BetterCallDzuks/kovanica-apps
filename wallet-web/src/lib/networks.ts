@@ -1,4 +1,4 @@
-export type PresetId = "mainnet" | "testnet" | "hybrid" | "local";
+export type PresetId = "mainnet" | "testnet" | "hybrid" | "devnet";
 
 export type NetworkPreset = {
   id: PresetId;
@@ -37,10 +37,10 @@ export const PRESETS: NetworkPreset[] = [
     localOnly: true,
   },
   {
-    id: "local",
-    label: "Local (1337)",
+    id: "devnet",
+    label: "Devnet (3)",
     rpcUrl: "http://127.0.0.1:8545",
-    expectedChainId: 1337,
+    expectedChainId: 3,
     localOnly: true,
   },
 ];
@@ -49,7 +49,6 @@ export const CHAIN_NAMES: Record<number, string> = {
   1: "Mainnet",
   2: "Testnet",
   3: "Devnet",
-  1337: "Local",
 };
 
 export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online/rpc";

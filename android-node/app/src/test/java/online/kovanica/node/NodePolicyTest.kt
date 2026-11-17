@@ -14,16 +14,13 @@ class NodePolicyTest {
     private val legacy = "kvncea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c0871f3aadag"
 
     @Test
-    fun chainGuardAcceptsTestnetDevnetAndLocal() {
+    fun chainGuardAcceptsTestnetAndDevnet() {
         val testnet = ChainGuard.evaluate(ChainIds.TESTNET)
         assertTrue(testnet.allowed)
         assertEquals("kovanica testnet", testnet.networkName)
         val devnet = ChainGuard.evaluate(ChainIds.DEVNET)
         assertTrue(devnet.allowed)
         assertEquals("kovanica devnet", devnet.networkName)
-        val local = ChainGuard.evaluate(ChainIds.LOCAL)
-        assertTrue(local.allowed)
-        assertEquals("local", local.networkName)
     }
 
     @Test
@@ -165,8 +162,8 @@ class NodePolicyTest {
         assertFalse(KvncAddress.isValid(legacy, ChainIds.TESTNET))
         assertFalse(KvncAddress.isValid(legacy, ChainIds.MAINNET))
         assertTrue(KvncAddress.isValid(legacy, ChainIds.DEVNET))
-        assertTrue(KvncAddress.isValid(legacy, ChainIds.LOCAL))
-        assertFalse(KvncAddress.isValid("not-an-address", ChainIds.LOCAL))
+        assertFalse(KvncAddress.isValid(legacy, 1337))
+        assertFalse(KvncAddress.isValid("not-an-address", ChainIds.DEVNET))
     }
 
     @Test

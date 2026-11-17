@@ -39,7 +39,7 @@ class ContractCallsTest {
             ContractCalls.Draft(
                 family = "htlc",
                 action = "htlc_create",
-                chainId = ChainIds.LOCAL,
+                chainId = ChainIds.DEVNET,
                 party = party,
                 hash = hash,
                 timeMs = "1700000000000",
@@ -95,7 +95,7 @@ class ContractCallsTest {
             ContractCalls.Draft(
                 family = "multisig",
                 action = "multisig_confirm",
-                chainId = ChainIds.DEVNET,
+                chainId = ChainIds.MAINNET,
                 recordId = "cd".repeat(32),
                 proposalId = "7",
             ),
@@ -137,10 +137,10 @@ class ContractCallsTest {
         assertEquals(BigInteger.valueOf(1000), ContractCalls.callNeed("token_transfer", "0", "1000", "5000"))
         assertEquals(BigInteger.valueOf(2000), ContractCalls.shortfall(BigInteger.valueOf(4000), BigInteger.valueOf(6000)))
         assertEquals(BigInteger.ZERO, ContractCalls.shortfall(BigInteger.valueOf(6000), BigInteger.valueOf(6000)))
-        assertTrue(ContractCalls.faucetQuick(ChainIds.HYBRID))
-        assertTrue(ContractCalls.faucetQuick(ChainIds.LOCAL))
+        assertTrue(ContractCalls.faucetQuick(ChainIds.TESTNET))
+        assertTrue(ContractCalls.faucetQuick(ChainIds.DEVNET))
         assertFalse(ContractCalls.faucetQuick(ChainIds.MAINNET))
-        assertFalse(ContractCalls.faucetQuick(3))
+        assertFalse(ContractCalls.faucetQuick(5))
         assertEquals("Token", ContractCalls.family("token_transfer"))
         assertEquals("HTLC", ContractCalls.family("htlc_create"))
         assertEquals("Vault", ContractCalls.family("vault_claim"))

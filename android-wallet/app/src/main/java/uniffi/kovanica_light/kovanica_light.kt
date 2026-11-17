@@ -2606,7 +2606,7 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
          * Derive the address a `Deploy` transaction will create on-chain, off-node.
          *
          * `sender_hex` is the `kvnc…dag` address, or a legacy hex form where
-         * `chain_id` allows it (devnet 3, chain 4, local 1337). `nonce` is the
+         * `chain_id` allows it (devnet 3). `nonce` is the
          * sender's account nonce **as it stands while the `Deploy` tx is being
          * signed** (i.e. the `tx.nonce`); the `+1` the node bakes into the address is
          * applied inside. Returns the bare 64-hex contract address.
@@ -2726,9 +2726,9 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
         /**
          * True when the app may show the testnet faucet.
          *
-         * Allowed exclusively on testnet (chain 4, [`TESTNET_CHAIN_ID`]), which remains
-         * an internal network until 25.11.2026. Mainnet (1), legacy testnet (2),
-         * devnet (3), and local (1337) are refused.
+         * Allowed on public testnet (chain 2, [`TESTNET_CHAIN_ID`]) and devnet
+         * (chain 3, [`DEVNET_CHAIN_ID`]). Strictly refused on mainnet (1), the retired
+         * local id (1337), and unknown chains.
          */ fun `faucetAllowed`(`chainId`: kotlin.ULong): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->

@@ -7,10 +7,10 @@ import org.junit.Test
 
 class FaucetClaimTest {
     @Test
-    fun faucet_is_only_for_dev_hybrid_and_local() {
+    fun faucet_is_only_for_testnet_and_devnet() {
         assertTrue(FaucetClaim.allowed(2))
         assertTrue(FaucetClaim.allowed(3))
-        assertTrue(FaucetClaim.allowed(1337))
+        assertFalse(FaucetClaim.allowed(1337))
         assertFalse(FaucetClaim.allowed(1))
         assertFalse(FaucetClaim.allowed(4))
         assertFalse(FaucetClaim.allowed(5))

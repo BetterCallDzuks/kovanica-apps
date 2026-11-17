@@ -561,7 +561,7 @@ class MessagesActivity : Activity() {
     /**
      * Chain id from the shared `chainId` pref, when the wallet has set one.
      * Absent means base32 only: this app has no chain picker, and guessing
-     * 1337 would turn a legacy hex address into canonical on every chain.
+     * a dev chain would turn a legacy hex address into canonical on every chain.
      */
     private fun addressChain(): Long =
         prefs().getString("chainId", null)?.trim()?.toLongOrNull() ?: ChainIds.UNSPECIFIED

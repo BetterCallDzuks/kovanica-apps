@@ -40,7 +40,7 @@ report = {
     "blocked": reason,
     "limitations": [
         "Live chain-2 recovery did not run. A missing prerequisite is not a pass.",
-        "Chain 1337 was not substituted. KOVANICA_TEST_TARGET_BITS was not enabled.",
+        "A retired chain was not substituted. KOVANICA_TEST_TARGET_BITS was not enabled.",
     ],
     "checks": [],
 }
@@ -56,11 +56,11 @@ fi
 
 foreign="$(env | awk -F= '/^KOVANICA_/ {print $1}' | tr '\n' ' ' | sed 's/ *$//')"
 if [[ -n "${foreign}" ]]; then
-  blocked "KOVANICA_* is set (${foreign}). Values are not shown. Unset them before the live half. Chain 1337 is not a substitute."
+  blocked "KOVANICA_* is set (${foreign}). Values are not shown. Unset them before the live half. A retired chain is not a substitute."
 fi
 
 if [[ -z "${NODE_RECOVERY_BIN:-}" ]]; then
-  blocked "NODE_RECOVERY_BIN is unset. Pass the absolute path of a kovanica-node binary. This suite does not select a checkout binary and does not treat chain 1337 as recovery."
+  blocked "NODE_RECOVERY_BIN is unset. Pass the absolute path of a kovanica-node binary. This suite does not select a checkout binary and does not treat a retired chain as recovery."
 fi
 if [[ "${NODE_RECOVERY_BIN}" != /* ]]; then
   blocked "NODE_RECOVERY_BIN must be an absolute path. A relative path is not assumed to be a released binary."

@@ -7,13 +7,13 @@
 
 export interface NetworkPreset {
   /** Matches the `data-network` (and `#net-<id>`) of the switch button. */
-  id: "testnet" | "mainnet" | "local";
+  id: "testnet" | "mainnet" | "devnet";
   label: string;
   chainId: number;
   rpcUrl: string;
 }
 
-/** Chain ids: mainnet 1, public testnet 2, local 1337. */
+/** Chain ids: mainnet 1, public testnet 2, devnet 3 (also local single-node testing). */
 export const NETWORK_PRESETS: readonly NetworkPreset[] = [
   {
     id: "testnet",
@@ -28,9 +28,9 @@ export const NETWORK_PRESETS: readonly NetworkPreset[] = [
     rpcUrl: "https://rpc.kovanica.online/rpc",
   },
   {
-    id: "local",
-    label: "Local (1337)",
-    chainId: 1337,
+    id: "devnet",
+    label: "Devnet (Chain 3)",
+    chainId: 3,
     rpcUrl: "http://127.0.0.1:8545/rpc",
   },
 ] as const;

@@ -2,7 +2,7 @@
 //!
 //! Not part of `cargo test --lib`. `scripts/recovery-suite.sh` runs it only
 //! after the mocked regressions. Missing prerequisites exit 2 (BLOCKED) and
-//! are not a pass. Chain 1337 is not a substitute. `KOVANICA_TEST_TARGET_BITS`
+//! are not a pass. A retired chain is not a substitute. `KOVANICA_TEST_TARGET_BITS`
 //! is never set.
 
 use std::fs::{self, File, OpenOptions};
@@ -123,7 +123,7 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
         .collect();
     if !foreign.is_empty() {
         return Err(Stop::Blocked(format!(
-            "KOVANICA_* is set ({}). Values are not shown. Unset them. Chain 1337 is not a substitute and no difficulty override is enabled.",
+            "KOVANICA_* is set ({}). Values are not shown. Unset them. A retired chain is not a substitute and no difficulty override is enabled.",
             foreign.join(", ")
         )));
     }
@@ -322,7 +322,7 @@ fn run(cleanup: &mut Cleanup) -> Result<Value, Stop> {
     }
     if !before.tag.starts_with("2-") {
         return Err(Stop::Failed(format!(
-            "network tag {} is not chain 2. Chain 1337 was not requested.",
+            "network tag {} is not chain 2. Chain 3 (devnet) was not requested.",
             before.tag
         )));
     }
@@ -725,7 +725,7 @@ fn required_absolute(name: &str, executable: bool) -> Result<PathBuf, Stop> {
     let value = std::env::var(name).unwrap_or_default();
     if value.is_empty() {
         let hint = if name == "NODE_RECOVERY_BIN" {
-            "Pass the absolute path of a kovanica-node binary. This suite does not select the active L1 checkout and does not treat chain 1337 as recovery."
+            "Pass the absolute path of a kovanica-node binary. This suite does not select the active L1 checkout and does not treat a retired chain as recovery."
         } else {
             "Point it at the chain-2 funded_accounts.toml published for the node image (L1 ops/docker/chain2/funded_accounts.toml). This suite does not embed that file."
         };
@@ -890,7 +890,7 @@ fn sanitize_producer(text: &str) -> String {
 fn limitations() -> Vec<&'static str> {
     vec![
         "Binary SHA-256 identifies bytes only. Cargo features and whether those bytes contain a merged DAA fix are not exposed by the CLI and are not inferred from a checkout.",
-        "Chain 1337 is not used. KOVANICA_TEST_TARGET_BITS is not set.",
+        "A retired chain is not used. KOVANICA_TEST_TARGET_BITS is not set.",
         "The supervised process stays non-mining and non-validator. The producer is a second process of the same binary.",
         "kovanica_getDagTips max_round is admitted DAG state. kovanica_syncStatus committedHeight is committed state. kovanica_getBalance is executed state. Height alone is not a pass.",
         "/health execution counters are process-local and are not the persisted executed balance.",

@@ -475,7 +475,7 @@ mod tests {
         "catchingUp": false,
         "peerCount": 2,
         "peers": [{"peerId": "12D3KooWexample", "reportedTipRound": 39}],
-        "networkTag": "1337-abcdef0123456789"
+        "networkTag": "3-abcdef0123456789"
       }
     }"#;
 
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(parsed.local_tip_round, Field::value("40"));
         assert_eq!(parsed.catching_up, Field::value("false"));
         assert_eq!(parsed.peer_count, Field::value("2"));
-        assert_eq!(parsed.network_tag, Field::value("1337-abcdef0123456789"));
+        assert_eq!(parsed.network_tag, Field::value("3-abcdef0123456789"));
         assert_eq!(parsed.peer_ids, Field::value("12D3KooWexample"));
     }
 

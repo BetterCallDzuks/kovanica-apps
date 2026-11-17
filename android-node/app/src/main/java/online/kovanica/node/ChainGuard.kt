@@ -5,8 +5,8 @@ import io.kovanica.chain.ChainIds
 /**
  * Networks this proof of concept will run.
  *
- * kovanica mainnet is refused. kovanica testnet, kovanica devnet and local
- * are accepted. Any other numeric id is refused and is not given a network name.
+ * kovanica mainnet is refused. kovanica testnet and kovanica devnet are
+ * accepted. Any other numeric id is refused and is not given a network name.
  */
 object ChainGuard {
     data class Decision(
@@ -21,14 +21,13 @@ object ChainGuard {
         ChainIds.MAINNET -> "kovanica mainnet"
         ChainIds.TESTNET -> "kovanica testnet"
         ChainIds.DEVNET -> "kovanica devnet"
-        ChainIds.LOCAL -> "local"
         else -> null
     }
 
     fun evaluate(chainId: Long): Decision {
         val name = networkName(chainId)
         return when (chainId) {
-            ChainIds.TESTNET, ChainIds.DEVNET, ChainIds.LOCAL -> Decision(
+            ChainIds.TESTNET, ChainIds.DEVNET -> Decision(
                 allowed = true,
                 chainId = chainId,
                 networkName = name!!,

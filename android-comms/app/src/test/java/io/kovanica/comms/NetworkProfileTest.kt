@@ -23,16 +23,16 @@ class NetworkProfileTest {
     }
 
     @Test
-    fun localStaysSelectableForDevelopment() {
-        assertEquals(1337L, Networks.LOCAL.chainId)
-        assertTrue(Networks.ALL.contains(Networks.LOCAL))
+    fun devnetStaysSelectableForDevelopment() {
+        assertEquals(3L, Networks.DEVNET.chainId)
+        assertTrue(Networks.ALL.contains(Networks.DEVNET))
     }
 
     @Test
     fun byRpcMatchesTheBuiltInEndpointsAndIgnoresATrailingSlash() {
         assertEquals(Networks.TESTNET, Networks.byRpc("https://rpc-testnet.kovanica.online/rpc"))
         assertEquals(Networks.TESTNET, Networks.byRpc(" https://rpc-testnet.kovanica.online/rpc/ "))
-        assertEquals(Networks.LOCAL, Networks.byRpc("http://10.0.2.2:8545/rpc"))
+        assertEquals(Networks.DEVNET, Networks.byRpc("http://10.0.2.2:8545/rpc"))
         assertNull(Networks.byRpc("https://example.invalid/rpc"))
     }
 }

@@ -214,8 +214,8 @@ function checked(tuple: { binary: string; config: string; data: string }, sha = 
     binarySha256: sha,
     configPath: tuple.config,
     dataDir: tuple.data,
-    chainId: 1337,
-    chainLabel: "local (chain 1337)",
+    chainId: 3,
+    chainLabel: "devnet (chain 3)",
     chainIdFromFile: true,
     rpcHttp: "http://127.0.0.1:8545",
     listenAddr: "127.0.0.1:8000",
@@ -502,10 +502,10 @@ test("omitted chain id says the node default is in use", async () => {
   const tuple = fillPaths(world);
   world.nodes.get("check-button")!.press("Enter");
   const pending = world.take("inspect_setup");
-  pending.resolve({ ...checked(tuple), chainIdFromFile: false, chainId: 1337, chainLabel: "local (chain 1337)" });
+  pending.resolve({ ...checked(tuple), chainIdFromFile: false, chainId: 3, chainLabel: "devnet (chain 3)" });
   await world.flush();
   assert.match(world.nodes.get("setup-summary")!.textContent, /node default; chain_id is not in the file/);
-  assert.match(world.nodes.get("setup-summary")!.textContent, /local \(chain 1337\)/);
+  assert.match(world.nodes.get("setup-summary")!.textContent, /devnet \(chain 3\)/);
   world.dispose();
 });
 

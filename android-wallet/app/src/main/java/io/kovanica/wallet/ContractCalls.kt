@@ -187,8 +187,8 @@ object ContractCalls {
     }
 
     fun warning(chainId: Long): String? {
-        if (chainId == ChainIds.HYBRID || chainId == ChainIds.LOCAL) return null
-        return "Warning: chain $chainId is not Hybrid PoW Testnet (2) or local (1337)."
+        if (chainId == ChainIds.TESTNET || chainId == ChainIds.DEVNET) return null
+        return "Warning: chain $chainId is not Hybrid PoW Testnet (2) or devnet (3)."
     }
 
     fun decodeReceipt(value: Any?): ReceiptView {
@@ -299,8 +299,8 @@ object ContractCalls {
     fun shortfall(balance: BigInteger, need: BigInteger): BigInteger =
         if (balance >= need) BigInteger.ZERO else need.subtract(balance)
 
-    /** Inline faucet on the contract form. Chain 2 and local 1337 only. */
-    fun faucetQuick(chainId: Long): Boolean = chainId == ChainIds.HYBRID || chainId == ChainIds.LOCAL
+    /** Inline faucet on the contract form. Chain 2 and devnet 3 only. */
+    fun faucetQuick(chainId: Long): Boolean = chainId == ChainIds.TESTNET || chainId == ChainIds.DEVNET
 
     /**
      * Human lines for a canonical call, or null when [argsHex] is not that method.

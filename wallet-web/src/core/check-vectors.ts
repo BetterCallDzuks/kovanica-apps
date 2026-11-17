@@ -74,7 +74,6 @@ if (checkAddress("0x" + "ab".repeat(32), 1).ok) throw new Error("chain 1 accepte
 if (checkAddress(`kvnc${"ab".repeat(32)}dag`, 1).ok) throw new Error("chain 1 accepted kvnc hex");
 if (checkAddress("0x" + "11".repeat(32), 4).ok) throw new Error("chain 4 accepted legacy hex");
 if (!checkAddress("0x" + "11".repeat(32), 3).ok) throw new Error("chain 3 rejected legacy hex");
-if (!checkAddress("0x" + "11".repeat(32), 1337).ok) throw new Error("local rejected legacy hex");
 
 const recipient = encodeAddress(to);
 const hashlock = new Uint8Array(32).fill(0x44);
@@ -220,7 +219,7 @@ if (remainingMs(15, 1_000, 1_000 + 15 * 60_000) !== 0) throw new Error("15m idle
 if (remainingMs(60, 0, 1_000) !== 60 * 60_000 - 1_000) throw new Error("60m idle countdown");
 if (formatRemaining(61_000) !== "1:01") throw new Error("countdown format");
 if (formatRemaining(0) !== "0:00") throw new Error("countdown zero");
-if (!faucetChain(2) || !faucetChain(3) || !faucetChain(1337) || faucetChain(1)) throw new Error("faucet chain gate");
+if (!faucetChain(2) || !faucetChain(3) || faucetChain(1) || faucetChain(1337)) throw new Error("faucet chain gate");
 const sample = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x"];
 if (quizPositions(24).join() !== "3,8,14") throw new Error("24-word quiz positions");
 if (quizPositions(12).join() !== "3,8,12") throw new Error("12-word quiz positions");

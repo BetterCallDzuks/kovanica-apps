@@ -32,7 +32,7 @@ const refresh = control<HTMLButtonElement>("#refresh");
 
 const netTestnet = control<HTMLButtonElement>("#net-testnet");
 const netMainnet = control<HTMLButtonElement>("#net-mainnet");
-const netLocal = control<HTMLButtonElement>("#net-local");
+const netDevnet = control<HTMLButtonElement>("#net-devnet");
 const netCustom = control<HTMLButtonElement>("#net-custom");
 
 function showError(message: string): void {
@@ -80,7 +80,7 @@ function updateNetworkButtons(url: string): void {
   const active = presetFor(url)?.id ?? null;
   netTestnet.classList.toggle("active", active === "testnet");
   netMainnet.classList.toggle("active", active === "mainnet");
-  netLocal.classList.toggle("active", active === "local");
+  netDevnet.classList.toggle("active", active === "devnet");
   netCustom.classList.toggle("active", active === null);
 }
 
@@ -88,7 +88,7 @@ function updateNetworkButtons(url: string): void {
 function labelNetworkButtons(): void {
   netTestnet.textContent = presetById("testnet")?.label ?? "Testnet";
   netMainnet.textContent = presetById("mainnet")?.label ?? "Mainnet";
-  netLocal.textContent = presetById("local")?.label ?? "Local";
+  netDevnet.textContent = presetById("devnet")?.label ?? "Devnet";
 }
 
 function messageFrom(error: unknown): string {
@@ -168,8 +168,8 @@ netMainnet.addEventListener("click", () => {
   const preset = presetById("mainnet");
   if (preset) selectPreset(preset.rpcUrl);
 });
-netLocal.addEventListener("click", () => {
-  const preset = presetById("local");
+netDevnet.addEventListener("click", () => {
+  const preset = presetById("devnet");
   if (preset) selectPreset(preset.rpcUrl);
 });
 

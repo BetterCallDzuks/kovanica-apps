@@ -45,7 +45,7 @@ class HowToUseActivity : Activity() {
             step(
                 number = 1,
                 title = "Pick your network",
-                body = "Open the Node tab, or tap the network chip at the top right. Local and " +
+                body = "Open the Node tab, or tap the network chip at the top right. Devnet (chain 3) and " +
                     "Testnet are ready to use; Mainnet is listed but greyed out until it opens. " +
                     "The RPC endpoint, chain id, and faucet fill in automatically — you can edit " +
                     "them if you run your own node. Your choice is remembered for next time.",

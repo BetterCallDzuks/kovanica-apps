@@ -307,7 +307,7 @@ describe("wallet form", () => {
     expect(quizAnswerMatches(phrase, new Map([[3, "nope"], [8, "h"], [12, "l"]]))).toBe(false);
     expect(faucetChainAllowed("2")).toBe(true);
     expect(faucetChainAllowed("3")).toBe(true);
-    expect(faucetChainAllowed("1337")).toBe(true);
+    expect(faucetChainAllowed("1337")).toBe(false);
     expect(faucetChainAllowed("1")).toBe(false);
     expect(faucetChainAllowed("4")).toBe(false);
     expect(faucetChainAllowed("5")).toBe(false);
