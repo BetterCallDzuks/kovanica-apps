@@ -37,6 +37,12 @@ npm install          # installs frontend deps (workspace `file:` deps too)
 npm run tauri dev    # starts Vite and the Tauri shell together
 ```
 
+`.npmrc` sets `install-links=true`, so the `@kovanica/*` `file:../../kovanica-l1/packages/*`
+dependencies are installed as copies in `node_modules` instead of symlinks. That keeps the
+`@noble/*` imports inside `@kovanica/comms` resolvable from this app without a separate
+`npm install` in the L1 checkout. The aliases in `tsconfig.json` and `vite.config.ts`
+deliberately point at those installed sources.
+
 Build a bundle:
 
 ```sh

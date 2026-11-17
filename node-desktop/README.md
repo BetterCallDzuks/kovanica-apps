@@ -35,9 +35,14 @@ There is no `--data-dir` flag on that CLI. `data_dir` is a field in the config. 
 | `chain_id` | 2, 3, or 1337. Chain 2 is labelled `testnet (chain 2, hybrid PoW+GHOSTDAG)`. Chain 3 is devnet. Chain 1337 is local. Chain 1 (mainnet) is blocked. Chains 4 and 5 are not accepted. Any other id is blocked and is not relabelled. If the key is omitted the node default is 1337 and the window says so. |
 | `run_validator` | Must be `false`. The node default is `true`, so an omitted key is rejected. |
 | `[mining] enabled` | Must not be `true`. Omitted means the node default, which is off. |
+| `mining.on_demand` | Leave at the default `false`. It only takes effect when `[mining] enabled = true`, which this app refuses, so the key cannot start mining. |
+| `mining.on_demand_trailing_blocks` | Leave at the default `0`. It only matters when `mining.on_demand = true`. |
+| `idle_shutdown_secs` | Leave at the default `0`. A non-zero value makes the node exit cleanly after that many seconds without RPC, WebSocket, or mempool activity, and this supervisor reports the self-exit as an unexpected exit. |
 | `rpc_addr` | `127.0.0.1`, `localhost`, or `::1` only. |
 | `rpc_port` | 1–65535. Default 8545 when omitted. |
 | `data_dir` | Absolute, and equal to the selected directory. |
+
+Check setup enforces the rows above except the three lifecycle keys (`mining.on_demand`, `mining.on_demand_trailing_blocks`, `idle_shutdown_secs`), which are node-side defaults the app neither reads nor rewrites. They are listed so a hand-written config does not accidentally enable on-demand mining or idle self-exit under this supervisor.
 
 P2P `listen_addr` is shown and left as written. This milestone does not rewrite it.
 

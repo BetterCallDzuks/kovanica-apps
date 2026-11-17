@@ -2,7 +2,7 @@ package online.kovanica.node
 
 /**
  * Calls into `libkovanica_light_ffi.so` once the UniFFI classes built from
- * L1 6fba95d0 are on the classpath. Until that library is packaged, every
+ * L1 8c24431 are on the classpath. Until that library is packaged, every
  * call reports that the native library is absent. No seed, token or
  * recovery words are logged.
  */

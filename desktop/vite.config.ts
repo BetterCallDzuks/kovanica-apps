@@ -11,10 +11,14 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias: {
-      "@kovanica/comms": fileURLToPath(new URL("../../packages/comms/src/index.ts", import.meta.url)),
-      "@kovanica/signer": fileURLToPath(new URL("../../packages/signer/src/index.ts", import.meta.url)),
+      "@kovanica/comms": fileURLToPath(
+        new URL("./node_modules/@kovanica/comms/src/index.ts", import.meta.url),
+      ),
+      "@kovanica/signer": fileURLToPath(
+        new URL("./node_modules/@kovanica/signer/src/index.ts", import.meta.url),
+      ),
       "@kovanica/api-client": fileURLToPath(
-        new URL("../../packages/api-client/src/index.ts", import.meta.url),
+        new URL("./node_modules/@kovanica/api-client/src/index.ts", import.meta.url),
       ),
     },
   },

@@ -16,9 +16,9 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client"],
     "paths": {
-      "@kovanica/comms": ["../../packages/comms/src/index.ts"],
-      "@kovanica/signer": ["../../packages/signer/src/index.ts"],
-      "@kovanica/api-client": ["../../packages/api-client/src/index.ts"]
+      "@kovanica/comms": ["./node_modules/@kovanica/comms/src/index.ts"],
+      "@kovanica/signer": ["./node_modules/@kovanica/signer/src/index.ts"],
+      "@kovanica/api-client": ["./node_modules/@kovanica/api-client/src/index.ts"]
     }
   },
   "include": ["src"]
