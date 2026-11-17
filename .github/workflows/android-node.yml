@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      L1_SHA: 8c244310654543bb73782b073f795809e8ac4b9f
+      L1_SHA: 6bcca8630f97d7c9e599fe51b70c4d29a2766d8b
       CARGO_PROFILE_RELEASE_LTO: "false"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
       RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: KovanicaDAG/kovanica-l1
-          ref: 8c244310654543bb73782b073f795809e8ac4b9f
+          ref: 6bcca8630f97d7c9e599fe51b70c4d29a2766d8b
           path: kovanica-core
 
       - name: Set up JDK 17

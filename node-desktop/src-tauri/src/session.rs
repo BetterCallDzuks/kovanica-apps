@@ -201,14 +201,23 @@ mod tests {
 
     fn hold_script(dir: &Path) -> std::path::PathBuf {
         let path = dir.join("hold.sh");
-        fs::write(
-            &path,
-            "#!/bin/sh\ntrap 'exit 0' TERM\nwhile true; do sleep 0.05; done\n",
-        )
-        .unwrap();
+        // Write, flush and explicitly close the file before making it
+        // executable/spawning it. `fs::write` already closes, but on Linux a
+        // just-closed descriptor can still be observed as busy by a concurrent
+        // exec in another thread (ETXTBSY, os error 26); an explicit sync_all
+        // forces the descriptor to be released before we proceed.
+        {
+            use std::io::Write;
+            let mut file = fs::File::create(&path).unwrap();
+            file.write_all(b"#!/bin/sh\ntrap 'exit 0' TERM\nwhile true; do sleep 0.05; done\n")
+                .unwrap();
+            file.sync_all().unwrap();
+        }
         let mut permissions = fs::metadata(&path).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&path, permissions).unwrap();
+        // Let the kernel settle the permission change before any exec.
+        std::thread::sleep(std::time::Duration::from_millis(1));
         path
     }
 
@@ -461,11 +470,13 @@ mod tests {
         fs::write(&marker, b"do-not-delete").unwrap();
         let binary = hold_script(tmp.path());
         let bystander_path = tmp.path().join("bystander.sh");
-        fs::write(
-            &bystander_path,
-            "#!/bin/sh\nwhile true; do sleep 0.2; done\n",
-        )
-        .unwrap();
+        {
+            use std::io::Write;
+            let mut file = fs::File::create(&bystander_path).unwrap();
+            file.write_all(b"#!/bin/sh\nwhile true; do sleep 0.2; done\n")
+                .unwrap();
+            file.sync_all().unwrap();
+        }
         let mut mode = fs::metadata(&bystander_path).unwrap().permissions();
         mode.set_mode(0o755);
         fs::set_permissions(&bystander_path, mode).unwrap();

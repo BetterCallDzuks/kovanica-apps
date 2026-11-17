@@ -2,7 +2,7 @@
 
 Android app `online.kovanica.node.android` ("Kovanica Node"). It tries to run a full node on **kovanica testnet** (chain ID 2) on the device: outbound P2P, full header validation, and local chain storage. A minimal KVNC wallet can show a receive address and sign a send. Mining is not part of this app.
 
-The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `8c244310654543bb73782b073f795809e8ac4b9f`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
+The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `6bcca8630f97d7c9e599fe51b70c4d29a2766d8b`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
 
 ## Full node
 

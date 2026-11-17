@@ -403,7 +403,24 @@ impl Supervisor {
                 Ok(())
             });
         }
-        let mut child = command.spawn().map_err(|err| {
+        // `ETXTBSY` (os error 26) is a known Linux kernel race: when a thread in
+        // this process forks/execs a file that another thread has only just
+        // closed for writing, the kernel can briefly report the file as busy.
+        // Retry a few times with a tiny back-off instead of failing the spawn.
+        let mut spawn_result = command.spawn();
+        for attempt in 0..10 {
+            match &spawn_result {
+                Ok(_) => break,
+                Err(err) if err.raw_os_error() == Some(26) => {
+                    if attempt < 9 {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        spawn_result = command.spawn();
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let mut child = spawn_result.map_err(|err| {
             let mut inner = self.lock();
             inner.state = ProcessState::Stopped;
             inner.last_error = Some(format!("could not start {}: {err}", binary.display()));
@@ -1329,7 +1346,12 @@ mod tests {
 
     fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
         let path = dir.join(name);
-        fs::write(&path, body).unwrap();
+        {
+            use std::io::Write;
+            let mut file = fs::File::create(&path).unwrap();
+            file.write_all(body.as_bytes()).unwrap();
+            file.sync_all().unwrap();
+        }
         let mut permissions = fs::metadata(&path).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&path, permissions).unwrap();
