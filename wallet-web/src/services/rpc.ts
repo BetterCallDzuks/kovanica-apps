@@ -1,9 +1,11 @@
 import { storageBytes } from "@/core/contracts";
 import { decodeReceipt } from "@/core/receipt";
+import { parseNetworkTagChainId } from "@/lib/networks";
 import { proxyHealth, proxyIndexer, proxyRpc } from "./rpc.functions";
 
 export type SyncProbe = {
   chainId: number | null;
+  networkTag?: string | null;
   height: number | null;
   peerCount: number | null;
   latencyMs: number | null;
@@ -57,11 +59,14 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
       const started = Date.now();
       const result = await post(candidate, "kovanica_syncStatus", []);
       const record = asRecord(result) ?? {};
-      const chainId = pickNumber(record, ["chainId", "chain_id", "chainID"]);
+      const rawTag = record.networkTag ?? record.network_tag;
+      const networkTag = typeof rawTag === "string" && rawTag.trim() ? rawTag.trim() : null;
+      const chainId = pickNumber(record, ["chainId", "chain_id", "chainID"]) ?? parseNetworkTagChainId(networkTag);
       const height = pickNumber(record, ["committedHeight", "committed_height"]);
       const peerCount = pickNumber(record, ["peerCount", "peer_count"]);
       return {
         chainId,
+        networkTag,
         height,
         peerCount,
         latencyMs: health?.ms ?? Date.now() - started,
@@ -72,7 +77,7 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
       last = error instanceof Error ? error.message : last;
     }
   }
-  return { chainId: null, height: null, peerCount: null, latencyMs: null, online: false, error: last };
+  return { chainId: null, networkTag: null, height: null, peerCount: null, latencyMs: null, online: false, error: last };
 }
 
 function quantity(value: unknown): bigint | null {

@@ -9,6 +9,9 @@ import io.kovanica.chain.ChainIds
  * accepted. Any other numeric id is refused and is not given a network name.
  */
 object ChainGuard {
+    const val MAINNET_NETWORK_TAG: String = "1-4d827d40dd9655db"
+    const val TESTNET_NETWORK_TAG: String = "2-acfdf6a6c80fd28a"
+
     data class Decision(
         val allowed: Boolean,
         val chainId: Long,
@@ -21,6 +24,12 @@ object ChainGuard {
         ChainIds.MAINNET -> "kovanica mainnet"
         ChainIds.TESTNET -> "kovanica testnet"
         ChainIds.DEVNET -> "kovanica devnet"
+        else -> null
+    }
+
+    fun officialNetworkTag(chainId: Long): String? = when (chainId) {
+        ChainIds.MAINNET -> MAINNET_NETWORK_TAG
+        ChainIds.TESTNET -> TESTNET_NETWORK_TAG
         else -> null
     }
 

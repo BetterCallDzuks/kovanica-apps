@@ -29,11 +29,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout KovanicaDAG/kovanica-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: KovanicaDAG/kovanica-sdk
+          path: kovanica-sdk
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: wallet-web/package-lock.json
+
+      - name: Build kovanica-sdk and link sibling
+        run: |
+          cd kovanica-sdk
+          npm ci
+          npm run build
+          cd ..
+          ln -s "$(pwd)/kovanica-sdk" "$(pwd)/../kovanica-sdk"
+        working-directory: .
 
       - name: Install dependencies
         run: npm install

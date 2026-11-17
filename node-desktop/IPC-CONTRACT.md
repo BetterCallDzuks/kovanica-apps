@@ -33,7 +33,7 @@ There is no wallet, stake, mining, or key command.
 - `monitorSeq`: increases when the retained monitor view changes. An older sequence cannot replace a newer one. A newer `statusSeq` still carries the monitor view taken with that process observation, so a delayed healthy read cannot repaint a stopped or replaced process.
 - `setup`, `reviewedNodeSource`, `stopGraceSecs`, `exitStopsOwnedChild`
 
-Sync field names in the snapshot are camelCase JSON of the Rust view (`committedHeight`, `localTipRound`, `catchingUp`, `peerCount`, `networkTag`, `peerIds`). They are parsed from the node's camelCase `kovanica_syncStatus` result, not from the SDK's snake_case types.
+Sync field names in the snapshot are camelCase JSON of the Rust view (`committedHeight`, `localTipRound`, `catchingUp`, `peerCount`, `networkTag` — official frozen tags `1-4d827d40dd9655db` on mainnet and `2-acfdf6a6c80fd28a` on testnet — and `peerIds`). They are parsed from the node's camelCase `kovanica_syncStatus` result, not from the SDK's snake_case types.
 
 ## Exit
 

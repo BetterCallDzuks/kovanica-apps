@@ -3,7 +3,7 @@
 //! One KVNC is `10^9` atoms. Parsing and formatting never use floating point.
 
 /// Decimal places of the native coin.
-pub const KUNA_DECIMALS: u32 = 9;
+pub const KVNC_DECIMALS: u32 = 9;
 
 const ATOM_SCALE: u128 = 1_000_000_000;
 
@@ -32,7 +32,7 @@ pub fn parse_kuna_atoms(text: &str) -> Result<u64, String> {
         Some(index) => (&text[..index], &text[index + 1..]),
         None => (text, ""),
     };
-    if frac.len() > KUNA_DECIMALS as usize {
+    if frac.len() > KVNC_DECIMALS as usize {
         return Err("KVNC amounts use at most 9 decimal places.".to_string());
     }
     if whole.is_empty() && frac.is_empty() {
@@ -46,7 +46,7 @@ pub fn parse_kuna_atoms(text: &str) -> Result<u64, String> {
     let whole_atoms = whole_units
         .checked_mul(ATOM_SCALE)
         .ok_or_else(|| "That amount is larger than KVNC can send.".to_string())?;
-    let mut frac_digits = [b'0'; KUNA_DECIMALS as usize];
+    let mut frac_digits = [b'0'; KVNC_DECIMALS as usize];
     for (slot, byte) in frac_digits.iter_mut().zip(frac.bytes()) {
         *slot = byte;
     }

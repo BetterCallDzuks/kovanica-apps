@@ -1,8 +1,8 @@
 # Kovanica Node (Android proof of concept)
 
-Android app `online.kovanica.node.android` ("Kovanica Node"). It tries to run a full node on **kovanica testnet** (chain ID 2) on the device: outbound P2P, full header validation, and local chain storage. A minimal KVNC wallet can show a receive address and sign a send. Mining is not part of this app.
+Android app `online.kovanica.node.android` ("Kovanica Node"). It tries to run a full node on **kovanica testnet** (chain ID 2, network tag `2-acfdf6a6c80fd28a`) on the device: outbound P2P, full header validation, and local chain storage. A minimal KVNC wallet can show a receive address and sign a send. Mining is not part of this app.
 
-The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `6bcca8630f97d7c9e599fe51b70c4d29a2766d8b`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
+The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `d2239fd8314a0c6edb08d54724738d662d406a32`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
 
 ## Full node
 
@@ -42,7 +42,7 @@ Sync status on both modes: `syncing` when `/health` is 200 and `catchingUp` is t
 
 ## Chain guard
 
-The app reads `chain_id` from the node and compares it with the config. It allows kovanica testnet (chain ID 2) and kovanica devnet (chain ID 3, including local single-node testing). It refuses kovanica mainnet (chain ID 1) and every other id, including the retired 1337, 4, and 5, with a screen that does not relabel them. This build always configures kovanica testnet.
+The app reads `chain_id` from the node and compares it with the config. It allows kovanica testnet (chain ID 2, network tag `2-acfdf6a6c80fd28a`) and kovanica devnet (chain ID 3, including local single-node testing). It refuses kovanica mainnet (chain ID 1, network tag `1-4d827d40dd9655db`) and every other id, including the retired 1337, 4, and 5, with a screen that does not relabel them. This build always configures kovanica testnet.
 
 ## Wallet
 

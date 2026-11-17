@@ -141,7 +141,7 @@ class NodeService : Service() {
         fun prepare(context: Context, chainId: Long) {
             val dir = dataDir(context)
             dir.mkdirs()
-            copyGenesis(context, dir)
+            copyGenesis(context, dir, chainId)
             configFile(context).writeText(NodeConfigText.render(dir.absolutePath, chainId))
         }
 
@@ -174,18 +174,20 @@ class NodeService : Service() {
             }
         }
 
-        private fun copyGenesis(context: Context, dir: File) {
-            val names = listOf(
-                "genesis_validators.toml",
-                "funded_accounts.toml",
-                "founder_premine.hex",
-            )
+        private fun copyGenesis(context: Context, dir: File, chainId: Long = 2L) {
+            val folder = if (chainId == 1L) "chain1" else "chain2"
+            val names = when (chainId) {
+                1L -> listOf("genesis_validators.toml", "founder_premine.hex", "genesis.json", "bootnodes.toml")
+                else -> listOf("genesis_validators.toml", "funded_accounts.toml", "founder_premine.hex")
+            }
             for (name in names) {
                 val dest = File(dir, name)
                 if (dest.exists()) continue
-                context.assets.open("chain2/$name").use { input ->
-                    dest.outputStream().use { output -> input.copyTo(output) }
-                }
+                try {
+                    context.assets.open("$folder/$name").use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    }
+                } catch (_: Exception) {}
             }
         }
     }

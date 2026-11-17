@@ -21,12 +21,12 @@ const tx = {
   kind: { type: "transfer" as const, to, amount: 1_000_000n },
 };
 const hash = signingHash(tx, 2);
-const expectHash = "4acde0e0a120d6c03eaa197c082238fefadaf36f4f40bc1364ae8b3faa067798";
+const expectHash = "0aae8c1832e09bf7da6f897d20b8bc6a017aaeefd50ea10015218a5c4a54c21d";
 if (bytesToHex(hash) !== expectHash) throw new Error(`hash mismatch ${bytesToHex(hash)}`);
 
 const signature = signHash(seed, hash);
 const expectSig =
-  "2413f8c3a1508e2b1b2809c5cc9cc74982118d47e8a8e9afaab2d2719349724265b8f80d67359b579001b9c4845723edb9530372a79da9f4093d2f7228820d0e";
+  "c24cd02ec98045a34e4b3102a1cafe70883a83763d5915528554b54797b139df1768cad71220e78bcb6702b109f37bb79513c1f768bacab4bf6e96f4e16cdf06";
 if (bytesToHex(signature) !== expectSig) throw new Error(`sig mismatch ${bytesToHex(signature)}`);
 
 const raw = encodeRawTransaction(tx, signature, hash);
@@ -164,8 +164,8 @@ const kindBytes = concat([
   u64le(100000n),
 ]);
 if (kindBytes[0] !== 4) throw new Error("signing kind tag is not 4");
-const preimage = concat([asciiPad("KUNA/tx/v1", 16), u64le(2n), sender, u64le(1n), kindBytes, u64le(10n)]);
-const keyed = blake3(preimage, { key: asciiPad("KUNA-TX-v1", 32) });
+const preimage = concat([asciiPad("KVNC/tx/v1", 16), u64le(2n), sender, u64le(1n), kindBytes, u64le(10n)]);
+const keyed = blake3(preimage, { key: asciiPad("KVNC-TX-v1", 32) });
 if (bytesToHex(keyed) !== bytesToHex(signingHash(callTx, 2))) throw new Error("call sighash mismatch");
 const rawCall = encodeRawTransaction(callTx, signature, keyed);
 const wire = hexToBytes(rawCall).slice(40, 44);

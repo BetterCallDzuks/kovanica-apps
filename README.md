@@ -25,13 +25,13 @@ Migrated from `apps/*` at tip `e98b5e008331056d6bea55014982d4077e745b77` (flatte
 | `android` | Light wallet / UniFFI Android app |
 | `android-wallet` | Android wallet |
 | `android-comms` | Android comms client |
-| `android-chain` | Shared Android chain IDs |
-| `android-node` | Android full-node proof of concept on kovanica testnet, with a light-node fallback and a minimal wallet |
+| `android-chain` | Shared Android chain IDs (`1` mainnet, `2` testnet, `3` devnet) |
+| `android-node` | Android full-node proof of concept on kovanica testnet (chain ID 2, tag `2-acfdf6a6c80fd28a`; L1 pin `d2239fd8314a0c6edb08d54724738d662d406a32`), with a light-node fallback and a minimal wallet |
 | `ios` | iOS light client |
 | `desktop` | Desktop Comms shell (Tauri) |
 | `console-desktop` | Console desktop wallet & node inspector (Tauri) |
 | `node-desktop` | Linux Kovanica Node supervisor (Tauri). External `kovanica-node` binary; no bundled node. |
-| `wallet-web` | Web & desktop hybrid wallet (React / TanStack Start) |
+| `wallet-web` | Web & desktop hybrid wallet (React / TanStack Start; chains `1` mainnet tag `1-4d827d40dd9655db` read-only, `2` testnet tag `2-acfdf6a6c80fd28a`, `3` devnet) |
 
 Build the native FFI from L1 (`kovanica-light-ffi`) and point `node-desktop` at a `kovanica-node` executable you built yourself. See [node-desktop/README.md](node-desktop/README.md) and [docs/linux-node-package.md](docs/linux-node-package.md) for Debian 12 `.deb` packaging (`npm run tauri -- build --bundles deb` and `scripts/check-deb.sh`).
 

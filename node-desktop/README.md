@@ -32,7 +32,7 @@ There is no `--data-dir` flag on that CLI. `data_dir` is a field in the config. 
 
 | Setting | Rule |
 |---|---|
-| `chain_id` | 2 or 3. Chain 2 is labelled `testnet (chain 2, hybrid PoW+GHOSTDAG)`. Chain 3 is devnet, including local single-node testing. Chain 1 (mainnet) is blocked. Chain 1337 (retired), chains 4 and 5, and any other id are not accepted and are not relabelled. If the key is omitted the node default is 3 and the window says so. |
+| `chain_id` | 2 or 3. Chain 2 is labelled `testnet (chain 2, hybrid PoW+GHOSTDAG)` (official network tag `2-acfdf6a6c80fd28a`). Chain 3 is devnet, including local single-node testing. Chain 1 (mainnet, official network tag `1-4d827d40dd9655db`) is blocked. Chain 1337 (retired), chains 4 and 5, and any other id are not accepted and are not relabelled. If the key is omitted the node default is 3 and the window says so. |
 | `run_validator` | Must be `false`. The node default is `true`, so an omitted key is rejected. |
 | `[mining] enabled` | Must not be `true`. Omitted means the node default, which is off. |
 | `mining.on_demand` | Leave at the default `false`. It only takes effect when `[mining] enabled = true`, which this app refuses, so the key cannot start mining. |

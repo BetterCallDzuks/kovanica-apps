@@ -58,6 +58,7 @@
     "@tauri-apps/api": "^2.12.4",
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^5.2.0",
+    "kovanica-sdk": "file:../../kovanica-sdk",
     "better-auth": "~1.6.30",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -1,4 +1,11 @@
+import { CHAIN_IDS, NETWORK_TAGS as SDK_NETWORK_TAGS } from "kovanica-sdk";
+
 export type PresetId = "mainnet" | "testnet" | "hybrid" | "devnet";
+
+export const NETWORK_TAGS = {
+  MAINNET: SDK_NETWORK_TAGS.MAINNET,
+  TESTNET: SDK_NETWORK_TAGS.TESTNET,
+} as const;
 
 export type NetworkPreset = {
   id: PresetId;
@@ -6,6 +13,8 @@ export type NetworkPreset = {
   rpcUrl: string;
   /** null means accept the chain id the node reports */
   expectedChainId: number | null;
+  /** Official `<chain_id>-<16 hex genesis digest>` wire network tag when frozen. */
+  expectedNetworkTag?: string;
   localOnly: boolean;
   /** Mainnet stays visible, but this wallet does not spend on it. */
   frozen?: boolean;
@@ -17,7 +26,8 @@ export const PRESETS: NetworkPreset[] = [
     id: "mainnet",
     label: "Mainnet (1) · read-only",
     rpcUrl: "https://rpc.kovanica.online/rpc",
-    expectedChainId: 1,
+    expectedChainId: CHAIN_IDS.MAINNET,
+    expectedNetworkTag: NETWORK_TAGS.MAINNET,
     localOnly: false,
     frozen: true,
   },
@@ -25,7 +35,8 @@ export const PRESETS: NetworkPreset[] = [
     id: "testnet",
     label: "Testnet (2)",
     rpcUrl: "http://127.0.0.1:8545",
-    expectedChainId: 2,
+    expectedChainId: CHAIN_IDS.TESTNET,
+    expectedNetworkTag: NETWORK_TAGS.TESTNET,
     localOnly: false,
     recommended: true,
   },
@@ -33,22 +44,32 @@ export const PRESETS: NetworkPreset[] = [
     id: "hybrid",
     label: "Chain 2 · Hybrid PoW Testnet",
     rpcUrl: "http://127.0.0.1:8545",
-    expectedChainId: 2,
+    expectedChainId: CHAIN_IDS.TESTNET,
+    expectedNetworkTag: NETWORK_TAGS.TESTNET,
     localOnly: true,
   },
   {
     id: "devnet",
     label: "Devnet (3)",
     rpcUrl: "http://127.0.0.1:8545",
-    expectedChainId: 3,
+    expectedChainId: CHAIN_IDS.DEVNET,
     localOnly: true,
   },
 ];
 
+export function parseNetworkTagChainId(networkTag: unknown): number | null {
+  if (typeof networkTag !== "string") return null;
+  const trimmed = networkTag.trim();
+  const match = /^(\d+)-[0-9a-f]{16}$/i.exec(trimmed);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export const CHAIN_NAMES: Record<number, string> = {
-  1: "Mainnet",
-  2: "Testnet",
-  3: "Devnet",
+  [CHAIN_IDS.MAINNET]: "Mainnet",
+  [CHAIN_IDS.TESTNET]: "Testnet",
+  [CHAIN_IDS.DEVNET]: "Devnet",
 };
 
 export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online/rpc";

@@ -480,7 +480,19 @@ mod tests {
         let mut mode = fs::metadata(&bystander_path).unwrap().permissions();
         mode.set_mode(0o755);
         fs::set_permissions(&bystander_path, mode).unwrap();
-        let mut bystander = std::process::Command::new(&bystander_path).spawn().unwrap();
+        // Give the kernel a moment to settle the mode change, and retry on ETXTBSY.
+        let mut spawn_res = std::process::Command::new(&bystander_path).spawn();
+        for _ in 0..10 {
+            match &spawn_res {
+                Ok(_) => break,
+                Err(err) if err.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    spawn_res = std::process::Command::new(&bystander_path).spawn();
+                }
+                Err(_) => break,
+            }
+        }
+        let mut bystander = spawn_res.unwrap();
         let bystander_pid = bystander.id();
         struct KillPid(u32);
         impl Drop for KillPid {
