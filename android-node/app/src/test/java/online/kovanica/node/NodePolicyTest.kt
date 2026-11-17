@@ -29,7 +29,7 @@ class NodePolicyTest {
         assertFalse(mainnet.allowed)
         assertEquals("kovanica mainnet", mainnet.networkName)
         assertTrue(mainnet.message.contains("kovanica mainnet"))
-        assertEquals("1-4d827d40dd9655db", ChainGuard.officialNetworkTag(ChainIds.MAINNET))
+        assertEquals("1-f35df34c92001436", ChainGuard.officialNetworkTag(ChainIds.MAINNET))
         assertEquals("2-acfdf6a6c80fd28a", ChainGuard.officialNetworkTag(ChainIds.TESTNET))
         assertNull(ChainGuard.officialNetworkTag(ChainIds.DEVNET))
         for (id in listOf(4L, 5L, 0L, 99L)) {

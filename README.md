@@ -31,7 +31,7 @@ Migrated from `apps/*` at tip `e98b5e008331056d6bea55014982d4077e745b77` (flatte
 | `desktop` | Desktop Comms shell (Tauri) |
 | `console-desktop` | Console desktop wallet & node inspector (Tauri) |
 | `node-desktop` | Linux Kovanica Node supervisor (Tauri). External `kovanica-node` binary; no bundled node. |
-| `wallet-web` | Web & desktop hybrid wallet (React / TanStack Start; chains `1` mainnet tag `1-4d827d40dd9655db` read-only, `2` testnet tag `2-acfdf6a6c80fd28a`, `3` devnet) |
+| `wallet-web` | Web & desktop hybrid wallet (React / TanStack Start; chains `1` mainnet tag `1-f35df34c92001436` read-only, `2` testnet tag `2-acfdf6a6c80fd28a`, `3` devnet) |
 
 Build the native FFI from L1 (`kovanica-light-ffi`) and point `node-desktop` at a `kovanica-node` executable you built yourself. See [node-desktop/README.md](node-desktop/README.md) and [docs/linux-node-package.md](docs/linux-node-package.md) for Debian 12 `.deb` packaging (`npm run tauri -- build --bundles deb` and `scripts/check-deb.sh`).
 

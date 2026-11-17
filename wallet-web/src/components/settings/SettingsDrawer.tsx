@@ -73,7 +73,7 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
         ) : null}
         {error ? <p className="mt-3 text-sm text-clay">{error}</p> : null}
         <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Network</h3>
-        <p className="mt-2 text-sm text-muted">Chain 2 (network tag 2-acfdf6a6c80fd28a) is the recommended Hybrid PoW testnet. Devnet is chain 3, including local single-node testing. Mainnet is chain 1 (network tag 1-4d827d40dd9655db) and stays read-only.</p>
+        <p className="mt-2 text-sm text-muted">Chain 2 (network tag 2-acfdf6a6c80fd28a) is the recommended Hybrid PoW testnet. Devnet is chain 3, including local single-node testing. Mainnet is chain 1 (network tag 1-f35df34c92001436) and stays read-only.</p>
         <div className="mt-3">
           <NetworkChoices />
         </div>
