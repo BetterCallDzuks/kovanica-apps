@@ -7,7 +7,7 @@ export function NetworkChoices() {
   const net = useNetwork();
   const [host, setHost] = useState("");
 
-  function useHost(raw: string, presetId?: "testnet" | "hybrid" | "local" | "mainnet") {
+  function submitHost(raw: string, presetId?: "testnet" | "hybrid" | "local" | "mainnet") {
     try {
       useNetwork.getState().setRpcUrl(normalizeRpc(raw), presetId);
       setHost("");
@@ -36,7 +36,7 @@ export function NetworkChoices() {
           <button type="button" className="min-h-11 rounded-full border border-copper px-3 text-sm text-copper" onClick={() => useNetwork.getState().setRpcUrl(FALLBACK_RPC, "testnet")}>
             Use rpc-testnet.kovanica.online
           </button>
-          <form className="grid gap-2" onSubmit={(event) => { event.preventDefault(); useHost(host); }}>
+          <form className="grid gap-2" onSubmit={(event) => { event.preventDefault(); submitHost(host); }}>
             <input className="min-h-11 rounded-2xl border border-line bg-ink px-3 text-sm text-paper" value={host} onChange={(event) => setHost(event.target.value)} placeholder="192.168.1.10:8545" />
             <button type="submit" className="min-h-11 rounded-full border border-line text-sm text-paper">Use this node</button>
           </form>

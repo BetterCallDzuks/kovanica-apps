@@ -289,12 +289,8 @@ export async function simulateCall(
   call: { from?: string; to?: string; value?: string | number; data?: string; entry?: string }
 ): Promise<string> {
   for (const candidate of withRpcPath(rpcUrl)) {
-    try {
-      const result = await post(candidate, "kovanica_call", [call]);
-      return typeof result === "string" ? result : "0x";
-    } catch (err) {
-      throw err;
-    }
+    const result = await post(candidate, "kovanica_call", [call]);
+    return typeof result === "string" ? result : "0x";
   }
   return "0x";
 }

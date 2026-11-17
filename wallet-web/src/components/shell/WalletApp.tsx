@@ -34,7 +34,6 @@ export function WalletApp() {
   const [preview, setPreview] = useState<TxPreview | null>(null);
   const [notice, setNotice] = useState<BroadcastNotice>({ phase: "idle" });
   const [quoteTick, setQuoteTick] = useState(0);
-  const [host, setHost] = useState("");
   const [signing, setSigning] = useState(false);
   const warned = useRef("");
   const [backup, setBackup] = useState<string | null>(null);
@@ -48,6 +47,7 @@ export function WalletApp() {
   const net = useNetwork();
   const lockState = signingLock(net);
   const account = session.accounts[session.active];
+  const accountAddress = account?.address;
 
   useEffect(() => {
     const stopBackup = subscribeBackup(setBackup);
@@ -109,11 +109,11 @@ export function WalletApp() {
   }, [ready, net.presetId, net.rpcUrl]);
 
   useEffect(() => {
-    if (!ready || session.status !== "unlocked" || !account || !net.online) return;
-    void readAccount(net.rpcUrl, account.address).then((state) => {
+    if (!ready || session.status !== "unlocked" || !accountAddress || !net.online) return;
+    void readAccount(net.rpcUrl, accountAddress).then((state) => {
       useNetwork.getState().setAccountState(state.balance, state.nonce, state.fee);
     });
-  }, [ready, session.status, account?.address, net.online, net.presetId, net.probedChainId, net.rpcUrl]);
+  }, [ready, session.status, accountAddress, net.online, net.presetId, net.probedChainId, net.rpcUrl]);
 
   useEffect(() => {
     const mark = () => bumpIdle();

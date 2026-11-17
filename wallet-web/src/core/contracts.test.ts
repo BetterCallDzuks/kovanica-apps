@@ -13,7 +13,6 @@ import {
   deriveMultisigId,
   deriveMultisigIdHex,
   multisigTxSlot,
-  prefixedSlot,
   tokenStateSlot,
 } from "./contracts.ts";
 
@@ -23,10 +22,8 @@ describe("smart contracts & ABI UX", () => {
   const charlie = new Uint8Array(32).fill(0x33);
   const aliceAddr = encodeAddress(alice);
   const bobAddr = encodeAddress(bob);
-  const charlieAddr = encodeAddress(charlie);
   const aliceHex = bytesToHex(alice);
   const bobHex = bytesToHex(bob);
-  const charlieHex = bytesToHex(charlie);
   const dummyHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
   describe("HTLC", () => {
