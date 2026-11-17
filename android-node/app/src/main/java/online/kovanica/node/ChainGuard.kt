@@ -10,7 +10,7 @@ import io.kovanica.chain.ChainIds
  */
 object ChainGuard {
     const val MAINNET_NETWORK_TAG: String = "1-f35df34c92001436"
-    const val TESTNET_NETWORK_TAG: String = "2-acfdf6a6c80fd28a"
+    const val TESTNET_NETWORK_TAG: String = "2-24cdb5fadd98b207"
 
     data class Decision(
         val allowed: Boolean,
@@ -45,7 +45,7 @@ object ChainGuard {
     }
 
     /**
-     * Validates a peer's network tag (e.g. "1-f35df34c92001436" or "2-acfdf6a6c80fd28a").
+     * Validates a peer's network tag (e.g. "1-f35df34c92001436" or "2-24cdb5fadd98b207").
      */
     fun validatePeerNetworkTag(chainId: Long, tag: String): Boolean {
         val expectedTag = officialNetworkTag(chainId) ?: return false

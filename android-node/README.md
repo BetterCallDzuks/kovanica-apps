@@ -1,6 +1,6 @@
 # Kovanica Node (Android proof of concept)
 
-Android app `online.kovanica.node.android` ("Kovanica Node"). It tries to run a full node on **kovanica testnet** (chain ID 2, network tag `2-acfdf6a6c80fd28a`) on the device: outbound P2P, full header validation, and local chain storage. A minimal KVNC wallet can show a receive address and sign a send. Mining is not part of this app.
+Android app `online.kovanica.node.android` ("Kovanica Node"). It tries to run a full node on **kovanica testnet** (chain ID 2, network tag `2-24cdb5fadd98b207`) on the device: outbound P2P, full header validation, and local chain storage. A minimal KVNC wallet can show a receive address and sign a send. Mining is not part of this app.
 
 The native code is built in CI from [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) at `fecc84cca95b8f0aef5d445999e0e7858e63f326`. This repository does not vendor that Rust workspace. Light-ffi stays in L1.
 
@@ -42,7 +42,7 @@ Sync status on both modes: `syncing` when `/health` is 200 and `catchingUp` is t
 
 ## Chain guard
 
-The app reads `chain_id` from the node and compares it with the config. It allows kovanica testnet (chain ID 2, network tag `2-acfdf6a6c80fd28a`) and kovanica devnet (chain ID 3, including local single-node testing). It refuses kovanica mainnet (chain ID 1, network tag `1-f35df34c92001436`) and every other id, including the retired 1337, 4, and 5, with a screen that does not relabel them. This build always configures kovanica testnet.
+The app reads `chain_id` from the node and compares it with the config. It allows kovanica testnet (chain ID 2, network tag `2-24cdb5fadd98b207`) and kovanica devnet (chain ID 3, including local single-node testing). It refuses kovanica mainnet (chain ID 1, network tag `1-f35df34c92001436`) and every other id, including the retired 1337, 4, and 5, with a screen that does not relabel them. This build always configures kovanica testnet.
 
 ## Wallet
 

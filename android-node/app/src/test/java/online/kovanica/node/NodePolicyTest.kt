@@ -35,7 +35,7 @@ class NodePolicyTest {
         assertEquals("kovanica mainnet", mainnet.networkName)
         assertTrue(mainnet.message.contains("kovanica mainnet"))
         assertEquals("1-f35df34c92001436", ChainGuard.officialNetworkTag(ChainIds.MAINNET))
-        assertEquals("2-acfdf6a6c80fd28a", ChainGuard.officialNetworkTag(ChainIds.TESTNET))
+        assertEquals("2-24cdb5fadd98b207", ChainGuard.officialNetworkTag(ChainIds.TESTNET))
         assertNull(ChainGuard.officialNetworkTag(ChainIds.DEVNET))
         for (id in listOf(4L, 5L, 0L, 99L)) {
             val decision = ChainGuard.evaluate(id)
@@ -50,20 +50,20 @@ class NodePolicyTest {
     fun chainGuardValidatesPeerGenesisDigestsAgainstOfficialTags() {
         // Tag format: <chain_id>-<16 hex chars of genesis digest>
         // Mainnet tag: 1-f35df34c92001436
-        // Testnet tag: 2-acfdf6a6c80fd28a
+        // Testnet tag: 2-24cdb5fadd98b207
         assertEquals("1-f35df34c92001436", ChainGuard.MAINNET_NETWORK_TAG)
-        assertEquals("2-acfdf6a6c80fd28a", ChainGuard.TESTNET_NETWORK_TAG)
+        assertEquals("2-24cdb5fadd98b207", ChainGuard.TESTNET_NETWORK_TAG)
 
         // Peer network tag validation
         assertTrue(ChainGuard.validatePeerNetworkTag(ChainIds.MAINNET, "1-f35df34c92001436"))
-        assertTrue(ChainGuard.validatePeerNetworkTag(ChainIds.TESTNET, "2-acfdf6a6c80fd28a"))
-        assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.MAINNET, "2-acfdf6a6c80fd28a"))
+        assertTrue(ChainGuard.validatePeerNetworkTag(ChainIds.TESTNET, "2-24cdb5fadd98b207"))
+        assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.MAINNET, "2-24cdb5fadd98b207"))
         assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.TESTNET, "1-f35df34c92001436"))
         assertFalse(ChainGuard.validatePeerNetworkTag(ChainIds.DEVNET, "3-0000000000000000"))
 
         // Peer genesis digest validation (32 bytes hex = 64 characters)
         val mainnetGenesisHex = "f35df34c92001436" + "ab".repeat(24)
-        val testnetGenesisHex = "acfdf6a6c80fd28a" + "cd".repeat(24)
+        val testnetGenesisHex = "24cdb5fadd98b207" + "cd".repeat(24)
         val tamperedGenesisHex = "deadbeefcafebabe" + "00".repeat(24)
 
         assertTrue(ChainGuard.validatePeerGenesis(ChainIds.MAINNET, mainnetGenesisHex))

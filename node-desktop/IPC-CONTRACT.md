@@ -39,7 +39,7 @@ The supervised process is the native `kovanica-node` binary. The Android packagi
 - `monitorSeq`: increases when the retained monitor view changes. An older sequence cannot replace a newer one. A newer `statusSeq` still carries the monitor view taken with that process observation, so a delayed healthy read cannot repaint a stopped or replaced process.
 - `setup`, `reviewedNodeSource`, `stopGraceSecs`, `exitStopsOwnedChild`
 
-Sync field names in the snapshot are camelCase JSON of the Rust view (`committedHeight`, `localTipRound`, `catchingUp`, `peerCount`, `networkTag` — official frozen tags `1-f35df34c92001436` on mainnet and `2-acfdf6a6c80fd28a` on testnet — and `peerIds`). They are parsed from the node's camelCase `kovanica_syncStatus` result, not from the SDK's snake_case types.
+Sync field names in the snapshot are camelCase JSON of the Rust view (`committedHeight`, `localTipRound`, `catchingUp`, `peerCount`, `networkTag` — official frozen tags `1-f35df34c92001436` on mainnet and `2-24cdb5fadd98b207` on testnet — and `peerIds`). They are parsed from the node's camelCase `kovanica_syncStatus` result, not from the SDK's snake_case types.
 
 ## Exit
 
