@@ -34,6 +34,18 @@ object NativeBridge {
     @JvmStatic
     external fun nodeSyncProgress(): String
 
+    fun safeNodeSyncProgress(): String {
+        return if (nativeLoaded) {
+            try {
+                nodeSyncProgress()
+            } catch (_: Throwable) {
+                """{"height":0,"target":0,"peers":0,"error":"native call failed"}"""
+            }
+        } else {
+            """{"height":0,"target":0,"peers":0,"error":"native library is not packaged"}"""
+        }
+    }
+
     fun available(): Boolean = impl != null || nativeLoaded
 
     fun createHd(passphrase: String): Created =

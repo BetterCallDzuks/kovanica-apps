@@ -1,9 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { isLocalRpc, LOCAL_NODE_RPC, PRESETS } from "@/lib/networks";
-import { useNetwork } from "@/stores/network";
+import { getNodeStatusBadge, useNetwork } from "@/stores/network";
 
-describe("local mobile node wiring & fallback transitions (PRO-50, PRO-54)", () => {
+describe("local mobile node wiring & fallback transitions (PRO-50, PRO-54, PRO-51, PRO-48)", () => {
   it("routes to http://127.0.0.1:8545 when local node mode is selected or active", () => {
     assert.equal(LOCAL_NODE_RPC, "http://127.0.0.1:8545");
     assert.equal(isLocalRpc("http://127.0.0.1:8545"), true);
@@ -83,5 +83,86 @@ describe("local mobile node wiring & fallback transitions (PRO-50, PRO-54)", () 
     useNetwork.getState().selectPreset("hybrid");
     assert.equal(useNetwork.getState().rpcUrl, "http://127.0.0.1:8545");
     assert.equal(useNetwork.getState().localNodeMode, true);
+  });
+
+  it("computes live node status badges and sync metrics (PRO-51, PRO-48)", () => {
+    // 1. Fallback (Light/Remote) badge when nodeMode is light
+    const fallbackBadge = getNodeStatusBadge({
+      localNodeMode: true,
+      nodeMode: "light",
+      committedHeight: 100,
+      targetHeight: 100,
+      syncing: false,
+    });
+    assert.equal(fallbackBadge, "Fallback (Light/Remote)");
+
+    // 2. Syncing DAG badge when target > committed or syncing is true
+    const syncingBadge = getNodeStatusBadge({
+      localNodeMode: true,
+      nodeMode: "full",
+      committedHeight: 5000,
+      targetHeight: 7500,
+      syncing: true,
+    });
+    assert.equal(syncingBadge, "Syncing DAG");
+
+    const targetAheadBadge = getNodeStatusBadge({
+      localNodeMode: true,
+      nodeMode: "full",
+      committedHeight: 5000,
+      targetHeight: 7500,
+      syncing: false,
+    });
+    assert.equal(targetAheadBadge, "Syncing DAG");
+
+    // 3. Full Node Active badge when caught up and idle in full mode
+    const activeBadge = getNodeStatusBadge({
+      localNodeMode: true,
+      nodeMode: "full",
+      committedHeight: 8000,
+      targetHeight: 8000,
+      syncing: false,
+    });
+    assert.equal(activeBadge, "Full Node Active");
+
+    // 4. Stores live DAG sync metrics on probe update
+    useNetwork.getState().setLocalNodeMode(true);
+    useNetwork.getState().applyProbe({
+      chainId: 2,
+      height: 9100,
+      targetHeight: 10500,
+      syncing: true,
+      peerCount: 12,
+      latencyMs: 5,
+      online: true,
+      error: null,
+      nodeMode: "full",
+    });
+
+    const state = useNetwork.getState();
+    assert.equal(state.committedHeight, 9100);
+    assert.equal(state.targetHeight, 10500);
+    assert.equal(state.syncing, true);
+    assert.equal(state.peerCount, 12);
+    assert.equal(getNodeStatusBadge(state), "Syncing DAG");
+
+    // When caught up:
+    useNetwork.getState().applyProbe({
+      chainId: 2,
+      height: 10500,
+      targetHeight: 10500,
+      syncing: false,
+      peerCount: 12,
+      latencyMs: 4,
+      online: true,
+      error: null,
+      nodeMode: "full",
+    });
+
+    const syncedState = useNetwork.getState();
+    assert.equal(syncedState.committedHeight, 10500);
+    assert.equal(syncedState.targetHeight, 10500);
+    assert.equal(syncedState.syncing, false);
+    assert.equal(getNodeStatusBadge(syncedState), "Full Node Active");
   });
 });

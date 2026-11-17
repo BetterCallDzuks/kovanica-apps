@@ -5,6 +5,31 @@ const CHOICE_KEY = "kvnc.network.v1";
 
 export type NodeMode = "full" | "light" | null;
 
+export type NodeStatusBadge = "Syncing DAG" | "Full Node Active" | "Fallback (Light/Remote)";
+
+export function getNodeStatusBadge(state: {
+  localNodeMode?: boolean;
+  nodeMode?: NodeMode;
+  syncing?: boolean;
+  committedHeight?: number | null;
+  targetHeight?: number | null;
+}): NodeStatusBadge | null {
+  if (!state.localNodeMode && !state.nodeMode) return null;
+  if (state.nodeMode === "light") {
+    return "Fallback (Light/Remote)";
+  }
+  const isSyncing = Boolean(
+    state.syncing ||
+      (state.targetHeight != null &&
+        state.committedHeight != null &&
+        state.targetHeight > state.committedHeight)
+  );
+  if (isSyncing) {
+    return "Syncing DAG";
+  }
+  return "Full Node Active";
+}
+
 type NetworkState = {
   presetId: PresetId;
   rpcUrl: string;
@@ -12,6 +37,8 @@ type NetworkState = {
   nodeMode: NodeMode;
   probedChainId: number | null;
   committedHeight: number | null;
+  targetHeight: number | null;
+  syncing: boolean;
   latencyMs: number | null;
   peerCount: number | null;
   online: boolean;
@@ -29,6 +56,8 @@ type NetworkState = {
   applyProbe: (probe: {
     chainId: number | null;
     height: number | null;
+    targetHeight?: number | null;
+    syncing?: boolean;
     latencyMs: number | null;
     peerCount: number | null;
     online: boolean;
@@ -63,6 +92,8 @@ export const useNetwork = create<NetworkState>((set, get) => ({
   nodeMode: isLocalRpc(presetById("testnet").rpcUrl) ? "full" : null,
   probedChainId: null,
   committedHeight: null,
+  targetHeight: null,
+  syncing: false,
   latencyMs: null,
   peerCount: null,
   online: false,
@@ -85,6 +116,8 @@ export const useNetwork = create<NetworkState>((set, get) => ({
       nodeMode: isLocal ? (get().nodeMode ?? "full") : null,
       probedChainId: null,
       committedHeight: null,
+      targetHeight: null,
+      syncing: false,
       online: false,
       error: null,
       balanceAtoms: null,
@@ -104,6 +137,8 @@ export const useNetwork = create<NetworkState>((set, get) => ({
         nodeMode: isLocal ? (state.nodeMode ?? "full") : null,
         probedChainId: null,
         committedHeight: null,
+        targetHeight: null,
+        syncing: false,
         online: false,
         error: null,
         balanceAtoms: null,
@@ -121,6 +156,8 @@ export const useNetwork = create<NetworkState>((set, get) => ({
           nodeMode: state.nodeMode ?? "full",
           probedChainId: null,
           committedHeight: null,
+          targetHeight: null,
+          syncing: false,
           online: false,
           error: null,
         };
@@ -132,6 +169,8 @@ export const useNetwork = create<NetworkState>((set, get) => ({
         localNodeMode: isLocal,
         rpcUrl: defaultUrl,
         nodeMode: isLocal ? (state.nodeMode ?? "full") : null,
+        targetHeight: null,
+        syncing: false,
       };
     }),
   setNodeMode: (mode) => set({ nodeMode: mode }),
@@ -139,6 +178,8 @@ export const useNetwork = create<NetworkState>((set, get) => ({
     set((state) => ({
       probedChainId: probe.chainId,
       committedHeight: probe.height,
+      targetHeight: probe.targetHeight !== undefined ? probe.targetHeight : state.targetHeight,
+      syncing: probe.syncing !== undefined ? probe.syncing : (probe.targetHeight != null && probe.height != null && probe.targetHeight > probe.height),
       latencyMs: probe.latencyMs,
       peerCount: probe.peerCount,
       online: probe.online,

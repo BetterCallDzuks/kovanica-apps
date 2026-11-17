@@ -7,6 +7,8 @@ export type SyncProbe = {
   chainId: number | null;
   networkTag?: string | null;
   height: number | null;
+  targetHeight?: number | null;
+  syncing?: boolean;
   peerCount: number | null;
   latencyMs: number | null;
   nodeMode?: "full" | "light" | null;
@@ -63,8 +65,16 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
       const rawTag = record.networkTag ?? record.network_tag;
       const networkTag = typeof rawTag === "string" && rawTag.trim() ? rawTag.trim() : null;
       const chainId = pickNumber(record, ["chainId", "chain_id", "chainID"]) ?? parseNetworkTagChainId(networkTag);
-      const height = pickNumber(record, ["committedHeight", "committed_height"]);
-      const peerCount = pickNumber(record, ["peerCount", "peer_count"]);
+      const height = pickNumber(record, ["committedHeight", "committed_height", "height", "localHeight"]);
+      const targetHeight = pickNumber(record, ["targetHeight", "target_height", "target", "highestBlock", "highest_height"]);
+      let peerCount = pickNumber(record, ["peerCount", "peer_count", "peers"]);
+      if (peerCount == null && health?.body) {
+        const healthRec = asRecord(parseJson(health.body));
+        if (healthRec) {
+          peerCount = pickNumber(healthRec, ["peer_count", "peers", "peerCount"]);
+        }
+      }
+      const isCatchingUp = record.catchingUp === true || record.catching_up === true || record.syncing === true || (targetHeight != null && height != null && targetHeight > height);
       let nodeMode: "full" | "light" | null = null;
       const rawMode = record.mode ?? record.nodeMode ?? record.node_mode;
       if (rawMode === "full" || rawMode === "light") {
@@ -89,6 +99,8 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
         chainId,
         networkTag,
         height,
+        targetHeight: targetHeight ?? null,
+        syncing: isCatchingUp,
         peerCount,
         nodeMode,
         latencyMs: health?.ms ?? Date.now() - started,
@@ -99,7 +111,7 @@ export async function probeNode(rpcUrl: string): Promise<SyncProbe & { latencyMs
       last = error instanceof Error ? error.message : last;
     }
   }
-  return { chainId: null, networkTag: null, height: null, peerCount: null, latencyMs: null, nodeMode: null, online: false, error: last };
+  return { chainId: null, networkTag: null, height: null, targetHeight: null, syncing: false, peerCount: null, latencyMs: null, nodeMode: null, online: false, error: last };
 }
 
 function quantity(value: unknown): bigint | null {

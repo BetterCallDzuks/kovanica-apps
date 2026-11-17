@@ -8,7 +8,7 @@ import { broadcast, indexerLogs, probeNode, readAccount, receipt } from "@/servi
 import { onWalletLock, touchSession } from "@/services/tauri";
 import { addAccount, clearBackup, forgetDevice, isDesktopShell, loadVault, lock, lockUi, refreshDesktopSession, selectAccount, signReviewed, subscribeBackup } from "@/services/wallet";
 import { useActivity } from "@/stores/activity";
-import { savedNetworkChoice, signingLock, useNetwork } from "@/stores/network";
+import { getNodeStatusBadge, savedNetworkChoice, signingLock, useNetwork } from "@/stores/network";
 import { useSession } from "@/stores/session";
 import { ActivityList } from "@/components/activity/ActivityList";
 import { ConfirmTx, type BroadcastNotice } from "@/components/confirm/ConfirmTx";
@@ -47,6 +47,7 @@ export function WalletApp() {
   const session = useSession();
   const net = useNetwork();
   const lockState = signingLock(net);
+  const nodeStatusBadge = getNodeStatusBadge(net);
   const account = session.accounts[session.active];
   const accountAddress = account?.address;
   const currentChainId = net.probedChainId ?? presetById(net.presetId).expectedChainId ?? null;
@@ -282,16 +283,18 @@ export function WalletApp() {
           <div className="mt-6 flex flex-wrap items-center gap-2 text-sm">
             <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
             <span>{lockState.networkName}</span>
-            {net.localNodeMode || net.nodeMode ? (
+            {nodeStatusBadge ? (
               <span
                 data-testid="node-mode-indicator"
                 className={`rounded-full px-2 py-0.5 text-xs font-medium border ${
-                  net.nodeMode === "light"
+                  nodeStatusBadge === "Fallback (Light/Remote)"
                     ? "bg-amber-950/60 text-amber-400 border-amber-800/80"
-                    : "bg-surface text-copper border-line"
+                    : nodeStatusBadge === "Syncing DAG"
+                      ? "bg-sky-950/60 text-sky-400 border-sky-800/80"
+                      : "bg-surface text-copper border-line"
                 }`}
               >
-                {net.nodeMode === "light" ? "Light Mode" : "Full Node"}
+                {nodeStatusBadge}
               </span>
             ) : null}
           </div>
@@ -299,7 +302,10 @@ export function WalletApp() {
             {net.probing
               ? "Probing…"
               : net.online
-                ? `${net.nodeMode === "light" ? "Light Mode (fallback) · " : net.nodeMode === "full" ? "Full Node · " : ""}height ${net.committedHeight ?? "—"} · ${net.latencyMs ?? "—"} ms`
+                ? (net.localNodeMode || net.nodeMode
+                    ? `${nodeStatusBadge ?? "Node"} · DAG Height: ${net.committedHeight ?? 0}${net.targetHeight != null && net.targetHeight > (net.committedHeight ?? 0) ? ` / ${net.targetHeight}` : ""} · Peers: ${net.peerCount ?? 0} · ${net.latencyMs ?? "—"} ms`
+                    : `${net.nodeMode === "light" ? "Light Mode (fallback) · " : net.nodeMode === "full" ? "Full Node · " : ""}height ${net.committedHeight ?? "—"} · ${net.latencyMs ?? "—"} ms`
+                  )
                 : (net.error ?? "Offline")}
           </p>
           {lockState.locked ? <p className="mt-3 text-sm text-clay">{lockState.reason}</p> : null}

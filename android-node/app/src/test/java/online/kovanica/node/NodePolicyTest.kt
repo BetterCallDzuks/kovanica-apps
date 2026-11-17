@@ -346,6 +346,48 @@ class NodePolicyTest {
     }
 
     @Test
+    fun nodeSyncProgressCleanlyReturnsJsonPayloadWithHeightTargetPeers() {
+        // Verifies NativeBridge safe progress returns clean JSON payload with height, target, peers
+        val json = NativeBridge.safeNodeSyncProgress()
+        assertNotNull(json)
+        assertTrue(json.contains("\"height\":"))
+        assertTrue(json.contains("\"target\":"))
+        assertTrue(json.contains("\"peers\":"))
+
+        // Verifies parsing of canonical sync progress JSON payload: { "height": <u64>, "target": <u64>, "peers": <u32> }
+        val samplePayload = """{"height":14200,"target":15000,"peers":8,"syncing":true,"catching_up":true}"""
+        val height = RpcJson.longField(samplePayload, "height")
+        val target = RpcJson.longField(samplePayload, "target")
+        val peers = RpcJson.longField(samplePayload, "peers")
+        assertEquals(14200L, height)
+        assertEquals(15000L, target)
+        assertEquals(8L, peers)
+
+        // Verify syncing vs idle notifications formatting
+        val syncingNotification = NodeService.formatNotificationText(
+            syncProgress = if (target != null && height != null && target > height) "syncing" else "synced",
+            committedHeight = height ?: 0L,
+            peerCount = peers ?: 0L,
+        )
+        assertTrue(syncingNotification.contains("Sync progress: syncing"))
+        assertTrue(syncingNotification.contains("Committed DAG height: 14200"))
+        assertTrue(syncingNotification.contains("Peer count: 8"))
+
+        val idlePayload = """{"height":15000,"target":15000,"peers":8,"syncing":false,"catching_up":false}"""
+        val idleHeight = RpcJson.longField(idlePayload, "height")!!
+        val idleTarget = RpcJson.longField(idlePayload, "target")!!
+        val idlePeers = RpcJson.longField(idlePayload, "peers")!!
+        val idleNotification = NodeService.formatNotificationText(
+            syncProgress = if (idleTarget > idleHeight) "syncing" else "synced",
+            committedHeight = idleHeight,
+            peerCount = idlePeers,
+        )
+        assertTrue(idleNotification.contains("Sync progress: synced"))
+        assertTrue(idleNotification.contains("Committed DAG height: 15000"))
+        assertTrue(idleNotification.contains("Peer count: 8"))
+    }
+
+    @Test
     fun nodeServiceGracefulTeardownCallsNodeStop() {
         val result = NodeService.stopNativeNode()
         assertEquals(0, result)

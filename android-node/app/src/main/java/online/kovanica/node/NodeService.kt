@@ -270,18 +270,24 @@ class NodeService : Service() {
             var progress = "synced"
             var peers = 0L
 
-            if (NativeBridge.isNativeLoaded()) {
-                try {
-                    val progressJson = NativeBridge.nodeSyncProgress()
-                    if (progressJson.isNotEmpty() && !progressJson.contains("error")) {
-                        val currentHeight = RpcJson.longField(progressJson, "current_height")
-                        val catchingUp = progressJson.contains("\"catching_up\":true") || progressJson.contains("\"syncing\":true")
-                        if (currentHeight != null) {
-                            height = currentHeight
-                            progress = if (catchingUp) "syncing" else "synced"
-                        }
-                    }
-                } catch (_: Throwable) {}
+            val progressJson = NativeBridge.safeNodeSyncProgress()
+            if (progressJson.isNotEmpty() && !progressJson.contains("error")) {
+                val currentHeight = RpcJson.longField(progressJson, "height")
+                    ?: RpcJson.longField(progressJson, "current_height")
+                val targetHeight = RpcJson.longField(progressJson, "target")
+                    ?: RpcJson.longField(progressJson, "target_height")
+                val peerCount = RpcJson.longField(progressJson, "peers")
+                    ?: RpcJson.longField(progressJson, "peer_count")
+                val catchingUp = progressJson.contains("\"catching_up\":true") ||
+                    progressJson.contains("\"syncing\":true") ||
+                    (targetHeight != null && currentHeight != null && targetHeight > currentHeight)
+                if (currentHeight != null) {
+                    height = currentHeight
+                    progress = if (catchingUp) "syncing" else "synced"
+                }
+                if (peerCount != null) {
+                    peers = peerCount
+                }
             }
 
             try {
@@ -290,7 +296,9 @@ class NodeService : Service() {
                 if (sync.status == 200) {
                     val rpcHeight = RpcJson.longField(sync.body, "committedHeight")
                         ?: RpcJson.longField(sync.body, "localHeight")
+                        ?: RpcJson.longField(sync.body, "height")
                     val rpcPeers = RpcJson.longField(sync.body, "peerCount")
+                        ?: RpcJson.longField(sync.body, "peers")
                     val catchingUp = RpcJson.boolField(sync.body, "catchingUp")
                     if (rpcHeight != null) height = rpcHeight
                     if (rpcPeers != null) peers = rpcPeers
