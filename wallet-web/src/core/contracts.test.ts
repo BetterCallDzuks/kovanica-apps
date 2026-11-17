@@ -285,4 +285,89 @@ describe("smart contracts & ABI UX", () => {
       assert.equal(state.balances[0]!.amount, 1_000_000_000_000n);
     });
   });
+
+  describe("Name Register", () => {
+    it("builds name_register call args matching canonical SDK layout", () => {
+      const call = buildContractCall({
+        contract: "name",
+        method: "name_register",
+        chainId: 2,
+        claimer: "",
+        beneficiary: "",
+        recipient: aliceAddr,
+        account: "",
+        hash: "",
+        secret: "",
+        id: "",
+        timelockMs: null,
+        lockUntilMs: null,
+        amountAtoms: null,
+        tokenUnits: null,
+        txId: null,
+        callDataHex: "",
+        name: "alice",
+        relayEndpoints: ["127.0.0.1:8000"],
+      });
+      assert.equal(call.method, "name_register");
+      assert.ok(call.args.length > 32);
+      assert.equal(call.details[0]?.value, "alice");
+    });
+  });
+
+  describe("NFT Mint", () => {
+    it("builds nft_mint call args matching canonical SDK layout", () => {
+      const call = buildContractCall({
+        contract: "nft",
+        method: "nft_mint",
+        chainId: 2,
+        claimer: "",
+        beneficiary: "",
+        recipient: bobAddr,
+        account: "",
+        hash: "",
+        secret: "",
+        id: "",
+        timelockMs: null,
+        lockUntilMs: null,
+        amountAtoms: null,
+        tokenUnits: null,
+        txId: null,
+        callDataHex: "",
+        collection: aliceHex,
+        tokenId: 42n,
+        tokenUri: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      });
+      assert.equal(call.method, "nft_mint");
+      assert.equal(call.details.find((d) => d.label === "Token ID")?.value, "42");
+    });
+  });
+
+  describe("Escrow", () => {
+    it("builds escrow_create call args matching canonical SDK layout", () => {
+      const call = buildContractCall({
+        contract: "escrow",
+        method: "escrow_create",
+        chainId: 2,
+        claimer: "",
+        beneficiary: "",
+        recipient: "",
+        account: "",
+        hash: "",
+        secret: "",
+        id: "",
+        timelockMs: null,
+        lockUntilMs: null,
+        amountAtoms: 10_000_000n,
+        tokenUnits: null,
+        txId: null,
+        callDataHex: "",
+        owners: `${aliceAddr} ${bobAddr}`,
+        threshold: 2,
+        deadline: 1800000000n,
+      });
+      assert.equal(call.method, "escrow_create");
+      assert.equal(call.details.find((d) => d.label === "Threshold")?.value, "2 of 2");
+      assert.equal(call.details.find((d) => d.label === "Amount")?.value, "10000000 atoms");
+    });
+  });
 });

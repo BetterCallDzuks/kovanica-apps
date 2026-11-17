@@ -50,6 +50,15 @@ const ACTIONS = {
     { id: "multisig_confirm", label: "confirm", sign: true },
     { id: "multisig_execute", label: "execute", sign: true },
   ],
+  name: [
+    { id: "name_register", label: "register", sign: true },
+  ],
+  nft: [
+    { id: "nft_mint", label: "mint", sign: true },
+  ],
+  escrow: [
+    { id: "escrow_create", label: "create", sign: true },
+  ],
 } as const;
 
 type ActionId = (typeof ACTIONS)[ContractName][number]["id"];
@@ -80,6 +89,12 @@ export function Contracts({
   const [callData, setCallData] = useState("");
   const [threshold, setThreshold] = useState("1");
   const [owners, setOwners] = useState("");
+  const [name, setName] = useState("");
+  const [relayEndpoints, setRelayEndpoints] = useState("");
+  const [collection, setCollection] = useState("");
+  const [tokenId, setTokenId] = useState("1");
+  const [tokenUri, setTokenUri] = useState("");
+  const [deadline, setDeadline] = useState("");
   const [value, setValue] = useState("0");
   const [gas, setGas] = useState("100000");
   const [error, setError] = useState<string | null>(null);
@@ -110,15 +125,19 @@ export function Contracts({
   function needs(name: string): boolean {
     const id = current.id;
     if (name === "owner") return id === "balance_of" || id === "token_mint";
-    if (name === "recipient") return id === "token_transfer" || id === "htlc_create" || id === "vault_create" || id === "multisig_propose";
-    if (name === "amount") return id === "token_transfer" || id === "token_mint" || id === "htlc_create" || id === "vault_create" || id === "multisig_propose";
+    if (name === "recipient") return id === "token_transfer" || id === "htlc_create" || id === "vault_create" || id === "multisig_propose" || id === "name_register" || id === "nft_mint";
+    if (name === "amount") return id === "token_transfer" || id === "token_mint" || id === "htlc_create" || id === "vault_create" || id === "multisig_propose" || id === "escrow_create";
     if (name === "hash") return id === "htlc_create";
     if (name === "timelock") return id === "htlc_create" || id === "vault_create";
     if (name === "secret") return id === "htlc_claim";
     if (name === "record") return id === "htlc_status" || id === "htlc_claim" || id === "htlc_refund" || id === "vault_claim" || id === "status" || id === "multisig_propose" || id === "multisig_confirm" || id === "multisig_execute";
     if (name === "proposal") return id === "multisig_confirm" || id === "multisig_execute" || id === "multisig_tx";
     if (name === "calldata") return id === "multisig_propose";
-    if (name === "threshold" || name === "owners") return id === "multisig_create";
+    if (name === "threshold" || name === "owners") return id === "multisig_create" || id === "escrow_create";
+    if (name === "name") return id === "name_register";
+    if (name === "endpoints") return id === "name_register";
+    if (name === "collection" || name === "token_id" || name === "token_uri") return id === "nft_mint";
+    if (name === "deadline") return id === "escrow_create";
     return false;
   }
 
@@ -156,6 +175,13 @@ export function Contracts({
       callDataHex: callData,
       threshold: needs("threshold") ? Number.parseInt(threshold, 10) : null,
       owners: needs("owners") ? owners : undefined,
+      name,
+      pubkey: recipient,
+      relayEndpoints: relayEndpoints ? relayEndpoints.split(",").map((s) => s.trim()).filter(Boolean) : [],
+      collection,
+      tokenId: needs("token_id") ? whole(tokenId, "Token ID") : null,
+      tokenUri,
+      deadline: needs("deadline") ? whole(deadline, "Deadline") : null,
     });
   }
 
@@ -290,16 +316,22 @@ export function Contracts({
       ) : null}
       {needs("recipient") ? (
         <>
-          <Field label={current.id === "htlc_create" ? "Recipient (claimer)" : current.id === "vault_create" ? "Beneficiary" : "Recipient"} value={recipient} onChange={setRecipient} mono />
+          <Field label={current.id === "htlc_create" ? "Recipient (claimer)" : current.id === "vault_create" ? "Beneficiary" : current.id === "name_register" ? "Owner pubkey or address" : current.id === "nft_mint" ? "Recipient address" : "Recipient"} value={recipient} onChange={setRecipient} mono />
           <ContactSelect onPick={setRecipient} />
         </>
       ) : null}
+      {needs("name") ? <Field label="Name to register" value={name} onChange={setName} /> : null}
+      {needs("endpoints") ? <Field label="Relay endpoints (comma separated)" value={relayEndpoints} onChange={setRelayEndpoints} mono /> : null}
+      {needs("collection") ? <Field label="Collection address or 32-byte hex" value={collection} onChange={setCollection} mono /> : null}
+      {needs("token_id") ? <Field label="Token ID" value={tokenId} onChange={setTokenId} /> : null}
+      {needs("token_uri") ? <Field label="Token URI (metadata IPFS / URL)" value={tokenUri} onChange={setTokenUri} /> : null}
       {needs("amount") ? <Field label="Amount (atoms)" value={amount} onChange={setAmount} /> : null}
       {needs("hash") ? <Field label="Hash (32-byte hex)" value={hash} onChange={setHash} mono /> : null}
       {needs("timelock") ? <Field label={current.id === "vault_create" ? "Lock until (unix ms)" : "Timelock (unix ms)"} value={timelock} onChange={setTimelock} /> : null}
+      {needs("deadline") ? <Field label="Deadline (timestamp or block number)" value={deadline} onChange={setDeadline} /> : null}
       {needs("secret") ? <Field label="Secret (hex or text)" value={secret} onChange={setSecret} mono /> : null}
       {needs("threshold") ? <Field label="Threshold (M-of-N, e.g. 2)" value={threshold} onChange={setThreshold} /> : null}
-      {needs("owners") ? <Field label="Owners (comma or space separated addresses)" value={owners} onChange={setOwners} mono /> : null}
+      {needs("owners") ? <Field label={current.id === "escrow_create" ? "Parties (comma or space separated addresses/hex)" : "Owners (comma or space separated addresses)"} value={owners} onChange={setOwners} mono /> : null}
       {needs("record") ? <Field label={contractId === "multisig" ? "Multisig id (32-byte hex)" : contractId === "htlc" ? "Swap id (32-byte hex)" : "Vault id (32-byte hex)"} value={recordId} onChange={setRecordId} mono /> : null}
       {needs("proposal") ? <Field label="Proposal id" value={proposal} onChange={setProposal} /> : null}
       {needs("calldata") ? <Field label="Call data hex, optional" value={callData} onChange={setCallData} mono /> : null}

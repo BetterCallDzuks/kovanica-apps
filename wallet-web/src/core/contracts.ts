@@ -1,4 +1,9 @@
 import { blake3 } from "@noble/hashes/blake3.js";
+import {
+  buildNameRegisterCall,
+  buildNftMintCall,
+  buildEscrowCreateCall,
+} from "kovanica-sdk";
 import { decodeRecipient } from "./address.ts";
 import { bytesToHex, concat, hexToBytes, u32le, u64le, u128le } from "./bytes.ts";
 import type { PreviewDetail } from "./session.ts";
@@ -12,7 +17,7 @@ export type CallDraft = {
   details: PreviewDetail[];
 };
 
-export type ContractName = "htlc" | "vault" | "multisig" | "token";
+export type ContractName = "htlc" | "vault" | "multisig" | "token" | "name" | "nft" | "escrow";
 
 export type CallInput = {
   contract: ContractName;
@@ -33,6 +38,15 @@ export type CallInput = {
   callDataHex: string;
   threshold?: number | null;
   owners?: string;
+  name?: string;
+  pubkey?: string;
+  relayEndpoints?: string[];
+  collection?: string;
+  to?: string;
+  tokenId?: bigint | number | null;
+  tokenUri?: string;
+  parties?: string[];
+  deadline?: bigint | number | null;
 };
 
 export type TokenBalanceRow = { account: Uint8Array; amount: bigint };
@@ -48,6 +62,10 @@ export type TokenState = {
 };
 
 function key(address: string, chainId: number | null, label: string): Uint8Array {
+  const clean = address.trim().toLowerCase().replace(/^0x/, "");
+  if (/^[0-9a-f]{64}$/.test(clean)) {
+    return hexToBytes(clean);
+  }
   const bytes = decodeRecipient(address, chainId);
   if (bytes.length !== 32) throw new Error(`${label} must be 32 bytes`);
   return bytes;
@@ -241,6 +259,71 @@ export function buildContractCall(input: CallInput): CallDraft {
       details: [
         { label: "Account", value: input.account.trim().toLowerCase(), mono: true },
         { label: "Token amount", value: input.tokenUnits.toString() },
+      ],
+    };
+  }
+  if (input.contract === "name" && method === "name_register") {
+    const name = (input.name ?? "").trim();
+    if (!name) throw new Error("Enter a name to register");
+    const pubkeyStr = input.pubkey?.trim() || input.recipient?.trim() || input.account?.trim() || "";
+    if (!pubkeyStr) throw new Error("Enter a valid 32-byte pubkey or address");
+    const rawPubkey = key(pubkeyStr, input.chainId, "pubkey");
+    const endpoints = input.relayEndpoints ?? [];
+    const args = buildNameRegisterCall(name, rawPubkey, endpoints);
+    return {
+      method: "name_register",
+      args,
+      details: [
+        { label: "Name", value: name },
+        { label: "Public Key", value: bytesToHex(rawPubkey), mono: true },
+        { label: "Relay Endpoints", value: endpoints.length > 0 ? endpoints.join(", ") : "none" },
+      ],
+    };
+  }
+  if (input.contract === "nft" && method === "nft_mint") {
+    if (!input.collection?.trim()) throw new Error("Enter a collection address or ID");
+    const collectionBytes = key(input.collection, input.chainId, "collection");
+    const toStr = input.recipient?.trim() || input.account?.trim() || "";
+    if (!toStr) throw new Error("Enter a recipient address");
+    const toBytes = key(toStr, input.chainId, "recipient");
+    if (input.tokenId == null) throw new Error("Enter a token ID");
+    const tokenUri = (input.tokenUri ?? "").trim();
+    if (!tokenUri) throw new Error("Enter a token URI");
+    const args = buildNftMintCall(collectionBytes, toBytes, BigInt(input.tokenId), tokenUri);
+    return {
+      method: "nft_mint",
+      args,
+      details: [
+        { label: "Collection", value: bytesToHex(collectionBytes), mono: true },
+        { label: "To", value: toStr.toLowerCase(), mono: true },
+        { label: "Token ID", value: input.tokenId.toString() },
+        { label: "Token URI", value: tokenUri },
+      ],
+    };
+  }
+  if (input.contract === "escrow" && method === "escrow_create") {
+    const partyStrings = (input.parties && input.parties.length > 0)
+      ? input.parties
+      : (input.owners ? input.owners.split(/[\s,]+/).filter(Boolean) : []);
+    if (partyStrings.length === 0) throw new Error("Enter at least one escrow party");
+    const rawParties = partyStrings.map((p, idx) => key(p, input.chainId, `party[${idx}]`));
+    const threshold = input.threshold ?? 1;
+    if (threshold < 1 || threshold > rawParties.length) {
+      throw new Error(`Threshold must be between 1 and ${rawParties.length}`);
+    }
+    const amount = input.amountAtoms;
+    if (amount == null) throw new Error("Enter an amount in atoms");
+    const deadline = input.deadline != null ? BigInt(input.deadline) : 0n;
+    const args = buildEscrowCreateCall(rawParties, threshold, amount, deadline);
+    return {
+      method: "escrow_create",
+      args,
+      details: [
+        { label: "Parties Count", value: rawParties.length.toString() },
+        { label: "Threshold", value: `${threshold} of ${rawParties.length}` },
+        { label: "Amount", value: `${amount.toString()} atoms` },
+        { label: "Deadline", value: deadline.toString() },
+        { label: "Parties", value: rawParties.map((p) => bytesToHex(p)).join(", "), mono: true },
       ],
     };
   }
