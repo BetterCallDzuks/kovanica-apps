@@ -50,6 +50,20 @@
         <ul id="peers" class="peers"></ul>
       </section>
 
+      <section id="stratum-panel" class="panel" aria-labelledby="stratum-heading">
+        <h2 id="stratum-heading">Stratum Gateway Health &amp; Telemetry</h2>
+        <label for="stratum-url">Loopback Stratum observability /health endpoint</label>
+        <div class="row">
+          <input id="stratum-url" name="stratum-url" type="text" value="http://127.0.0.1:9100/health" spellcheck="false" autocomplete="off" />
+          <button id="stratum-save" type="button">Save</button>
+          <button id="stratum-reset" type="button">Use default</button>
+          <button id="stratum-refresh" type="button">Refresh</button>
+        </div>
+        <p id="stratum-state" class="muted"></p>
+        <p id="stratum-error" class="error" role="alert" hidden></p>
+        <dl id="stratum-rows" class="readout"></dl>
+      </section>
+
       <section class="panel" aria-labelledby="wallet-heading">
         <h2 id="wallet-heading">Wallet</h2>
         <p id="wallet-error" class="error" role="alert" hidden></p>

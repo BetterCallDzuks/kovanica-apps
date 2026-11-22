@@ -93,6 +93,9 @@ export type TxPreview = {
   valueAtoms: string;
   pathLabel: string;
   details: PreviewDetail[];
+  estimatedTxSize?: number;
+  feeRatePerByte?: string;
+  feeMarginBps?: number;
 };
 
 function assertU64(value: bigint, label: string): void {
@@ -143,6 +146,9 @@ export function previewCall(input: {
   chainId: number;
   networkName: string;
   details: PreviewDetail[];
+  estimatedTxSize?: number;
+  feeRatePerByte?: string;
+  feeMarginBps?: number;
 }): TxPreview {
   decodeRecipient(input.contract, input.chainId);
   if (!input.method.trim()) throw new Error("method must not be empty");
@@ -165,6 +171,9 @@ export function previewCall(input: {
     valueAtoms: input.valueAtoms.toString(),
     pathLabel: input.from.pathLabel,
     details: input.details,
+    ...(input.estimatedTxSize != null ? { estimatedTxSize: input.estimatedTxSize } : {}),
+    ...(input.feeRatePerByte != null ? { feeRatePerByte: input.feeRatePerByte } : {}),
+    ...(input.feeMarginBps != null ? { feeMarginBps: input.feeMarginBps } : {}),
   };
 }
 

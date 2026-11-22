@@ -12,6 +12,7 @@ import {
   type StatusRow,
 } from "./connection";
 import { presetById, presetFor } from "./networks";
+import { mountStratumPanel } from "./stratum-panel";
 import { mountWallet } from "./wallet-view";
 import "./styles.css";
 
@@ -214,6 +215,7 @@ netCustom.addEventListener("click", () => {
 });
 
 labelNetworkButtons();
+mountStratumPanel();
 mountWallet(() => shownChainId);
 
 void (async () => {

@@ -1,3 +1,4 @@
+import type { EstimateAndBuildCallClient } from "kovanica-sdk";
 import { storageBytes } from "@/core/contracts";
 import { decodeReceipt } from "@/core/receipt";
 import { parseNetworkTagChainId } from "@/lib/networks";
@@ -349,4 +350,46 @@ export async function simulateCall(
     return typeof result === "string" ? result : "0x";
   }
   return "0x";
+}
+
+export async function estimateFeeRate(rpcUrl: string): Promise<bigint> {
+  let last = "fee estimate unavailable";
+  for (const candidate of withRpcPath(rpcUrl)) {
+    try {
+      const raw = await post(candidate, "kovanica_estimateFee", []);
+      const rate = quantity(raw);
+      if (rate != null) return rate;
+    } catch (error) {
+      last = error instanceof Error ? error.message : last;
+    }
+    try {
+      const raw = await post(candidate, "kovanica_estimateFee", [{}]);
+      const rate = quantity(raw);
+      if (rate != null) return rate;
+    } catch (error) {
+      last = error instanceof Error ? error.message : last;
+    }
+  }
+  throw new Error(last);
+}
+
+export async function getAccountNonce(rpcUrl: string, address: string): Promise<bigint> {
+  let last = "nonce unavailable";
+  for (const candidate of withRpcPath(rpcUrl)) {
+    try {
+      const raw = await post(candidate, "kovanica_getNonce", [address]);
+      const nonce = quantity(raw);
+      if (nonce != null) return nonce;
+    } catch (error) {
+      last = error instanceof Error ? error.message : last;
+    }
+  }
+  throw new Error(last);
+}
+
+export function createCallEstimateClient(rpcUrl: string): EstimateAndBuildCallClient {
+  return {
+    estimateFee: () => estimateFeeRate(rpcUrl),
+    getNonce: (address: string) => getAccountNonce(rpcUrl, address),
+  };
 }

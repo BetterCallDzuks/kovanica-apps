@@ -14,6 +14,11 @@ import {
   type CallDraft,
   type ContractName,
 } from "@/core/contracts";
+import {
+  estimateContractCallPreview,
+  formatCallEstimateSummary,
+  type CallEstimatePreview,
+} from "@/core/call-estimate";
 import { parseAtoms } from "@/core/format";
 import { callNeed, shortfall } from "@/core/history-row";
 import type { TxPreview } from "@/core/session";
@@ -21,7 +26,7 @@ import { ContactSelect } from "@/components/contacts/ContactSelect";
 import { FaucetButton } from "@/components/home/FaucetButton";
 import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
-import { readStorageAt } from "@/services/rpc";
+import { createCallEstimateClient, readStorageAt } from "@/services/rpc";
 import { signingLock, useNetwork } from "@/stores/network";
 import { useActivity } from "@/stores/activity";
 
@@ -100,6 +105,8 @@ export function Contracts({
   const [error, setError] = useState<string | null>(null);
   const [readout, setReadout] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  const [estimate, setEstimate] = useState<CallEstimatePreview | null>(null);
+  const [estimating, setEstimating] = useState(false);
   const selected = ACTIONS[contractId];
   const current = selected.find((item) => item.id === action) ?? selected[0];
   const address = checkAddress(contract, policyChain);
@@ -120,6 +127,7 @@ export function Contracts({
     setAction(ACTIONS[next][0].id);
     setError(null);
     setReadout(null);
+    setEstimate(null);
   }
 
   function needs(name: string): boolean {
@@ -185,39 +193,75 @@ export function Contracts({
     });
   }
 
-  function review() {
+  async function estimateCall(): Promise<{ built: CallDraft; valueAtoms: bigint; preview: CallEstimatePreview } | null> {
     setError(null);
     setReadout(null);
-    if (!current.sign) return;
-    if (lock.locked || net.probedChainId == null || net.nonce == null || net.feeAtoms == null) {
-      setError(lock.locked ? lock.reason : "Balance, fee, and nonce are not available yet.");
-      return;
+    if (!current.sign) return null;
+    if (lock.locked || net.probedChainId == null) {
+      setError(lock.locked ? lock.reason : "Node chain id is not available yet.");
+      return null;
     }
     if (!address.ok) {
       setError(address.message);
-      return;
+      return null;
     }
     const valueAtoms = parseAtoms(value);
-    const gasLimit = parseAtoms(gas);
-    if (valueAtoms == null || gasLimit == null) {
+    const parsedGas = gas.trim() === "" ? undefined : parseAtoms(gas);
+    if (valueAtoms == null || (gas.trim() !== "" && parsedGas == null)) {
       setError("Attached value and gas limit must be whole numbers of atoms.");
-      return;
+      return null;
     }
+    const gasLimit = parsedGas ?? undefined;
+    setEstimating(true);
     try {
       if (needs("hash")) hex32(hash, "Hash");
       if (needs("secret") && !secret.trim()) throw new Error("Enter the secret as hex or text.");
       const built = draft();
-      onReview(buildCallPreview({
+      const client = createCallEstimateClient(net.rpcUrl);
+      const preview = await estimateContractCallPreview(client, {
         contract,
         method: built.method,
         args: built.args,
         valueAtoms,
         gasLimit,
-        feeAtoms: net.feeAtoms,
-        nonce: net.nonce,
+        sender: ownerAddress || undefined,
+        nonce: ownerAddress ? undefined : (net.nonce ?? undefined),
         chainId: net.probedChainId,
+      });
+      setEstimate(preview);
+      return { built, valueAtoms, preview };
+    } catch (err) {
+      setEstimate(null);
+      setError(err instanceof Error ? err.message : "Could not estimate fee and gas for this call");
+      return null;
+    } finally {
+      setEstimating(false);
+    }
+  }
+
+  async function review() {
+    const result = await estimateCall();
+    if (!result) return;
+    const resolvedNonce = result.preview.nonce ?? net.nonce;
+    if (resolvedNonce == null) {
+      setError("Sender nonce is not available yet.");
+      return;
+    }
+    try {
+      onReview(buildCallPreview({
+        contract,
+        method: result.built.method,
+        args: result.built.args,
+        valueAtoms: result.valueAtoms,
+        gasLimit: result.preview.gasLimit,
+        feeAtoms: result.preview.marginedFee,
+        nonce: resolvedNonce,
+        chainId: result.preview.chainId,
         networkName: lock.networkName,
-        details: [{ label: "Action", value: current.label }, ...built.details],
+        details: [{ label: "Action", value: current.label }, ...result.built.details],
+        estimatedTxSize: result.preview.estimatedTxSize,
+        feeRatePerByte: result.preview.feeRatePerByte?.toString(),
+        feeMarginBps: result.preview.feeMarginBps,
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not build the call");
@@ -285,7 +329,7 @@ export function Contracts({
   }
 
   return (
-    <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) review(); else void readState(); }}>
+    <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) void review(); else void readState(); }}>
       <div>
         <h2 className="text-2xl font-semibold">Contracts</h2>
         <p className="mt-2 text-sm text-muted">Canonical WASM entry points. A call is not signed until you confirm the method, arguments, fee, and gas. Reads never ask for the seed.</p>
@@ -299,7 +343,7 @@ export function Contracts({
       </div>
       <div className="flex flex-wrap gap-2">
         {selected.map((item) => (
-          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); }}>
+          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); setEstimate(null); }}>
             {item.label}
           </button>
         ))}
@@ -341,20 +385,47 @@ export function Contracts({
         <>
           <Field label="Attached value (atoms)" value={value} onChange={setValue} />
           <Field label="Gas limit" value={gas} onChange={setGas} />
-          <p className="text-sm text-muted">Fee {net.feeAtoms == null ? "unavailable" : `${net.feeAtoms.toString()} atoms`} · nonce {net.nonce == null ? "unavailable" : net.nonce.toString()}</p>
+          <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-paper">Fee &amp; Gas Preview</span>
+              <button
+                type="button"
+                className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                disabled={lock.locked || estimating}
+                onClick={() => void estimateCall()}
+              >
+                {estimating ? "Estimating…" : "Estimate fee & gas"}
+              </button>
+            </div>
+            {estimate ? (
+              <dl className="mt-3 grid gap-2">
+                {formatCallEstimateSummary(estimate).map((row) => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-3 border-t border-line/60 pt-2">
+                    <dt className="text-xs text-muted">{row.label}</dt>
+                    <dd className="tabular-nums text-right text-paper">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="mt-2 text-xs text-muted">
+                Click &ldquo;Estimate fee &amp; gas&rdquo; or &ldquo;Review call&rdquo; to compute exact wire size, fee rate, +20% safety-margined fee, gas limit, and nonce.
+                {net.nonce != null ? ` Current nonce: ${net.nonce.toString()}.` : ""}
+              </p>
+            )}
+          </div>
         </>
       ) : null}
       {lock.locked && current.sign ? <p className="text-sm text-clay">{lock.reason}</p> : null}
-      {current.sign && net.balanceAtoms != null && shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (net.feeAtoms ?? 0n).toString(), amount)) > 0n ? (
+      {current.sign && net.balanceAtoms != null && shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (estimate?.marginedFee ?? net.feeAtoms ?? 0n).toString(), amount)) > 0n ? (
         <div className="rounded-2xl border border-clay px-4 py-3 text-sm text-clay">
-          <p>Balance is short by {shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (net.feeAtoms ?? 0n).toString(), amount)).toString()} atoms for this call value and fee.</p>
+          <p>Balance is short by {shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (estimate?.marginedFee ?? net.feeAtoms ?? 0n).toString(), amount)).toString()} atoms for this call value and fee.</p>
           {ownerAddress ? <div className="mt-3"><FaucetButton address={ownerAddress} onlyHybrid /></div> : null}
         </div>
       ) : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {readout ? <p className="text-sm break-words text-paper">{readout}</p> : null}
-      <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={current.sign ? lock.locked : reading}>
-        {current.sign ? "Review call" : reading ? "Reading…" : "Read"}
+      <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={current.sign ? (lock.locked || estimating) : reading}>
+        {current.sign ? (estimating ? "Estimating…" : "Review call") : reading ? "Reading…" : "Read"}
       </button>
       <ReceiptCard />
     </form>

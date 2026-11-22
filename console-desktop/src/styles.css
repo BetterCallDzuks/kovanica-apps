@@ -223,3 +223,15 @@ input[type="password"],
 #custom-rpc-row {
   margin-top: 8px;
 }
+
+#stratum-rows {
+  margin-top: 0.75rem;
+}
+
+#stratum-state[data-state="online"] {
+  color: #7bd88f;
+}
+
+#stratum-state[data-state="offline"] {
+  color: var(--error);
+}

@@ -29,10 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout KovanicaDAG/kovanica-sdk
+      - name: Checkout KovanicaProtokol/kovanica-sdk
         uses: actions/checkout@v4
         with:
-          repository: KovanicaDAG/kovanica-sdk
+          repository: KovanicaProtokol/kovanica-sdk
+          ref: 0de8d1c359fbe98076bb9eb8e122f147c3ab131d
           path: kovanica-sdk
 
       - uses: actions/setup-node@v4
@@ -59,8 +60,8 @@ jobs:
       - name: Verify test vectors
         run: npx tsx src/core/check-vectors.ts
 
-      - name: Verify receipt decoding & history rows
-        run: node --experimental-strip-types --test src/core/receipt.test.ts src/core/history-row.test.ts
+      - name: Verify receipt decoding, history rows & call estimation
+        run: node --experimental-strip-types --test src/core/receipt.test.ts src/core/history-row.test.ts src/core/call-estimate.test.ts
 
       - name: Build web wallet
         run: npm run build
