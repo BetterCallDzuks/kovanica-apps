@@ -31,6 +31,15 @@
             <button id="refresh" type="button">Refresh</button>
           </div>
         </div>
+        <div id="rpc-token-row">
+          <label for="rpc-token">RPC bearer token (optional, session only)</label>
+          <div class="row">
+            <input id="rpc-token" name="rpc-token" type="password" spellcheck="false" autocomplete="off" />
+            <button id="rpc-token-apply" type="button">Set token</button>
+            <button id="rpc-token-clear" type="button">Clear</button>
+          </div>
+          <p id="rpc-token-status" class="muted"></p>
+        </div>
         <p id="endpoint" class="muted"></p>
         <p id="error" class="error" role="alert" hidden></p>
       </section>
@@ -209,7 +218,29 @@
             </div>
           </section>
 
+          <section id="address-book-panel" aria-labelledby="address-book-heading">
+            <h3 id="address-book-heading">Address book</h3>
+            <label for="address-book-search">Search contacts</label>
+            <input id="address-book-search" type="text" spellcheck="false" autocomplete="off" />
+            <label for="address-book-label">Label</label>
+            <input id="address-book-label" type="text" maxlength="64" autocomplete="off" />
+            <label for="address-book-address">Canonical PRO-21 address</label>
+            <input id="address-book-address" type="text" spellcheck="false" autocomplete="off" />
+            <label for="address-book-note">Note (optional)</label>
+            <input id="address-book-note" type="text" maxlength="240" autocomplete="off" />
+            <div class="row">
+              <button id="address-book-add" type="button">Save contact</button>
+            </div>
+            <p id="address-book-error" class="error" role="alert" hidden></p>
+            <p id="address-book-empty" class="muted">No saved addresses yet.</p>
+            <ul id="address-book-list" class="history"></ul>
+          </section>
+
           <h3 id="history-heading">History (reported by node)</h3>
+          <div class="row">
+            <button id="export-history-csv" type="button">Export CSV</button>
+            <button id="export-history-json" type="button">Export JSON</button>
+          </div>
           <p id="history-empty" class="muted">No transfers reported by the node.</p>
           <ul id="history" class="history"></ul>
         </div>

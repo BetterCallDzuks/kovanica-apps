@@ -2,14 +2,18 @@ import { useEffect, useState } from "react";
 import { formatRemaining, remainingMs } from "@/core/idle";
 import { backupJson, restoreBackup } from "@/services/backup";
 import { revealWithPassword } from "@/services/wallet";
+import { AddressBookSection } from "@/components/settings/AddressBookSection";
 import { NetworkChoices } from "@/components/settings/NetworkChoices";
 import { useIdle } from "@/stores/idle";
+import { useNetwork } from "@/stores/network";
 import { LOCK_CHOICES, useSettings } from "@/stores/settings";
 import { useSession } from "@/stores/session";
 
 export function SettingsDrawer({ onClose }: { onClose: () => void }) {
   const minutes = useSettings((s) => s.lockMinutes);
   const setMinutes = useSettings((s) => s.setLockMinutes);
+  const rpcToken = useNetwork((s) => s.rpcToken);
+  const setRpcToken = useNetwork((s) => s.setRpcToken);
   const activityAt = useIdle((s) => s.at);
   const status = useSession((s) => s.status);
   const [now, setNow] = useState(() => Date.now());
@@ -77,6 +81,36 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
         <div className="mt-3">
           <NetworkChoices />
         </div>
+        <div className="mt-5 grid gap-2">
+          <label className="grid gap-1 text-sm text-muted">
+            RPC Bearer Token (optional)
+            <div className="flex items-center gap-2">
+              <input
+                className="min-h-11 flex-1 rounded-2xl border border-line bg-ink px-4 text-sm text-paper"
+                type="password"
+                value={rpcToken}
+                onChange={(e) => setRpcToken(e.target.value)}
+                placeholder="Bearer token for protected RPC"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {rpcToken ? (
+                <button
+                  type="button"
+                  className="min-h-11 rounded-full border border-line px-3 text-xs text-muted"
+                  onClick={() => setRpcToken("")}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </label>
+          <p className="text-xs text-muted">
+            Stored only for this browser session and attached as an Authorization Bearer header on RPC requests.
+          </p>
+        </div>
+        <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Address Book</h3>
+        <AddressBookSection />
         <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Lock timeout</h3>
         <div className="mt-3 grid grid-cols-4 gap-2">
           {LOCK_CHOICES.map((choice) => (

@@ -1,6 +1,7 @@
 import { storageBytes } from "@/core/contracts";
 import { decodeReceipt } from "@/core/receipt";
 import { parseNetworkTagChainId } from "@/lib/networks";
+import { useNetwork } from "@/stores/network";
 import { proxyHealth, proxyIndexer, proxyRpc } from "./rpc.functions";
 
 export type SyncProbe = {
@@ -35,8 +36,16 @@ function parseJson(body: string): unknown {
   }
 }
 
+function currentRpcToken(): string | undefined {
+  const token = useNetwork.getState().rpcToken.replace(/[\r\n]/g, "").trim();
+  return token.length > 0 ? token : undefined;
+}
+
 async function post(rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
-  const result = await proxyRpc({ data: { rpcUrl, method, params } });
+  const rpcToken = currentRpcToken();
+  const result = await proxyRpc({
+    data: { rpcUrl, method, params, ...(rpcToken ? { rpcToken } : {}) },
+  });
   if (!result.ok) throw new Error(`node returned ${result.status}`);
   const parsed = asRecord(parseJson(result.body));
   if (!parsed) throw new Error("node did not return JSON");
@@ -291,7 +300,15 @@ export async function readStorageAt(rpcUrl: string, address: string, slotHex: st
   let last = "storage was not returned";
   for (const candidate of withRpcPath(rpcUrl)) {
     try {
-      const result = await proxyRpc({ data: { rpcUrl: candidate, method: "kovanica_getStorageAt", params: [address, slot] } });
+      const rpcToken = currentRpcToken();
+      const result = await proxyRpc({
+        data: {
+          rpcUrl: candidate,
+          method: "kovanica_getStorageAt",
+          params: [address, slot],
+          ...(rpcToken ? { rpcToken } : {}),
+        },
+      });
       if (!result.ok) throw new Error(`node returned ${result.status}`);
       const parsed = asRecord(parseJson(result.body));
       if (!parsed) throw new Error("node did not return JSON");

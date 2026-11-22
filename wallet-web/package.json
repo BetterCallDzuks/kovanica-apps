@@ -17,7 +17,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node -e 'process.exit(process.features?.typescript ? 0 : 1)' 2>/dev/null && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/core/receipt.test.ts src/core/history-row.test.ts src/core/contracts.test.ts src/core/hd-wallet.test.ts src/core/local-node.test.ts || npx tsx --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/core/receipt.test.ts src/core/history-row.test.ts src/core/contracts.test.ts src/core/hd-wallet.test.ts src/core/local-node.test.ts",
+    "test": "npx tsx --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/core/receipt.test.ts src/core/history-row.test.ts src/core/export-history.test.ts src/core/contracts.test.ts src/core/hd-wallet.test.ts src/core/local-node.test.ts src/core/address-book.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
