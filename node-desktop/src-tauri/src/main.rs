@@ -8,6 +8,10 @@ use std::time::Instant;
 use kovanica_node_desktop::monitor::fetch_monitor;
 use kovanica_node_desktop::policy::{check_setup, kovanica_env_names};
 use kovanica_node_desktop::session::{BeginPoll, Session, Snapshot, WindowClose};
+use kovanica_node_desktop::stratum::{
+    check_stratum_config, fetch_stratum_health, CheckedStratumConfig, StratumConfigInput,
+    StratumHealthView, StratumSession, StratumSnapshot,
+};
 use kovanica_node_desktop::supervisor::{
     arm_exit_hook, clear_gdk_dispatch, delete_event_targets_tracked, disarm_window_teardown,
     dispatch_x_error, enable_parent_death_reaper, gdk_event_starts_teardown_for_window,
@@ -288,6 +292,57 @@ async fn monitor_refresh(state: State<'_, Session>) -> Result<Snapshot, String> 
     }
 }
 
+#[tauri::command]
+fn stratum_inspect(
+    state: State<'_, StratumSession>,
+    config: StratumConfigInput,
+) -> Result<CheckedStratumConfig, String> {
+    let checked = check_stratum_config(&config)?;
+    state.store_config(checked.clone());
+    Ok(checked)
+}
+
+#[tauri::command]
+fn stratum_start(
+    state: State<'_, StratumSession>,
+    config: StratumConfigInput,
+) -> Result<StratumSnapshot, String> {
+    let checked = check_stratum_config(&config)?;
+    state.start(checked)
+}
+
+#[tauri::command]
+fn stratum_stop(state: State<'_, StratumSession>) -> Result<StratumSnapshot, String> {
+    state.stop()
+}
+
+#[tauri::command]
+fn stratum_restart(
+    state: State<'_, StratumSession>,
+    config: StratumConfigInput,
+) -> Result<StratumSnapshot, String> {
+    let checked = check_stratum_config(&config)?;
+    state.restart(checked)
+}
+
+#[tauri::command]
+fn stratum_status(state: State<'_, StratumSession>) -> StratumSnapshot {
+    state.snapshot()
+}
+
+#[tauri::command]
+async fn stratum_refresh(state: State<'_, StratumSession>) -> Result<StratumSnapshot, String> {
+    let Some(health_url) = state.health_target() else {
+        return Ok(state.snapshot());
+    };
+    let view = match fetch_stratum_health(&health_url).await {
+        Ok(view) => view,
+        Err(err) => StratumHealthView::unavailable(Some(err)),
+    };
+    state.record_health(view);
+    Ok(state.snapshot())
+}
+
 /// Stop the owned child. Stay open when that stop is not confirmed.
 fn apply_close(state: &Session) -> WindowClose {
     let msg = "node close requested\n";
@@ -317,15 +372,23 @@ fn main() {
     }
     enable_parent_death_reaper();
     let app = Session::new(STOP_GRACE);
+    let stratum = StratumSession::new(STOP_GRACE);
     tauri::Builder::default()
         .manage(app)
+        .manage(stratum)
         .invoke_handler(tauri::generate_handler![
             inspect_setup,
             node_start,
             node_stop,
             node_status,
             set_monitor_paused,
-            monitor_refresh
+            monitor_refresh,
+            stratum_inspect,
+            stratum_start,
+            stratum_stop,
+            stratum_restart,
+            stratum_status,
+            stratum_refresh
         ])
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
@@ -354,6 +417,11 @@ fn main() {
                     event: tauri::WindowEvent::CloseRequested { api, .. },
                     ..
                 } => {
+                    if let Some(stratum) = app.try_state::<StratumSession>() {
+                        if let Err(err) = stratum.inner().stop() {
+                            eprintln!("stratum stop was not confirmed during close: {err}");
+                        }
+                    }
                     if let Some(state) = app.try_state::<Session>() {
                         if let WindowClose::StayOpen { .. } = apply_close(state.inner()) {
                             api.prevent_close();
@@ -361,6 +429,9 @@ fn main() {
                     }
                 }
                 tauri::RunEvent::ExitRequested { api, .. } => {
+                    if let Some(stratum) = app.try_state::<StratumSession>() {
+                        let _ = stratum.inner().stop();
+                    }
                     if let Some(state) = app.try_state::<Session>() {
                         // If the window close already confirmed the stop, this returns Ok.
                         // If it did not, do not leave the process while the child may be alive.
