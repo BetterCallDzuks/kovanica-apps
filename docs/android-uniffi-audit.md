@@ -1,19 +1,20 @@
 # Android UniFFI & JNI FFI Audit (`android-node` & `android-wallet`)
 
-Audit of `kovanica-apps/android-node` and `kovanica-apps/android-wallet` native bindings against the authoritative Rust FFI crates in `kovanica-l1`:
+Audit and synchronization record for `kovanica-apps/android-node` and `kovanica-apps/android-wallet` native bindings against the authoritative Rust FFI crates in `kovanica-l1`:
 
 - **JNI crate**: `kovanica-l1/crates/kovanica-ffi/src/lib.rs` (`libkovanica_ffi.so`)
 - **UniFFI crate**: `kovanica-l1/crates/kovanica-light-ffi/src/lib.rs` (`libkovanica_light_ffi.so`, scaffolding namespace `kovanica_light`)
+- **Synced from `kovanica-l1` commit**: `1e46c32`
 
 ---
 
 ## Executive Summary
 
-| Component | Target Crate | Exported Surface | Status | Action Required |
+| Component | Target Crate | Exported Surface | Status | Verification |
 |---|---|---|---|---|
-| `android-node` JNI (`NativeBridge.kt` + `jniLibs/{arm64-v8a,x86_64}/libkovanica_ffi.so`) | `kovanica-ffi` | 4 JNI methods | **Matched (4/4)** | None (all 4 JNI symbols present in both ABIs; note `kovanica-ffi` in L1 is currently a stub state-holder, not a UniFFI crate). |
-| `android-node` UniFFI (`uniffi/kovanica_light/kovanica_light.kt` + `LightFfiBridge.kt`) | `kovanica-light-ffi` | 48 functions, 16 Records, 1 Error | **Bindings Matched (48/48); `.so` Missing** | `kovanica_light.kt` matches L1 100%, but `libkovanica_light_ffi.so` is **not packaged** in `android-node/app/src/main/jniLibs/`. `FfiInstall.install()` catches `UnsatisfiedLinkError` and falls back to `"native library is not packaged"`. Build & bundle `libkovanica_light_ffi.so` for `arm64-v8a` and `x86_64`. |
-| `android-wallet` UniFFI (`uniffi/kovanica_light/kovanica_light.kt` + `jniLibs/arm64-v8a/libkovanica_light_ffi.so`) | `kovanica-light-ffi` | 47 / 48 functions, 16 Records, 1 Error | **Stale Drift (1 missing fn, 4 checksum diffs)** | Internally consistent (`.kt` matches its bundled `.so`), so **do not** edit `.kt` alone. Regenerate both `libkovanica_light_ffi.so` (`cargo ndk`) and `kovanica_light.kt` (`uniffi-bindgen`) together from current `kovanica-l1`. |
+| `android-node` JNI (`NativeBridge.kt` + `jniLibs/{arm64-v8a,x86_64}/libkovanica_ffi.so`) | `kovanica-ffi` | 4 JNI methods | **Matched (4/4)** | All 4 JNI symbols present in both ABIs (`kovanica-ffi` in L1 is a raw JNI state-holder, not a UniFFI crate). |
+| `android-node` UniFFI (`uniffi/kovanica_light/kovanica_light.kt` + `jniLibs/{arm64-v8a,x86_64}/libkovanica_light_ffi.so`) | `kovanica-light-ffi` | 48 functions, 16 Records, 1 Error | **Synced (48/48, `.so` Bundled)** | Both `arm64-v8a` (4,107,832 bytes) and `x86_64` (4,830,960 bytes) stripped, 16 KB ELF LOAD-aligned (`0x4000`), 48/48 fn + 48/48 checksum symbols verified; `./gradlew testDebugUnitTest` passed. |
+| `android-wallet` UniFFI (`uniffi/kovanica_light/kovanica_light.kt` + `jniLibs/arm64-v8a/libkovanica_light_ffi.so`) | `kovanica-light-ffi` | 48 functions, 16 Records, 1 Error | **Synced (48/48)** | `arm64-v8a` (4,107,832 bytes) rebuilt & stripped, 16 KB ELF LOAD-aligned (`0x4000`), `kovanica_light.kt` byte-identical to `android-node`, 48/48 fn + 48/48 checksum symbols verified; `./gradlew checkNativeSymbols testDebugUnitTest` passed. |
 
 ---
 
@@ -58,56 +59,49 @@ All **17** UniFFI types (1 `#[derive(uniffi::Error)]` and 16 `#[derive(uniffi::R
 
 ---
 
-## 3. UniFFI Functions Audit (48 Exports)
+## 3. UniFFI Functions & Native Library Sync Status (48/48 Exports)
 
-### Drift Findings in `android-wallet`
+Both previously identified gaps have been resolved:
 
-1. **Missing exported function (1 of 48)**:
-   - Rust: `resolve_dns_seed_peers(dns_seed_host: String, default_port: u16) -> Result<Vec<String>, LightFfiError>`
-   - `android-node/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt`: **Present** (`resolveDnsSeedPeers`, `FfiConverterSequenceString`, checksum `53908`).
-   - `android-wallet/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt`: **Missing**.
-   - `android-wallet/app/src/main/jniLibs/arm64-v8a/libkovanica_light_ffi.so`: **Missing** (`nm -D` reports 47 `uniffi_kovanica_light_ffi_fn_func_*` symbols).
+1. **`android-wallet` drift resolved**:
+   - Rebuilt `android-wallet/app/src/main/jniLibs/arm64-v8a/libkovanica_light_ffi.so` from `kovanica-l1` (`1e46c32`) with Android NDK r27b and 16 KB page alignment (`-Wl,-z,max-page-size=16384`).
+   - Regenerated `android-wallet/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt` using `cargo run -p kovanica-light-ffi --features bindgen --bin kovanica-light-bindgen`.
+   - `resolve_dns_seed_peers` (`resolveDnsSeedPeers`, checksum `53908`) and all 4 previously drifted checksums (`contract_address_for_raw`, `faucet_allowed`, `mine_pow_block_header`, `sign_call_raw`) are now aligned with `kovanica-l1`.
+   - Verified via `./gradlew checkNativeSymbols testDebugUnitTest --no-daemon` (JDK 17): **BUILD SUCCESSFUL**.
 
-2. **UniFFI API Checksum Drift (4 functions)** between `android-wallet` (older build) and `android-node` (current L1):
+2. **`android-node` native library packaging resolved**:
+   - Bundled stripped 16 KB-aligned `libkovanica_light_ffi.so` for both `arm64-v8a` and `x86_64` under `android-node/app/src/main/jniLibs/`.
+   - Synced `android-node/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt` (byte-identical to `android-wallet`).
+   - Verified via `./gradlew testDebugUnitTest --no-daemon` (JDK 17): **BUILD SUCCESSFUL**.
 
-   | Function | `android-wallet` Checksum | `android-node` (Current L1) Checksum |
-   |---|---|---|
-   | `contract_address_for_raw` | `59815` | `58109` |
-   | `faucet_allowed` | `22913` | `59470` |
-   | `mine_pow_block_header` | `27244` | `39482` |
-   | `sign_call_raw` | `38764` | `42135` |
-
-   *(Cause: doc-comment / metadata updates in `kovanica-light-ffi` change UniFFI's per-function API checksums even when parameter types stay identical.)*
-
-3. **Why `android-wallet`'s `kovanica_light.kt` was NOT patched in place**:
-   - `android-wallet/app/build.gradle.kts` (`checkNativeSymbols`) and `NativeLibrarySymbolsTest.kt` enforce that every `uniffi_kovanica_light_ffi_*` symbol referenced in `kovanica_light.kt` exists in `app/src/main/jniLibs/arm64-v8a/libkovanica_light_ffi.so`, and UniFFI validates all 48 API checksums at runtime on the first JNA call.
-   - Updating `kovanica_light.kt` without rebuilding `libkovanica_light_ffi.so` via `cargo ndk` would immediately break `checkNativeSymbols`, `NativeLibrarySymbolsTest`, and app launch with `UnsatisfiedLinkError` / checksum mismatch.
-
-### Packaging Finding in `android-node`
-
-- `android-node/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt` matches all 48 functions and 17 types of current `kovanica-l1/crates/kovanica-light-ffi`, and `LightFfiBridge.kt` calls 7 of them (`createHdWallet`, `importHdWallet`, `revealMnemonicRaw`, `signTransferHd`, `verifyPowHeaderJson`, `defaultMobileNodeConfig`, `syncMobileNodePeer`) with exact matching signatures.
-- However, `android-node/app/src/main/jniLibs/` contains **only** `libkovanica_ffi.so` (`arm64-v8a` and `x86_64`) and **does not** contain `libkovanica_light_ffi.so`. Until `libkovanica_light_ffi.so` is compiled and packaged into `android-node/app/src/main/jniLibs/{arm64-v8a,x86_64}/`, `FfiInstall.install()` will leave `NativeBridge.impl = null`.
+3. **Android CI workflow repository references fixed**:
+   - Updated stale `KovanicaDAG/kovanica-l1` checkout references to `KovanicaProtokol/kovanica-l1` in:
+     - `.github/workflows/android-ci.yml`
+     - `.github/workflows/android-node.yml`
+     - `.github/workflows/android-release.yml`
 
 ---
 
-## 4. Recommended Regeneration Commands (from `kovanica-l1`)
+## 4. Turnkey Regeneration & Verification Script
 
-To synchronize both Android apps with current `kovanica-l1`:
+Use `scripts/sync-android-uniffi.sh` whenever `kovanica-l1/crates/kovanica-light-ffi` changes:
 
 ```bash
-# 1. Build libkovanica_light_ffi.so for Android ABIs (with 16 KB page alignment)
-cargo ndk -t arm64-v8a -o ../kovanica-apps/android-wallet/app/src/main/jniLibs \
-  build -p kovanica-light-ffi --release
+./scripts/sync-android-uniffi.sh
+```
 
-cargo ndk -t arm64-v8a -t x86_64 -o ../kovanica-apps/android-node/app/src/main/jniLibs \
-  build -p kovanica-light-ffi --release
+The script automatically:
+1. Locates the Android NDK (`ANDROID_NDK_HOME`, `~/android-ndk-r27b`, or `~/Android/Sdk/ndk/*`).
+2. Cross-compiles `kovanica-light-ffi` (`--release`) for `aarch64-linux-android` (`arm64-v8a`) and `x86_64-linux-android` (`x86_64`) with `-C link-arg=-Wl,-z,max-page-size=16384`.
+3. Installs and `llvm-strip --strip-unneeded` strips `libkovanica_light_ffi.so` into `android-wallet` (`arm64-v8a`) and `android-node` (`arm64-v8a`, `x86_64`).
+4. Runs `kovanica-light-bindgen` (`--features bindgen`) to regenerate `kovanica_light.kt` and copies it identically to both Android apps.
+5. Verifies Kotlin parity (`cmp -s`), 48/48 exported `uniffi_kovanica_light_ffi_fn_func_*` and `uniffi_kovanica_light_ffi_checksum_func_*` symbols (`llvm-nm -D`), and 16 KB ELF LOAD alignment (`llvm-readelf -lW`).
 
-# 2. Regenerate Kotlin UniFFI bindings from the newly built library
-cargo run -p kovanica-light-ffi --bin uniffi-bindgen -- generate \
-  --library target/aarch64-linux-android/release/libkovanica_light_ffi.so \
-  --language kotlin \
-  --out-dir ../kovanica-apps/android-wallet/app/src/main/java
+To run Gradle checks locally (using JDK 17):
 
-cp ../kovanica-apps/android-wallet/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt \
-   ../kovanica-apps/android-node/app/src/main/java/uniffi/kovanica_light/kovanica_light.kt
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export ANDROID_HOME=~/android-sdk
+(cd android-wallet && ./gradlew checkNativeSymbols testDebugUnitTest --no-daemon)
+(cd android-node && ./gradlew testDebugUnitTest --no-daemon)
 ```

@@ -1014,7 +1014,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_confirm_account() != 55701) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_kovanica_light_ffi_checksum_func_contract_address_for_raw() != 58109) {
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_contract_address_for_raw() != 1766) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_create_hd_wallet() != 60552) {
@@ -1035,7 +1035,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_execute_block_transactions() != 5262) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_kovanica_light_ffi_checksum_func_faucet_allowed() != 59470) {
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_faucet_allowed() != 24175) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_get_local_account() != 39088) {
@@ -2763,7 +2763,7 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
          *
          * Allowed on public testnet (chain 2, [`TESTNET_CHAIN_ID`]) and devnet
          * (chain 3, [`DEVNET_CHAIN_ID`]). Strictly refused on mainnet (1), the retired
-         * local id (1337), and unknown chains.
+         * `local` id (1337), and unknown chains.
          */ fun `faucetAllowed`(`chainId`: kotlin.ULong): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
@@ -2900,8 +2900,7 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
 
         /**
          * Run a bounded Proof-of-Work search (KovanicaHash) on the mobile device.
-         * Designed for thermal-gated micro-mining bursts on kovanica testnet.
-         * This app does not call it.
+         * Designed for thermal-gated micro-mining bursts on Chain 2 (Hybrid Testnet).
          */
     @Throws(LightFfiException::class) fun `minePowBlockHeader`(`headerJson`: kotlin.String, `maxHashes`: kotlin.ULong, `nonceStart`: kotlin.ULong): MinedPowResult {
             return FfiConverterTypeMinedPowResult.lift(

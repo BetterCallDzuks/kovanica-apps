@@ -130,9 +130,9 @@ pub fn check_stratum_config(input: &StratumConfigInput) -> Result<CheckedStratum
     if bind_host.is_empty() {
         return Err("bind host is required (for example 127.0.0.1 or 0.0.0.0).".into());
     }
-    let parsed_ip: IpAddr = bind_host.parse().map_err(|_| {
-        format!("bind host {bind_host:?} is not a valid IPv4 or IPv6 address.")
-    })?;
+    let parsed_ip: IpAddr = bind_host
+        .parse()
+        .map_err(|_| format!("bind host {bind_host:?} is not a valid IPv4 or IPv6 address."))?;
     if input.bind_port == 0 {
         return Err("bind port must be between 1 and 65535.".into());
     }
@@ -159,7 +159,7 @@ pub fn check_stratum_config(input: &StratumConfigInput) -> Result<CheckedStratum
         ));
     }
 
-    if !matches!(input.chain_id, 1 | 2 | 3) {
+    if !matches!(input.chain_id, 1..=3) {
         return Err(format!(
             "chain id {} is not supported (expected 1, 2, or 3).",
             input.chain_id
@@ -188,14 +188,24 @@ pub fn check_stratum_config(input: &StratumConfigInput) -> Result<CheckedStratum
             tls_key_path = Some(key.display().to_string());
         } else {
             // Optional output paths when self-signed is enabled
-            if let Some(cert_raw) = input.tls_cert_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(cert_raw) = input
+                .tls_cert_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
                 let path = Path::new(cert_raw);
                 if !path.is_absolute() {
                     return Err("TLS certificate path must be absolute.".into());
                 }
                 tls_cert_path = Some(cert_raw.to_string());
             }
-            if let Some(key_raw) = input.tls_key_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(key_raw) = input
+                .tls_key_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
                 let path = Path::new(key_raw);
                 if !path.is_absolute() {
                     return Err("TLS key path must be absolute.".into());
@@ -268,7 +278,9 @@ pub fn parse_stratum_health(http_status: u16, body: &str) -> StratumHealthView {
         return StratumHealthView::unavailable(Some("health response was not valid JSON".into()));
     };
     let Some(obj) = value.as_object() else {
-        return StratumHealthView::unavailable(Some("health response was not a JSON object".into()));
+        return StratumHealthView::unavailable(Some(
+            "health response was not a JSON object".into(),
+        ));
     };
 
     let status = match obj.get("status").and_then(Value::as_str) {
@@ -398,7 +410,9 @@ impl StratumSession {
         };
         let health = if inner.state == ProcessState::Exited {
             StratumHealthView::unavailable(Some(match inner.exit_code {
-                Some(code) => format!("stratum gateway exited with code {code}; health is not live"),
+                Some(code) => {
+                    format!("stratum gateway exited with code {code}; health is not live")
+                }
                 None => "stratum gateway exited; health is not live".into(),
             }))
         } else {
