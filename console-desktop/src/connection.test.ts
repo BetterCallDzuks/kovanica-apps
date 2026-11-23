@@ -6,10 +6,14 @@ import {
   endpointLine,
   getSessionRpcBearerToken,
   hasSessionRpcBearerToken,
+  MAX_FALLBACK_RPC_URLS,
   normalizeRpcBearerToken,
+  parseFallbackRpcUrls,
   peerLines,
+  probeRpcEndpoints,
   rpcBearerTokenStatus,
   rpcFetch,
+  sanitizeRpcUrlForDisplay,
   setSessionRpcBearerToken,
   statusRows,
   type NodeStatus,
@@ -176,5 +180,109 @@ describe("optional RPC bearer token", () => {
     expect("Authorization" in ((calls[1]?.init?.headers as Record<string, string>) ?? {})).toBe(
       false,
     );
+  });
+});
+
+describe("fallback RPC URL parsing and latency probe", () => {
+  afterEach(() => {
+    clearSessionRpcBearerToken();
+    vi.restoreAllMocks();
+  });
+
+  it("parses newline and comma separated URLs, validates http/https, deduplicates, and caps at 8", () => {
+    const raw = [
+      "  https://rpc1.kovanica.online  , http://127.0.0.1:8545",
+      "https://rpc1.kovanica.online/",
+      "ws://invalid.example:8546",
+      "ftp://invalid.example",
+      "not a url",
+      "https://rpc2.kovanica.online",
+      "https://rpc3.kovanica.online, https://rpc4.kovanica.online",
+      "https://rpc5.kovanica.online",
+      "https://rpc6.kovanica.online",
+      "https://rpc7.kovanica.online",
+      "https://rpc8.kovanica.online",
+      "https://rpc9.kovanica.online",
+    ].join("\n");
+
+    const parsed = parseFallbackRpcUrls(raw);
+    expect(parsed).toHaveLength(MAX_FALLBACK_RPC_URLS);
+    expect(parsed).toEqual([
+      "https://rpc1.kovanica.online",
+      "http://127.0.0.1:8545",
+      "https://rpc2.kovanica.online",
+      "https://rpc3.kovanica.online",
+      "https://rpc4.kovanica.online",
+      "https://rpc5.kovanica.online",
+      "https://rpc6.kovanica.online",
+      "https://rpc7.kovanica.online",
+    ]);
+    expect(parseFallbackRpcUrls("")).toEqual([]);
+    expect(parseFallbackRpcUrls("   \n , \t ")).toEqual([]);
+  });
+
+  it("probes RPC endpoints in parallel, measures latency, and sanitizes credentials", async () => {
+    const mockFetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+      expect(body.method).toBe("kovanica_chainId");
+
+      if (url.includes("rpc-ok.example")) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("rpc-http-err.example")) {
+        return new Response("Service Unavailable", { status: 503 });
+      }
+      if (url.includes("rpc-json-err.example")) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            error: { code: -32000, message: "upstream auth failed for https://alice:s3cr3t@rpc-json-err.example" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`connect ECONNREFUSED https://bob:hunter2@rpc-down.example:8545`);
+    }) as typeof fetch;
+
+    const results = await probeRpcEndpoints(
+      [
+        "https://alice:topsecret@rpc-ok.example:8545",
+        "https://rpc-http-err.example",
+        "https://rpc-json-err.example",
+        "https://bob:hunter2@rpc-down.example:8545",
+      ],
+      mockFetch,
+    );
+
+    expect(results).toHaveLength(4);
+
+    expect(results[0]?.ok).toBe(true);
+    expect(results[0]?.chainId).toBe("0x2");
+    expect(results[0]?.url).toBe("https://rpc-ok.example:8545");
+    expect(results[0]?.url).not.toContain("topsecret");
+    expect(results[0]?.latencyMs).toBeGreaterThanOrEqual(0);
+
+    expect(results[1]?.ok).toBe(false);
+    expect(results[1]?.error).toBe("HTTP 503");
+
+    expect(results[2]?.ok).toBe(false);
+    expect(results[2]?.error).not.toContain("s3cr3t");
+    expect(results[2]?.error).toContain("[REDACTED]@");
+
+    expect(results[3]?.ok).toBe(false);
+    expect(results[3]?.url).toBe("https://rpc-down.example:8545");
+    expect(results[3]?.url).not.toContain("hunter2");
+    expect(results[3]?.error).not.toContain("hunter2");
+    expect(results[3]?.error).toContain("[REDACTED]@");
+
+    expect(sanitizeRpcUrlForDisplay("https://user:pass@rpc.example:8545/v1")).toBe(
+      "https://rpc.example:8545/v1",
+    );
+    expect(await probeRpcEndpoints([], mockFetch)).toEqual([]);
   });
 });

@@ -436,6 +436,161 @@ export function buildSanitizedStratumDiagnostics(
   return bundle;
 }
 
+export interface StratumRpcProbeResult {
+  url: string;
+  ok: boolean;
+  chainId: string | null;
+  latencyMs: number;
+  error: string | null;
+}
+
+function nowMs(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+/**
+ * Probes an upstream Kovanica node RPC endpoint via `kovanica_chainId` to verify
+ * reachability and round-trip latency before starting the Stratum gateway.
+ */
+export async function probeStratumUpstreamRpc(
+  rpcUrl: string,
+  fetchImpl?: typeof fetch,
+): Promise<StratumRpcProbeResult> {
+  const trimmed = rpcUrl.trim();
+  const safeUrl = sanitizeUrlForDiagnostics(trimmed);
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return {
+      url: safeUrl,
+      ok: false,
+      chainId: null,
+      latencyMs: 0,
+      error: "Upstream node RPC URL must be a valid http:// or https:// URL.",
+    };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return {
+      url: safeUrl,
+      ok: false,
+      chainId: null,
+      latencyMs: 0,
+      error: "Upstream node RPC URL must start with http:// or https://.",
+    };
+  }
+
+  const fetchFn = fetchImpl ?? fetch;
+  const start = nowMs();
+  try {
+    const response = await fetchFn(trimmed, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "kovanica_chainId",
+        params: [],
+      }),
+    });
+    const latencyMs = Math.max(0, Math.round(nowMs() - start));
+
+    if (!response.ok) {
+      return {
+        url: safeUrl,
+        ok: false,
+        chainId: null,
+        latencyMs,
+        error: sanitizeDiagnosticText(`HTTP ${response.status}`),
+      };
+    }
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return {
+        url: safeUrl,
+        ok: false,
+        chainId: null,
+        latencyMs,
+        error: "Invalid JSON-RPC response.",
+      };
+    }
+
+    if (!body || typeof body !== "object") {
+      return {
+        url: safeUrl,
+        ok: false,
+        chainId: null,
+        latencyMs,
+        error: "Invalid JSON-RPC response.",
+      };
+    }
+
+    const record = body as {
+      result?: unknown;
+      error?: { code?: unknown; message?: unknown };
+    };
+
+    if (record.error) {
+      const errMsg =
+        typeof record.error.message === "string" && record.error.message.trim() !== ""
+          ? record.error.message
+          : `RPC error ${String(record.error.code ?? "unknown")}`;
+      return {
+        url: safeUrl,
+        ok: false,
+        chainId: null,
+        latencyMs,
+        error: sanitizeDiagnosticText(errMsg),
+      };
+    }
+
+    if (record.result === undefined || record.result === null || String(record.result).trim() === "") {
+      return {
+        url: safeUrl,
+        ok: false,
+        chainId: null,
+        latencyMs,
+        error: "Missing chainId result.",
+      };
+    }
+
+    return {
+      url: safeUrl,
+      ok: true,
+      chainId: String(record.result),
+      latencyMs,
+      error: null,
+    };
+  } catch (err) {
+    const latencyMs = Math.max(0, Math.round(nowMs() - start));
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    return {
+      url: safeUrl,
+      ok: false,
+      chainId: null,
+      latencyMs,
+      error: sanitizeDiagnosticText(rawMessage || "Request failed."),
+    };
+  }
+}
+
+/** Formats a Stratum upstream RPC probe result into a concise operator status line. */
+export function formatRpcProbeResult(probe: StratumRpcProbeResult): string {
+  const safeUrl = sanitizeUrlForDiagnostics(probe.url);
+  if (probe.ok) {
+    return `Upstream RPC reachable (${safeUrl}) · chainId=${probe.chainId ?? "unknown"} · ${probe.latencyMs}ms`;
+  }
+  const safeError = probe.error ? sanitizeDiagnosticText(probe.error) : "unknown error";
+  return `Upstream RPC unreachable (${safeUrl}) · ${probe.latencyMs}ms · ${safeError}`;
+}
+
 export function validateStratumForm(input: StratumFormInput): string | null {
   if (input.binary.trim() === "") {
     return "Enter the absolute path to the kovanica-stratum executable.";

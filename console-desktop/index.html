@@ -40,6 +40,33 @@
           </div>
           <p id="rpc-token-status" class="muted"></p>
         </div>
+        <div id="fallback-rpc-row">
+          <label for="fallback-rpcs">Fallback RPC endpoints (optional, newline or comma separated, max 8)</label>
+          <textarea
+            id="fallback-rpcs"
+            name="fallback-rpcs"
+            rows="3"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="https://rpc-backup-1.kovanica.online&#10;https://rpc-backup-2.kovanica.online"
+          ></textarea>
+          <div class="row">
+            <button id="test-all-endpoints" type="button">Test All Endpoints</button>
+          </div>
+          <p id="rpc-probe-status" class="muted" aria-live="polite" hidden></p>
+          <table id="rpc-probe-table" class="workers-table" hidden>
+            <thead>
+              <tr>
+                <th scope="col">Endpoint</th>
+                <th scope="col">Status</th>
+                <th scope="col">Chain ID</th>
+                <th scope="col">Latency</th>
+                <th scope="col">Detail</th>
+              </tr>
+            </thead>
+            <tbody id="rpc-probe-body"></tbody>
+          </table>
+        </div>
         <p id="endpoint" class="muted"></p>
         <p id="error" class="error" role="alert" hidden></p>
       </section>

@@ -224,6 +224,24 @@ input[type="password"],
   margin-top: 8px;
 }
 
+#fallback-rpc-row {
+  margin-top: 0.75rem;
+}
+
+#rpc-probe-table {
+  margin-top: 0.6rem;
+}
+
+#rpc-probe-table td[data-ok="true"] {
+  color: #7bd88f;
+  font-weight: 600;
+}
+
+#rpc-probe-table td[data-ok="false"] {
+  color: var(--error);
+  font-weight: 600;
+}
+
 #stratum-rows {
   margin-top: 0.75rem;
 }

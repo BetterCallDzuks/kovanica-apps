@@ -15,7 +15,9 @@ import {
   estimateContractCallPreview,
   formatBatchCallEstimateSummary,
   formatCallEstimateSummary,
+  formatReceiptTrackingSummary,
   formatSafetyMarginPercent,
+  inferContractLogKind,
   simulateContractCallBeforeSign,
   trackSubmittedContractReceipt,
 } from "./call-estimate.ts";
@@ -738,5 +740,99 @@ describe("contract call fee/gas & wire-size preview", () => {
     assert.equal(revertedTracked.status, "reverted");
     assert.equal(revertedTracked.gasUsed, 21_500n);
     assert.deepEqual(revertedTracked.decodedLogs, []);
+  });
+
+  it("maps all contract families to SDK ContractLogKind via inferContractLogKind", () => {
+    assert.equal(inferContractLogKind("name"), "name");
+    assert.equal(inferContractLogKind("token"), "token_metadata");
+    assert.equal(inferContractLogKind("nft"), "nft_metadata");
+    assert.equal(inferContractLogKind("escrow"), "escrow");
+    assert.equal(inferContractLogKind("htlc"), "htlc");
+    assert.equal(inferContractLogKind("vault"), "vault");
+    assert.equal(inferContractLogKind("multisig"), "multisig_state");
+    assert.equal(inferContractLogKind("  NAME "), "name");
+    assert.equal(inferContractLogKind("unknown"), undefined);
+    assert.equal(inferContractLogKind(""), undefined);
+    assert.equal(inferContractLogKind(null), undefined);
+    assert.equal(inferContractLogKind(undefined), undefined);
+  });
+
+  it("formats confirmed receipts with decoded logs and reverted receipts via formatReceiptTrackingSummary", async () => {
+    const txHash = `0x${"ab".repeat(32)}`;
+    const blockHash = `0x${"cd".repeat(32)}`;
+    const namePayload = encodeBincodeNameRecord(senderKey, bobBytes, ["127.0.0.1:8000"]);
+    const nameLogHex = `0x${bytesToHex(namePayload)}`;
+
+    const confirmedClient: WaitForTransactionReceiptClient = {
+      async getTransactionReceipt(): Promise<TransactionReceipt | null> {
+        return {
+          transactionHash: txHash,
+          blockHash,
+          blockNumber: 128n,
+          transactionIndex: 0n,
+          status: 1,
+          success: true,
+          gasUsed: 48_210n,
+          logs: [
+            {
+              address: contractAddr,
+              topics: ["name_registered"],
+              data: nameLogHex,
+            },
+          ],
+        };
+      },
+    };
+
+    const confirmedTracked = await trackSubmittedContractReceipt(confirmedClient, txHash, {
+      logKind: inferContractLogKind("name"),
+      pollIntervalMs: 10,
+      timeoutMs: 2_000,
+    });
+
+    const confirmedRows = formatReceiptTrackingSummary(confirmedTracked);
+    assert.deepEqual(
+      confirmedRows.map((row) => row.label),
+      ["Status", "Gas used", "Block height", "Block hash", "Decoded logs"],
+    );
+    assert.equal(confirmedRows[0]?.value, "Confirmed");
+    assert.equal(confirmedRows[1]?.value, "48,210");
+    assert.equal(confirmedRows[2]?.value, "128");
+    assert.equal(confirmedRows[3]?.value, blockHash);
+    assert.match(confirmedRows[4]?.value ?? "", /#0 \[name\] \(name_registered\)/);
+    assert.match(confirmedRows[4]?.value ?? "", /127\.0\.0\.1:8000/);
+
+    const revertedTxHash = `0x${"ef".repeat(32)}`;
+    const revertedBlockHash = `0x${"12".repeat(32)}`;
+    const revertedClient: WaitForTransactionReceiptClient = {
+      async getTransactionReceipt(): Promise<TransactionReceipt | null> {
+        return {
+          transactionHash: revertedTxHash,
+          blockHash: revertedBlockHash,
+          blockNumber: 129n,
+          transactionIndex: 1n,
+          status: 0,
+          success: false,
+          gasUsed: 21_500n,
+          logs: [],
+        };
+      },
+    };
+
+    const revertedTracked = await trackSubmittedContractReceipt(revertedClient, revertedTxHash, {
+      pollIntervalMs: 10,
+      timeoutMs: 2_000,
+    });
+
+    const revertedRows = formatReceiptTrackingSummary(revertedTracked);
+    assert.deepEqual(
+      revertedRows.map((row) => row.label),
+      ["Status", "Gas used", "Block height", "Block hash", "Decoded logs"],
+    );
+    assert.equal(revertedRows[0]?.value, "Reverted");
+    assert.equal(revertedRows[1]?.value, "21,500");
+    assert.equal(revertedRows[2]?.value, "129");
+    assert.equal(revertedRows[3]?.value, revertedBlockHash);
+    assert.equal(revertedRows[4]?.value, "None");
   });
 });

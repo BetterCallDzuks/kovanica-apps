@@ -6,7 +6,9 @@ import test from "node:test";
 import {
   buildSanitizedStratumDiagnostics,
   evaluateStratumAlerts,
+  formatRpcProbeResult,
   mountStratumApp,
+  probeStratumUpstreamRpc,
   stratumStatusLabel,
   toStratumPayload,
   validateStratumForm,
@@ -773,4 +775,80 @@ test("Stratum UI renders alert banner and exports sanitized diagnostics JSON on 
   );
 
   world.dispose();
+});
+
+test("probeStratumUpstreamRpc measures kovanica_chainId reachability/latency and formatRpcProbeResult sanitizes output", async () => {
+  const mockOkFetch: typeof fetch = (async (_input, init) => {
+    const payload = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
+    assert.equal(payload.method, "kovanica_chainId");
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "2" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const okProbe = await probeStratumUpstreamRpc(
+    "http://operator:supersecret@127.0.0.1:8545",
+    mockOkFetch,
+  );
+  assert.equal(okProbe.ok, true);
+  assert.equal(okProbe.chainId, "2");
+  assert.equal(okProbe.error, null);
+  assert.ok(okProbe.latencyMs >= 0);
+  assert.doesNotMatch(okProbe.url, /supersecret/);
+  assert.match(okProbe.url, /^http:\/\/127\.0\.0\.1:8545\/?$/);
+  const okFormatted = formatRpcProbeResult(okProbe);
+  assert.match(okFormatted, /Upstream RPC reachable/);
+  assert.match(okFormatted, /chainId=2/);
+  assert.doesNotMatch(okFormatted, /supersecret/);
+
+  const mockHttpErrFetch: typeof fetch = (async () =>
+    new Response("Bad Gateway", { status: 502 })) as typeof fetch;
+  const httpErrProbe = await probeStratumUpstreamRpc(
+    "http://127.0.0.1:8545",
+    mockHttpErrFetch,
+  );
+  assert.equal(httpErrProbe.ok, false);
+  assert.equal(httpErrProbe.chainId, null);
+  assert.equal(httpErrProbe.error, "HTTP 502");
+
+  const mockRpcErrFetch: typeof fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32603, message: "auth failed Bearer secret_tok_999" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )) as typeof fetch;
+  const rpcErrProbe = await probeStratumUpstreamRpc(
+    "http://127.0.0.1:8545",
+    mockRpcErrFetch,
+  );
+  assert.equal(rpcErrProbe.ok, false);
+  assert.doesNotMatch(rpcErrProbe.error ?? "", /secret_tok_999/);
+  assert.match(rpcErrProbe.error ?? "", /\[REDACTED\]/);
+
+  const mockThrowFetch: typeof fetch = (async () => {
+    throw new Error("ECONNREFUSED http://admin:hunter2@127.0.0.1:8545");
+  }) as typeof fetch;
+  const downProbe = await probeStratumUpstreamRpc(
+    "http://admin:hunter2@127.0.0.1:8545",
+    mockThrowFetch,
+  );
+  assert.equal(downProbe.ok, false);
+  assert.doesNotMatch(downProbe.url, /hunter2/);
+  assert.doesNotMatch(downProbe.error ?? "", /hunter2/);
+  const downFormatted = formatRpcProbeResult(downProbe);
+  assert.match(downFormatted, /Upstream RPC unreachable/);
+  assert.doesNotMatch(downFormatted, /hunter2/);
+
+  let invalidCalled = false;
+  const invalidProbe = await probeStratumUpstreamRpc("ws://127.0.0.1:8545", (async () => {
+    invalidCalled = true;
+    return new Response("");
+  }) as typeof fetch);
+  assert.equal(invalidCalled, false);
+  assert.equal(invalidProbe.ok, false);
+  assert.match(invalidProbe.error ?? "", /http/i);
 });

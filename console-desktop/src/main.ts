@@ -3,12 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   clearSessionRpcBearerToken,
   endpointLine,
+  parseFallbackRpcUrls,
   peerLines,
+  probeRpcEndpoints,
   rpcBearerTokenStatus,
   setSessionRpcBearerToken,
   statusRows,
   type ConnectionConfig,
   type NodeStatus,
+  type RpcProbeResult,
   type StatusRow,
 } from "./connection";
 import { presetById, presetFor } from "./networks";
@@ -43,6 +46,75 @@ const rpcToken = document.querySelector<HTMLInputElement>("#rpc-token");
 const rpcTokenApply = document.querySelector<HTMLButtonElement>("#rpc-token-apply");
 const rpcTokenClear = document.querySelector<HTMLButtonElement>("#rpc-token-clear");
 const rpcTokenStatus = document.querySelector<HTMLParagraphElement>("#rpc-token-status");
+
+const fallbackRpcs = document.querySelector<HTMLTextAreaElement>("#fallback-rpcs");
+const testAllEndpointsBtn = document.querySelector<HTMLButtonElement>("#test-all-endpoints");
+const rpcProbeStatus = document.querySelector<HTMLParagraphElement>("#rpc-probe-status");
+const rpcProbeTable = document.querySelector<HTMLTableElement>("#rpc-probe-table");
+const rpcProbeBody = document.querySelector<HTMLTableSectionElement>("#rpc-probe-body");
+
+function renderProbeResults(results: RpcProbeResult[]): void {
+  if (!rpcProbeTable || !rpcProbeBody || !rpcProbeStatus) return;
+  rpcProbeBody.replaceChildren();
+  if (results.length === 0) {
+    rpcProbeTable.hidden = true;
+    rpcProbeStatus.hidden = false;
+    rpcProbeStatus.textContent = "Enter at least one valid http:// or https:// RPC endpoint to test.";
+    return;
+  }
+  let reachable = 0;
+  for (const res of results) {
+    if (res.ok) reachable += 1;
+    const row = document.createElement("tr");
+
+    const urlCell = document.createElement("td");
+    urlCell.textContent = res.url;
+
+    const statusCell = document.createElement("td");
+    statusCell.textContent = res.ok ? "Reachable" : "Failed";
+    statusCell.dataset.ok = res.ok ? "true" : "false";
+
+    const chainCell = document.createElement("td");
+    chainCell.textContent = res.chainId ?? "—";
+
+    const latencyCell = document.createElement("td");
+    latencyCell.textContent = `${res.latencyMs} ms`;
+
+    const detailCell = document.createElement("td");
+    detailCell.textContent = res.ok ? "OK" : (res.error ?? "Unavailable");
+
+    row.append(urlCell, statusCell, chainCell, latencyCell, detailCell);
+    rpcProbeBody.append(row);
+  }
+  rpcProbeTable.hidden = false;
+  rpcProbeStatus.hidden = false;
+  rpcProbeStatus.textContent = `Tested ${results.length} endpoint${results.length === 1 ? "" : "s"}: ${reachable} reachable, ${results.length - reachable} failed.`;
+}
+
+testAllEndpointsBtn?.addEventListener("click", () => {
+  void (async () => {
+    if (!testAllEndpointsBtn) return;
+    const combined = [rpc.value, fallbackRpcs?.value ?? ""].join("\n");
+    const urls = parseFallbackRpcUrls(combined);
+    if (urls.length === 0) {
+      renderProbeResults([]);
+      return;
+    }
+    testAllEndpointsBtn.disabled = true;
+    if (rpcProbeStatus) {
+      rpcProbeStatus.hidden = false;
+      rpcProbeStatus.textContent = `Testing ${urls.length} endpoint${urls.length === 1 ? "" : "s"}…`;
+    }
+    try {
+      const results = await probeRpcEndpoints(urls);
+      renderProbeResults(results);
+    } catch (error) {
+      showError(messageFrom(error));
+    } finally {
+      testAllEndpointsBtn.disabled = false;
+    }
+  })();
+});
 
 function paintRpcTokenStatus(): void {
   if (rpcTokenStatus) {

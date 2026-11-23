@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ContractLogKind } from "kovanica-sdk";
 import { checkAddress, decodeRecipient } from "@/core/address";
 import { equalBytes } from "@/core/bytes";
 import {
@@ -19,10 +20,14 @@ import {
   estimateContractCallPreview,
   formatBatchCallEstimateSummary,
   formatCallEstimateSummary,
+  formatReceiptTrackingSummary,
+  inferContractLogKind,
   simulateContractCallBeforeSign,
+  trackSubmittedContractReceipt,
   type CallBatchEstimatePreview,
   type CallEstimatePreview,
   type SimulateContractCallResult,
+  type TrackedContractReceipt,
 } from "@/core/call-estimate";
 import { parseAtoms } from "@/core/format";
 import { callNeed, shortfall } from "@/core/history-row";
@@ -31,7 +36,12 @@ import { ContactSelect } from "@/components/contacts/ContactSelect";
 import { FaucetButton } from "@/components/home/FaucetButton";
 import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
-import { createCallEstimateClient, createDryRunCallClient, readStorageAt } from "@/services/rpc";
+import {
+  createCallEstimateClient,
+  createDryRunCallClient,
+  createReceiptTrackingClient,
+  readStorageAt,
+} from "@/services/rpc";
 import { signingLock, useNetwork } from "@/stores/network";
 import { useActivity } from "@/stores/activity";
 
@@ -668,8 +678,252 @@ export function Contracts({
       <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={current.sign ? (lock.locked || estimating) : reading}>
         {current.sign ? (estimating ? "Estimating…" : "Review call") : reading ? "Reading…" : "Read"}
       </button>
+      <PostBroadcastReceiptTracker contractFamily={contractId} rpcUrl={net.rpcUrl} online={net.online} />
       <ReceiptCard />
     </form>
+  );
+}
+
+const LOG_KIND_OPTIONS: ReadonlyArray<{ value: ContractLogKind | "none"; label: string }> = [
+  { value: "token_metadata", label: "token_metadata" },
+  { value: "htlc", label: "htlc" },
+  { value: "vault", label: "vault" },
+  { value: "multisig_state", label: "multisig_state" },
+  { value: "multisig_tx", label: "multisig_tx" },
+  { value: "name", label: "name" },
+  { value: "nft_metadata", label: "nft_metadata" },
+  { value: "escrow", label: "escrow" },
+  { value: "token_pool", label: "token_pool" },
+  { value: "none", label: "Raw (no decode)" },
+];
+
+type ReceiptTrackerState =
+  | { phase: "idle" }
+  | { phase: "polling"; txHash: string }
+  | { phase: "done"; txHash: string; result: TrackedContractReceipt }
+  | { phase: "error"; txHash: string; message: string };
+
+function PostBroadcastReceiptTracker({
+  contractFamily,
+  rpcUrl,
+  online,
+}: {
+  contractFamily: ContractName;
+  rpcUrl: string;
+  online: boolean;
+}) {
+  const latestContractRow = useActivity((state) =>
+    state.rows.find((item) => item.direction === "contract"),
+  );
+  const [txHashInput, setTxHashInput] = useState("");
+  const [logKindChoice, setLogKindChoice] = useState<ContractLogKind | "none">(
+    () => inferContractLogKind(contractFamily) ?? "none",
+  );
+  const [tracker, setTracker] = useState<ReceiptTrackerState>({ phase: "idle" });
+  const abortRef = useRef<AbortController | null>(null);
+  const lastAutoTrackedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setLogKindChoice(inferContractLogKind(contractFamily) ?? "none");
+  }, [contractFamily]);
+
+  const stopTracking = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setTracker((current) => (current.phase === "polling" ? { phase: "idle" } : current));
+  }, []);
+
+  const startTracking = useCallback(
+    (rawHash: string, chosenLogKind: ContractLogKind | "none") => {
+      const cleanHash = rawHash.trim();
+      if (!cleanHash) return;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setTracker({ phase: "polling", txHash: cleanHash });
+
+      const client = createReceiptTrackingClient(rpcUrl);
+      const resolvedLogKind = chosenLogKind === "none" ? undefined : chosenLogKind;
+
+      void trackSubmittedContractReceipt(client, cleanHash, {
+        logKind: resolvedLogKind,
+        signal: controller.signal,
+      })
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          if (abortRef.current === controller) abortRef.current = null;
+          setTracker({ phase: "done", txHash: cleanHash, result });
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          if (abortRef.current === controller) abortRef.current = null;
+          setTracker({
+            phase: "error",
+            txHash: cleanHash,
+            message: err instanceof Error ? err.message : "Could not track transaction receipt.",
+          });
+        });
+    },
+    [rpcUrl],
+  );
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!latestContractRow || !online) return;
+    const hash = latestContractRow.hash.trim();
+    if (!hash) return;
+    if (lastAutoTrackedRef.current === hash) return;
+    lastAutoTrackedRef.current = hash;
+    setTxHashInput(hash);
+    if (latestContractRow.status === "pending") {
+      startTracking(hash, inferContractLogKind(contractFamily) ?? "none");
+    }
+  }, [latestContractRow, online, contractFamily, startTracking]);
+
+  const summaryRows =
+    tracker.phase === "done" ? formatReceiptTrackingSummary(tracker.result) : [];
+
+  return (
+    <section
+      className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm"
+      aria-label="Post-Broadcast Receipt Tracker"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-medium text-paper">Post-Broadcast Receipt Tracker</h3>
+        {tracker.phase === "polling" ? (
+          <span className="rounded-full border border-copper/70 bg-copper/10 px-3 py-0.5 text-xs font-medium text-copper">
+            Waiting for confirmation...
+          </span>
+        ) : tracker.phase === "done" ? (
+          <span
+            className={`rounded-full border px-3 py-0.5 text-xs font-medium ${
+              tracker.result.status === "success"
+                ? "border-sage/60 bg-sage/10 text-sage"
+                : "border-clay bg-clay/10 text-clay"
+            }`}
+          >
+            {tracker.result.status === "success" ? "Confirmed" : "Reverted"}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-2">
+        <label className="grid gap-1 text-xs text-muted">
+          Submitted transaction hash
+          <input
+            className="min-h-10 rounded-2xl border border-line bg-surface px-3 font-mono text-xs text-paper"
+            value={txHashInput}
+            onChange={(event) => setTxHashInput(event.target.value)}
+            placeholder="0x... or 64-char tx hash"
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+        </label>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <label className="grid gap-1 text-xs text-muted">
+            Log decoder
+            <select
+              className="min-h-9 rounded-full border border-line bg-surface px-3 text-xs text-paper"
+              value={logKindChoice}
+              onChange={(event) => setLogKindChoice(event.target.value as ContractLogKind | "none")}
+            >
+              {LOG_KIND_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+              disabled={!online || !txHashInput.trim() || tracker.phase === "polling"}
+              onClick={() => startTracking(txHashInput, logKindChoice)}
+            >
+              {tracker.phase === "polling" ? "Waiting for confirmation..." : "Track receipt"}
+            </button>
+            {tracker.phase === "polling" ? (
+              <button
+                type="button"
+                className="min-h-9 rounded-full border border-line px-3 text-xs text-muted"
+                onClick={stopTracking}
+              >
+                Stop
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      {tracker.phase === "polling" ? (
+        <div
+          role="status"
+          className="mt-3 rounded-2xl border border-copper/50 bg-copper/10 px-3 py-2 text-xs text-paper"
+        >
+          <p className="font-medium text-copper">Waiting for confirmation...</p>
+          <p className="mt-1 break-all font-mono text-muted">tx {tracker.txHash}</p>
+        </div>
+      ) : null}
+      {tracker.phase === "error" ? (
+        <div
+          role="alert"
+          className="mt-3 rounded-2xl border border-clay bg-clay/10 px-3 py-2 text-xs text-clay"
+        >
+          <p className="font-medium">Receipt tracking error</p>
+          <p className="mt-1 break-words">{tracker.message}</p>
+        </div>
+      ) : null}
+      {tracker.phase === "done" ? (
+        <div
+          role={tracker.result.status === "reverted" ? "alert" : "status"}
+          className={`mt-3 rounded-2xl border px-3 py-2 text-xs ${
+            tracker.result.status === "success"
+              ? "border-sage/60 bg-sage/10"
+              : "border-clay bg-clay/10"
+          }`}
+        >
+          <p
+            className={`font-medium ${
+              tracker.result.status === "success" ? "text-sage" : "text-clay"
+            }`}
+          >
+            {tracker.result.status === "success"
+              ? "Contract call confirmed"
+              : "Contract call reverted"}
+          </p>
+          <p className="mt-1 break-all font-mono text-muted">tx {tracker.txHash}</p>
+          <dl className="mt-2 grid gap-2">
+            {summaryRows.map((row) => (
+              <div
+                key={row.label}
+                className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line/60 pt-2"
+              >
+                <dt className="text-muted">{row.label}</dt>
+                <dd
+                  className={`text-right text-paper ${
+                    row.label === "Block hash" || row.label === "Decoded logs"
+                      ? "max-w-full whitespace-pre-wrap break-all font-mono"
+                      : "tabular-nums"
+                  }`}
+                >
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {tracker.phase === "idle" ? (
+        <p className="mt-2 text-xs text-muted">
+          Automatically polls after broadcasting a contract call, or paste any submitted tx hash to inspect confirmation status, gas used, and decoded Bincode log events.
+        </p>
+      ) : null}
+    </section>
   );
 }
 

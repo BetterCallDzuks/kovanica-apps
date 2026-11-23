@@ -16,6 +16,7 @@ import {
   type WaitForTransactionReceiptClient,
 } from "kovanica-sdk";
 import { decodeRecipient } from "./address.ts";
+import { bytesToHex } from "./bytes.ts";
 import { formatAtoms, formatKvnc } from "./format.ts";
 import type { PreviewDetail } from "./session.ts";
 
@@ -431,4 +432,96 @@ export async function trackSubmittedContractReceipt<K extends ContractLogKind = 
     gasUsed: receipt.gasUsed ?? null,
     decodedLogs,
   };
+}
+
+/**
+ * Maps a wallet contract family name to its corresponding `kovanica-sdk` `ContractLogKind`.
+ */
+export function inferContractLogKind(
+  contractFamily: string | null | undefined,
+): ContractLogKind | undefined {
+  switch (contractFamily?.trim().toLowerCase()) {
+    case "name":
+      return "name";
+    case "token":
+      return "token_metadata";
+    case "nft":
+      return "nft_metadata";
+    case "escrow":
+      return "escrow";
+    case "htlc":
+      return "htlc";
+    case "vault":
+      return "vault";
+    case "multisig":
+      return "multisig_state";
+    default:
+      return undefined;
+  }
+}
+
+function formatDecodedReceiptLogEntry(log: {
+  index: number;
+  topics?: ReadonlyArray<string>;
+  kind: ContractLogKind;
+  record: unknown;
+}): string {
+  const topic = log.topics && log.topics.length > 0 ? ` (${log.topics[0]})` : "";
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(log.record, (_key, val: unknown) => {
+      if (typeof val === "bigint") return val.toString();
+      if (val instanceof Uint8Array) return `0x${bytesToHex(val)}`;
+      return val;
+    });
+  } catch {
+    serialized = "[unserializable record]";
+  }
+  return `#${log.index} [${log.kind}]${topic}: ${serialized}`;
+}
+
+/**
+ * Formats a `TrackedContractReceipt` into structured display rows (`Status`, `Gas used`,
+ * `Block height`, `Block hash`, `Decoded logs`) for post-broadcast receipt tracking banners.
+ */
+export function formatReceiptTrackingSummary<K extends ContractLogKind = ContractLogKind>(
+  result: TrackedContractReceipt<K>,
+): PreviewDetail[] {
+  const rows: PreviewDetail[] = [
+    {
+      label: "Status",
+      value: result.status === "success" ? "Confirmed" : "Reverted",
+    },
+    {
+      label: "Gas used",
+      value: result.gasUsed != null ? formatAtoms(result.gasUsed) : "—",
+    },
+    {
+      label: "Block height",
+      value: result.receipt.blockNumber.toString(),
+    },
+  ];
+
+  const blockHash = result.receipt.blockHash.trim();
+  if (blockHash) {
+    rows.push({
+      label: "Block hash",
+      value: blockHash,
+    });
+  }
+
+  const rawLogCount = result.receipt.logs?.length ?? 0;
+  const decodedValue =
+    result.decodedLogs.length > 0
+      ? result.decodedLogs.map((entry) => formatDecodedReceiptLogEntry(entry)).join("\n")
+      : rawLogCount > 0
+        ? `0 decoded (${rawLogCount} raw)`
+        : "None";
+
+  rows.push({
+    label: "Decoded logs",
+    value: decodedValue,
+  });
+
+  return rows;
 }

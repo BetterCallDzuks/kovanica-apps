@@ -156,3 +156,213 @@ export async function rpcFetch(
     signal: options.signal,
   });
 }
+
+export const MAX_FALLBACK_RPC_URLS = 8;
+
+export interface RpcProbeResult {
+  url: string;
+  ok: boolean;
+  chainId?: string;
+  latencyMs: number;
+  error?: string;
+}
+
+/** Redacts embedded URL credentials and bearer tokens from display/error text. */
+export function sanitizeRpcText(input: string): string {
+  return input
+    .replace(/(https?:\/\/)([^:@\s/]+)(?::[^@\s/]*)?@/gi, "$1[REDACTED]@")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[REDACTED]");
+}
+
+/** Returns a display-safe URL with any embedded username/password removed. */
+export function sanitizeRpcUrlForDisplay(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  try {
+    const parsed = new URL(trimmed);
+    const hadCredentials = parsed.username !== "" || parsed.password !== "";
+    parsed.username = "";
+    parsed.password = "";
+    if (!hadCredentials) {
+      return trimmed;
+    }
+    const formatted = parsed.toString();
+    // Preserve no-trailing-slash style when original root URL had no trailing slash.
+    if (parsed.pathname === "/" && !trimmed.endsWith("/") && formatted.endsWith("/")) {
+      return formatted.slice(0, -1);
+    }
+    return formatted;
+  } catch {
+    return sanitizeRpcText(trimmed);
+  }
+}
+
+/**
+ * Parses newline- or comma-separated fallback RPC URLs.
+ * Trims entries, validates `http://` or `https://` URLs, deduplicates, and caps at 8 endpoints.
+ */
+export function parseFallbackRpcUrls(rawText: string): string[] {
+  if (typeof rawText !== "string" || rawText.trim() === "") {
+    return [];
+  }
+  const seen = new Set<string>();
+  const urls: string[] = [];
+
+  for (const part of rawText.split(/[\r\n,]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001F\u007F]/.test(trimmed)) continue;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      continue;
+    }
+    if (!parsed.hostname) {
+      continue;
+    }
+
+    const dedupKey = parsed.toString();
+    if (seen.has(dedupKey)) {
+      continue;
+    }
+    seen.add(dedupKey);
+    urls.push(trimmed);
+    if (urls.length >= MAX_FALLBACK_RPC_URLS) {
+      break;
+    }
+  }
+
+  return urls;
+}
+
+function nowMs(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+/**
+ * Queries `kovanica_chainId` against each RPC URL in parallel, measuring round-trip
+ * latency in milliseconds and sanitizing any embedded credentials in displayed URLs or errors.
+ */
+export async function probeRpcEndpoints(
+  urls: readonly string[],
+  fetchImpl?: typeof fetch,
+): Promise<RpcProbeResult[]> {
+  if (urls.length === 0) {
+    return [];
+  }
+
+  return Promise.all(
+    urls.map(async (rawUrl): Promise<RpcProbeResult> => {
+      const displayUrl = sanitizeRpcUrlForDisplay(rawUrl);
+      const start = nowMs();
+      try {
+        const parsed = new URL(rawUrl.trim());
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          return {
+            url: displayUrl,
+            ok: false,
+            latencyMs: 0,
+            error: "RPC URL must start with http:// or https://.",
+          };
+        }
+      } catch {
+        return {
+          url: displayUrl,
+          ok: false,
+          latencyMs: 0,
+          error: "Invalid RPC URL.",
+        };
+      }
+
+      try {
+        const response = await rpcFetch(
+          rawUrl.trim(),
+          { jsonrpc: "2.0", id: 1, method: "kovanica_chainId", params: [] },
+          { fetchImpl },
+        );
+        const latencyMs = Math.max(0, Math.round(nowMs() - start));
+
+        if (!response.ok) {
+          return {
+            url: displayUrl,
+            ok: false,
+            latencyMs,
+            error: sanitizeRpcText(`HTTP ${response.status}`),
+          };
+        }
+
+        let body: unknown;
+        try {
+          body = await response.json();
+        } catch {
+          return {
+            url: displayUrl,
+            ok: false,
+            latencyMs,
+            error: "Invalid JSON-RPC response.",
+          };
+        }
+
+        if (!body || typeof body !== "object") {
+          return {
+            url: displayUrl,
+            ok: false,
+            latencyMs,
+            error: "Invalid JSON-RPC response.",
+          };
+        }
+
+        const record = body as {
+          result?: unknown;
+          error?: { code?: unknown; message?: unknown };
+        };
+
+        if (record.error) {
+          const errMsg =
+            typeof record.error.message === "string" && record.error.message.trim() !== ""
+              ? record.error.message
+              : `RPC error ${String(record.error.code ?? "unknown")}`;
+          return {
+            url: displayUrl,
+            ok: false,
+            latencyMs,
+            error: sanitizeRpcText(errMsg),
+          };
+        }
+
+        if (record.result === undefined || record.result === null || String(record.result).trim() === "") {
+          return {
+            url: displayUrl,
+            ok: false,
+            latencyMs,
+            error: "Missing chainId result.",
+          };
+        }
+
+        return {
+          url: displayUrl,
+          ok: true,
+          chainId: String(record.result),
+          latencyMs,
+        };
+      } catch (err) {
+        const latencyMs = Math.max(0, Math.round(nowMs() - start));
+        const rawMessage = err instanceof Error ? err.message : String(err);
+        return {
+          url: displayUrl,
+          ok: false,
+          latencyMs,
+          error: sanitizeRpcText(rawMessage || "Request failed."),
+        };
+      }
+    }),
+  );
+}
