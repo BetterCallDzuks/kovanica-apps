@@ -4,19 +4,27 @@ import {
   applyFeeBuffer,
   bytesToHex,
   createFailoverClient,
+  decodeAirgapTxEnvelope,
   decodeSignedCallTransaction,
+  decodeSignedTransactionAuto,
   decodeSignedTransferTransaction,
+  encodeAirgapTxEnvelope,
   hexToBytes,
   inspectAddress,
   parseContractAddress,
   probeRpcNode,
   sanitizeRpcUrl,
   verifyCallTransactionSignature,
+  verifySignedTransactionAuto,
   verifyTransferTransactionSignature,
   waitForTransactionFinality,
   type AddressInspectionResult,
+  type AirgapTxEnvelope,
+  type AirgapTxKind,
   type DecodedSignedCallTransaction,
+  type DecodedSignedTransactionAuto,
   type DecodedSignedTransferTransaction,
+  type EncodeAirgapTxEnvelopeInput,
   type FailoverHttpTransportOptions,
   type FeeBufferEstimate,
   type FinalityProgress,
@@ -31,8 +39,12 @@ import {
 export { DEFAULT_FEE_BUFFER_MULTIPLIER_BPS, DEFAULT_FINALITY_CONFIRMATIONS };
 export type {
   AddressInspectionResult,
+  AirgapTxEnvelope,
+  AirgapTxKind,
   DecodedSignedCallTransaction,
+  DecodedSignedTransactionAuto,
   DecodedSignedTransferTransaction,
+  EncodeAirgapTxEnvelopeInput,
   RpcNodeProbeResult,
 };
 
@@ -60,6 +72,25 @@ export type PreBroadcastTransferVerificationResult = {
   decoded?: DecodedSignedTransferTransaction;
   error?: string;
 };
+
+export type PreBroadcastAnyVerificationOptions = {
+  chainId?: bigint | number;
+};
+
+export type PreBroadcastAnyVerificationResult = {
+  ok: boolean;
+  signatureValid: boolean;
+  decoded?: DecodedSignedTransactionAuto;
+  error?: string;
+};
+
+export type ExportAirgapTxEnvelopeResult =
+  | { ok: true; envelope: AirgapTxEnvelope; encoded: string }
+  | { ok: false; error: string };
+
+export type ImportAirgapTxEnvelopeResult =
+  | { ok: true; envelope: AirgapTxEnvelope }
+  | { ok: false; error: string };
 
 export type AddressBookValidationResult = {
   ok: boolean;
@@ -523,4 +554,132 @@ export async function probeWalletRpcEndpoint(
     ...(expectedChainId !== undefined ? { expectedChainId } : {}),
     ...(fetchImpl !== undefined ? { fetch: fetchImpl } : {}),
   });
+}
+
+/**
+ * Automatically decodes any supported signed Kovanica transaction (Transfer or Call)
+ * offline via `kovanica-sdk`'s `decodeSignedTransactionAuto` and self-verifies its
+ * Ed25519 signature and sender binding against `expectedPublicKey` prior to broadcast.
+ * Fails closed on any decode error, unsupported variant, signature failure, or sender mismatch.
+ */
+export function verifyAnySignedTxBeforeBroadcast(
+  rawTxHex: string,
+  expectedPublicKey: Uint8Array,
+  options?: PreBroadcastAnyVerificationOptions,
+): PreBroadcastAnyVerificationResult {
+  if (options?.chainId !== undefined) {
+    if (typeof options.chainId === "bigint") {
+      if (options.chainId < 0n || options.chainId > 0xffffffffffffffffn) {
+        return {
+          ok: false,
+          signatureValid: false,
+          error: `Invalid chainId: ${options.chainId.toString()}`,
+        };
+      }
+    } else if (!Number.isSafeInteger(options.chainId) || options.chainId < 0) {
+      return {
+        ok: false,
+        signatureValid: false,
+        error: `Invalid chainId: ${String(options.chainId)}`,
+      };
+    }
+  }
+
+  let decoded: DecodedSignedTransactionAuto;
+  try {
+    decoded = decodeSignedTransactionAuto(
+      rawTxHex,
+      options?.chainId !== undefined ? { chainId: options.chainId } : undefined,
+    );
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      signatureValid: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (!(expectedPublicKey instanceof Uint8Array) || expectedPublicKey.length !== 32) {
+    return {
+      ok: false,
+      signatureValid: false,
+      decoded,
+      error: "Expected 32-byte Ed25519 public key",
+    };
+  }
+
+  const signatureValid = verifySignedTransactionAuto(decoded, expectedPublicKey);
+  if (!signatureValid) {
+    return {
+      ok: false,
+      signatureValid: false,
+      decoded,
+      error: `Signed ${decoded.kind} transaction Ed25519 signature verification failed`,
+    };
+  }
+
+  if (!bytesEqual(decoded.tx.senderBytes, expectedPublicKey)) {
+    return {
+      ok: false,
+      signatureValid,
+      decoded,
+      error: `Signed ${decoded.kind} transaction sender does not match expected public key`,
+    };
+  }
+
+  return {
+    ok: true,
+    signatureValid: true,
+    decoded,
+  };
+}
+
+/**
+ * Encodes a signed transaction into a checksummed, network-tag-pinned air-gap envelope
+ * (`kvnc-tx:v1:<base64url(JSON)>`) by delegating to `kovanica-sdk`'s `encodeAirgapTxEnvelope`.
+ * Never throws; returns a structured result object.
+ */
+export function exportAirgapTxEnvelope(
+  input: EncodeAirgapTxEnvelopeInput,
+): ExportAirgapTxEnvelopeResult {
+  try {
+    const { envelope, encoded } = encodeAirgapTxEnvelope(input);
+    return { ok: true, envelope, encoded };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Decodes and verifies a checksummed air-gap transaction envelope (compact `kvnc-tx:v1:...`
+ * string or raw JSON) against `expectedChainId` by delegating to `kovanica-sdk`'s
+ * `decodeAirgapTxEnvelope`. Never throws; returns a structured result object.
+ */
+export function importAirgapTxEnvelope(
+  encodedOrJson: string,
+  expectedChainId: number,
+): ImportAirgapTxEnvelopeResult {
+  if (
+    typeof expectedChainId !== "number" ||
+    !Number.isSafeInteger(expectedChainId) ||
+    expectedChainId <= 0
+  ) {
+    return {
+      ok: false,
+      error: `Invalid expectedChainId: ${String(expectedChainId)}`,
+    };
+  }
+
+  try {
+    const envelope = decodeAirgapTxEnvelope(encodedOrJson, { expectedChainId });
+    return { ok: true, envelope };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

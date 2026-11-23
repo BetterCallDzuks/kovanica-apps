@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  aggregateClusterReadiness,
   buildRpcHeaders,
   CANONICAL_NETWORK_TAGS,
   clearSessionRpcBearerToken,
@@ -21,7 +22,9 @@ import {
   setSessionRpcBearerToken,
   statusRows,
   verifyNetworkTagForChain,
+  type ClusterReadinessSummary,
   type IndexerHealthSummary,
+  type NodeDoctorSummary,
   type NodeStatus,
 } from "./connection";
 
@@ -670,5 +673,142 @@ describe("parseIndexerHealthSummary", () => {
     });
     expect(explicitOffline.syncState).toBe("offline");
     expect(explicitOffline.alerts).toContain("Indexer is offline or unreachable.");
+  });
+});
+
+describe("aggregateClusterReadiness", () => {
+  const healthyRpc: NodeDoctorSummary = {
+    ready: true,
+    severity: "ok",
+    canonicalTagValid: true,
+    batchSupported: true,
+    latencyMs: 24,
+    headline: "Node ready (https://rpc-testnet.kovanica.online) · chainId=2 · height=1200 · 24ms",
+    warnings: [],
+  };
+
+  const healthyIndexer: IndexerHealthSummary = {
+    syncState: "synced",
+    indexedHeight: 1200,
+    nodeHeadHeight: 1200,
+    lagBlocks: 0,
+    eventCount: 512,
+    alerts: [],
+  };
+
+  it("reports healthy and ready when all provided services are clean", () => {
+    const summary: ClusterReadinessSummary = aggregateClusterReadiness({
+      rpc: healthyRpc,
+      indexer: healthyIndexer,
+      stratum: { status: "healthy", alerts: [] },
+      faucet: { status: "healthy", alerts: [] },
+    });
+
+    expect(summary).toEqual({
+      status: "healthy",
+      ready: true,
+      servicesChecked: 4,
+      alerts: [],
+      headline: "Cluster healthy (4 services checked)",
+    });
+  });
+
+  it("reports degraded (still ready) on warn/lagging/draining/low_balance and preserves ordered unique alerts", () => {
+    const summary = aggregateClusterReadiness({
+      rpc: {
+        ...healthyRpc,
+        severity: "warn",
+        canonicalTagValid: false,
+        warnings: [
+          "Missing network tag for chainId 2 (expected 2-24cdb5fadd98b207).",
+          "Shared upstream latency warning",
+        ],
+      },
+      indexer: {
+        ...healthyIndexer,
+        syncState: "lagging",
+        lagBlocks: 12,
+        alerts: [
+          "Indexer is lagging behind node head by 12 blocks (indexed=1188, head=1200).",
+          "Shared upstream latency warning",
+        ],
+      },
+      stratum: {
+        status: "draining",
+        alerts: ["Stratum gateway is draining and not accepting new work."],
+      },
+      faucet: {
+        status: "low_balance",
+        alerts: ["Faucet balance is below minimum threshold."],
+      },
+    });
+
+    expect(summary.status).toBe("degraded");
+    expect(summary.ready).toBe(true);
+    expect(summary.servicesChecked).toBe(4);
+    expect(summary.alerts).toEqual([
+      "Missing network tag for chainId 2 (expected 2-24cdb5fadd98b207).",
+      "Shared upstream latency warning",
+      "Indexer is lagging behind node head by 12 blocks (indexed=1188, head=1200).",
+      "Stratum gateway is draining and not accepting new work.",
+      "Faucet balance is below minimum threshold.",
+    ]);
+    expect(summary.headline).toBe("Cluster degraded (4 services checked · 5 alerts)");
+  });
+
+  it("reports critical and not ready when RPC is error/not ready, indexer is stalled/offline, or any service is offline", () => {
+    const rpcDown = aggregateClusterReadiness({
+      rpc: {
+        ...healthyRpc,
+        ready: false,
+        severity: "error",
+        warnings: ["RPC error for https://ops:s3cr3t@rpc.example"],
+      },
+      indexer: healthyIndexer,
+    });
+    expect(rpcDown.status).toBe("critical");
+    expect(rpcDown.ready).toBe(false);
+    expect(rpcDown.servicesChecked).toBe(2);
+    expect(rpcDown.alerts).toEqual(["RPC error for https://[REDACTED]@rpc.example"]);
+    expect(rpcDown.headline).toBe("Cluster critical (2 services checked · 1 alert)");
+
+    const indexerStalled = aggregateClusterReadiness({
+      rpc: healthyRpc,
+      indexer: {
+        ...healthyIndexer,
+        syncState: "stalled",
+        lagBlocks: 120,
+        alerts: ["Indexer is stalled behind node head by 120 blocks."],
+      },
+    });
+    expect(indexerStalled.status).toBe("critical");
+    expect(indexerStalled.ready).toBe(false);
+
+    const stratumOffline = aggregateClusterReadiness({
+      rpc: healthyRpc,
+      stratum: { status: "offline" },
+    });
+    expect(stratumOffline.status).toBe("critical");
+    expect(stratumOffline.ready).toBe(false);
+    expect(stratumOffline.alerts).toEqual(["Stratum service is offline."]);
+
+    const faucetOffline = aggregateClusterReadiness({
+      faucet: { status: "offline", alerts: ["Faucet service is offline."] },
+    });
+    expect(faucetOffline.status).toBe("critical");
+    expect(faucetOffline.ready).toBe(false);
+    expect(faucetOffline.servicesChecked).toBe(1);
+    expect(faucetOffline.alerts).toEqual(["Faucet service is offline."]);
+  });
+
+  it("fails closed when no services are provided", () => {
+    const empty = aggregateClusterReadiness({});
+    expect(empty).toEqual({
+      status: "critical",
+      ready: false,
+      servicesChecked: 0,
+      alerts: ["No cluster services provided for readiness check."],
+      headline: "Cluster not ready: no services checked.",
+    });
   });
 });

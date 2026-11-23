@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  buildRpcProbeCommand,
   buildSanitizedStratumDiagnostics,
   buildSnapshotVerifyCommand,
   CANONICAL_NETWORK_TAGS,
@@ -1267,4 +1268,68 @@ test("parseFaucetHealthSummary validates canonical Chain 2 tag, enforces minBala
     assert.equal(offline.rateLimited, 0);
     assert.ok(offline.alerts.length > 0);
   }
+});
+
+test("buildRpcProbeCommand emits shell-safe CLI command and rejects invalid schemes, metacharacters, and embedded credentials", () => {
+  assert.equal(
+    buildRpcProbeCommand("https://rpc-mainnet.kovanica.online:8545", 1),
+    "kovanica rpc probe https://rpc-mainnet.kovanica.online:8545 --expected-chain-id 1 --json",
+  );
+  assert.equal(
+    buildRpcProbeCommand("  http://127.0.0.1:8545/rpc  ", 2),
+    "kovanica rpc probe http://127.0.0.1:8545/rpc --expected-chain-id 2 --json",
+  );
+  assert.equal(
+    buildRpcProbeCommand("http://localhost:8545", 3),
+    "kovanica rpc probe http://localhost:8545 --expected-chain-id 3 --json",
+  );
+  assert.equal(
+    buildRpcProbeCommand("https://rpc-testnet.kovanica.online"),
+    "kovanica rpc probe https://rpc-testnet.kovanica.online --json",
+  );
+
+  // Embedded credentials rejected
+  assert.throws(
+    () => buildRpcProbeCommand("https://user:secret@rpc.kovanica.online:8545", 2),
+    /credentials/i,
+  );
+  assert.throws(
+    () => buildRpcProbeCommand("http://tokenonly@127.0.0.1:8545"),
+    /credentials/i,
+  );
+
+  // Non-http(s) schemes rejected
+  for (const badScheme of [
+    "ws://127.0.0.1:8546",
+    "wss://rpc.kovanica.online",
+    "ftp://rpc.kovanica.online",
+    "file:///etc/passwd",
+    "not-a-url",
+  ]) {
+    assert.throws(() => buildRpcProbeCommand(badScheme, 2));
+  }
+
+  // Shell metacharacters, whitespace, control chars, and empty input rejected
+  for (const badUrl of [
+    "",
+    "   ",
+    "http://127.0.0.1:8545;rm -rf /",
+    "http://127.0.0.1:8545$(whoami)",
+    "http://127.0.0.1:8545`id`",
+    "http://127.0.0.1:8545|cat",
+    "http://127.0.0.1:8545&bg",
+    "http://127.0.0.1:8545/path with space",
+    "http://127.0.0.1:8545\nwhoami",
+    "http://127.0.0.1:8545/'quote'",
+    'http://127.0.0.1:8545/"quote"',
+    "http://127.0.0.1:8545/?a=1",
+  ]) {
+    assert.throws(() => buildRpcProbeCommand(badUrl, 2));
+  }
+
+  // Invalid chainId rejected
+  assert.throws(
+    () => buildRpcProbeCommand("http://127.0.0.1:8545", 99 as unknown as 1),
+    /expectedChainId/i,
+  );
 });
