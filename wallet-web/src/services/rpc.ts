@@ -1,9 +1,11 @@
 import type {
+  ContractFacadeClient,
   DryRunCallClient,
   EstimateAndBuildCallClient,
   TransactionReceipt,
   WaitForTransactionReceiptClient,
 } from "kovanica-sdk";
+import { bytesToHex } from "@/core/bytes";
 import { storageBytes } from "@/core/contracts";
 import { decodeReceipt } from "@/core/receipt";
 import { parseNetworkTagChainId } from "@/lib/networks";
@@ -412,6 +414,27 @@ export function createDryRunCallClient(rpcUrl: string): DryRunCallClient {
         }
       }
       throw new Error(last);
+    },
+  };
+}
+
+export function createContractFacadeClient(rpcUrl: string): ContractFacadeClient {
+  const dryRun = createDryRunCallClient(rpcUrl);
+  const estimator = createCallEstimateClient(rpcUrl);
+  return {
+    call: dryRun.call,
+    estimateFee: estimator.estimateFee,
+    getNonce: estimator.getNonce,
+    async getStorageAt(address: string, slot: string | number | bigint): Promise<string> {
+      const slotHex =
+        typeof slot === "string"
+          ? slot.startsWith("0x") || slot.startsWith("0X")
+            ? slot
+            : `0x${slot}`
+          : `0x${slot.toString(16)}`;
+      const bytes = await readStorageAt(rpcUrl, address, slotHex);
+      if (!bytes || bytes.length === 0) return "0x";
+      return `0x${bytesToHex(bytes)}`;
     },
   };
 }

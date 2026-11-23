@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
+  ContractFacadeClient,
   DryRunCallClient,
   EstimateAndBuildCallClient,
   TransactionReceipt,
@@ -18,6 +19,7 @@ import {
   formatReceiptTrackingSummary,
   formatSafetyMarginPercent,
   inferContractLogKind,
+  precheckContractEntityAvailability,
   simulateContractCallBeforeSign,
   trackSubmittedContractReceipt,
 } from "./call-estimate.ts";
@@ -834,5 +836,225 @@ describe("contract call fee/gas & wire-size preview", () => {
     assert.equal(revertedRows[2]?.value, "129");
     assert.equal(revertedRows[3]?.value, revertedBlockHash);
     assert.equal(revertedRows[4]?.value, "None");
+  });
+
+  function encodeBincodeEscrowRecord(params: {
+    creator: Uint8Array;
+    parties: Uint8Array[];
+    threshold: number;
+    approvals: Uint8Array[];
+    amount: bigint;
+    deadline: bigint;
+    released: boolean;
+    refunded: boolean;
+  }): Uint8Array {
+    const totalLen =
+      32 +
+      8 +
+      params.parties.length * 32 +
+      1 +
+      8 +
+      params.approvals.length * 32 +
+      16 +
+      8 +
+      1 +
+      1;
+    const buf = new Uint8Array(totalLen);
+    const view = new DataView(buf.buffer);
+    let offset = 0;
+    buf.set(params.creator, offset);
+    offset += 32;
+    view.setBigUint64(offset, BigInt(params.parties.length), true);
+    offset += 8;
+    for (const p of params.parties) {
+      buf.set(p, offset);
+      offset += 32;
+    }
+    buf[offset] = params.threshold;
+    offset += 1;
+    view.setBigUint64(offset, BigInt(params.approvals.length), true);
+    offset += 8;
+    for (const a of params.approvals) {
+      buf.set(a, offset);
+      offset += 32;
+    }
+    view.setBigUint64(offset, params.amount & 0xffff_ffff_ffff_ffffn, true);
+    view.setBigUint64(offset + 8, params.amount >> 64n, true);
+    offset += 16;
+    view.setBigUint64(offset, params.deadline, true);
+    offset += 8;
+    buf[offset] = params.released ? 1 : 0;
+    offset += 1;
+    buf[offset] = params.refunded ? 1 : 0;
+    return buf;
+  }
+
+  function encodeBincodeHtlcRecord(params: {
+    sender: Uint8Array;
+    claimer: Uint8Array;
+    amount: bigint;
+    hashLock: Uint8Array;
+    expiry: bigint;
+    claimed: boolean;
+    refunded: boolean;
+  }): Uint8Array {
+    const buf = new Uint8Array(32 + 32 + 16 + 32 + 8 + 1 + 1);
+    const view = new DataView(buf.buffer);
+    let offset = 0;
+    buf.set(params.sender, offset);
+    offset += 32;
+    buf.set(params.claimer, offset);
+    offset += 32;
+    view.setBigUint64(offset, params.amount & 0xffff_ffff_ffff_ffffn, true);
+    view.setBigUint64(offset + 8, params.amount >> 64n, true);
+    offset += 16;
+    buf.set(params.hashLock, offset);
+    offset += 32;
+    view.setBigUint64(offset, params.expiry, true);
+    offset += 8;
+    buf[offset] = params.claimed ? 1 : 0;
+    offset += 1;
+    buf[offset] = params.refunded ? 1 : 0;
+    return buf;
+  }
+
+  function mockFacadeClient(storageHex: string): ContractFacadeClient {
+    return {
+      async call<TResult = unknown>(): Promise<TResult> {
+        return "0x" as TResult;
+      },
+      async estimateFee() {
+        return 100n;
+      },
+      async getNonce() {
+        return 0n;
+      },
+      async getStorageAt() {
+        return storageHex;
+      },
+    };
+  }
+
+  it("pre-checks NameRegistry availability via NameRegistryClient.getRecord (available vs already registered)", async () => {
+    const available = await precheckContractEntityAvailability(mockFacadeClient("0x"), {
+      family: "name",
+      contract: contractAddr,
+      name: "alice.kvnc",
+      chainId: 2,
+    });
+
+    assert.equal(available.family, "name");
+    assert.equal(available.exists, false);
+    assert.equal(available.summary, "Available (not registered)");
+
+    const recordBytes = encodeBincodeNameRecord(senderKey, bobBytes, ["https://relay.example.com"]);
+    const taken = await precheckContractEntityAvailability(
+      mockFacadeClient(`0x${bytesToHex(recordBytes)}`),
+      {
+        family: "name",
+        contract: contractAddr,
+        name: "alice.kvnc",
+        chainId: 2,
+      },
+    );
+
+    assert.equal(taken.family, "name");
+    assert.equal(taken.exists, true);
+    if (taken.family === "name" && taken.exists) {
+      assert.match(taken.summary, /already registered/i);
+      assert.match(taken.summary, /alice\.kvnc/);
+      assert.deepEqual(taken.record.relayEndpoints, ["https://relay.example.com"]);
+      assert.equal(taken.record.ownerHex, bytesToHex(senderKey));
+    }
+  });
+
+  it("pre-checks Escrow existence via EscrowClient.getEscrow (existing vs not found)", async () => {
+    const escrowId = "aa".repeat(32);
+    const missing = await precheckContractEntityAvailability(mockFacadeClient("0x"), {
+      family: "escrow",
+      contract: contractAddr,
+      id: escrowId,
+      chainId: 2,
+    });
+
+    assert.equal(missing.family, "escrow");
+    assert.equal(missing.exists, false);
+    assert.match(missing.summary, /not found/i);
+
+    const escrowBytes = encodeBincodeEscrowRecord({
+      creator: senderKey,
+      parties: [senderKey, bobBytes],
+      threshold: 2,
+      approvals: [senderKey],
+      amount: 25_000_000n,
+      deadline: 1_900_000_000n,
+      released: false,
+      refunded: false,
+    });
+    const found = await precheckContractEntityAvailability(
+      mockFacadeClient(`0x${bytesToHex(escrowBytes)}`),
+      {
+        family: "escrow",
+        contract: contractAddr,
+        id: escrowId,
+        chainId: 2,
+      },
+    );
+
+    assert.equal(found.family, "escrow");
+    assert.equal(found.exists, true);
+    if (found.family === "escrow" && found.exists) {
+      assert.match(found.summary, /escrow found/i);
+      assert.match(found.summary, /open/i);
+      assert.match(found.summary, /1\/2 approvals/);
+      assert.equal(found.record.amount, 25_000_000n);
+      assert.equal(found.record.threshold, 2);
+      assert.equal(found.record.status, "open");
+    }
+  });
+
+  it("pre-checks HTLC existence via HtlcClient.getHtlc (existing vs not found)", async () => {
+    const swapId = "bb".repeat(32);
+    const missing = await precheckContractEntityAvailability(mockFacadeClient("0x"), {
+      family: "htlc",
+      contract: contractAddr,
+      id: swapId,
+      chainId: 2,
+    });
+
+    assert.equal(missing.family, "htlc");
+    assert.equal(missing.exists, false);
+    assert.match(missing.summary, /not found/i);
+
+    const hashLock = new Uint8Array(32).fill(0x99);
+    const htlcBytes = encodeBincodeHtlcRecord({
+      sender: senderKey,
+      claimer: bobBytes,
+      amount: 12_500_000n,
+      hashLock,
+      expiry: 1_850_000_000n,
+      claimed: false,
+      refunded: false,
+    });
+    const found = await precheckContractEntityAvailability(
+      mockFacadeClient(`0x${bytesToHex(htlcBytes)}`),
+      {
+        family: "htlc",
+        contract: contractAddr,
+        id: swapId,
+        chainId: 2,
+      },
+    );
+
+    assert.equal(found.family, "htlc");
+    assert.equal(found.exists, true);
+    if (found.family === "htlc" && found.exists) {
+      assert.match(found.summary, /htlc found/i);
+      assert.match(found.summary, /open/i);
+      assert.match(found.summary, /12,500,000 atoms/);
+      assert.equal(found.record.amount, 12_500_000n);
+      assert.equal(found.record.expiry, 1_850_000_000n);
+      assert.equal(found.record.status, "open");
+    }
   });
 });

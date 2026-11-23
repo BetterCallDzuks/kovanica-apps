@@ -5,13 +5,16 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   buildSanitizedStratumDiagnostics,
+  CANONICAL_NETWORK_TAGS,
   evaluateStratumAlerts,
   formatRpcProbeResult,
   mountStratumApp,
+  probeStratumUpstreamBatch,
   probeStratumUpstreamRpc,
   stratumStatusLabel,
   toStratumPayload,
   validateStratumForm,
+  verifyCanonicalNetworkTag,
   type StratumFormInput,
   type StratumSnapshot,
 } from "../src/stratum.ts";
@@ -851,4 +854,143 @@ test("probeStratumUpstreamRpc measures kovanica_chainId reachability/latency and
   assert.equal(invalidCalled, false);
   assert.equal(invalidProbe.ok, false);
   assert.match(invalidProbe.error ?? "", /http/i);
+});
+
+test("verifyCanonicalNetworkTag validates canonical mainnet and testnet tags", () => {
+  assert.deepEqual(CANONICAL_NETWORK_TAGS, {
+    1: "1-f35df34c92001436",
+    2: "2-24cdb5fadd98b207",
+  });
+
+  const mainnetOk = verifyCanonicalNetworkTag(1, "1-f35df34c92001436");
+  assert.deepEqual(mainnetOk, {
+    valid: true,
+    chainId: 1,
+    expectedTag: "1-f35df34c92001436",
+    actualTag: "1-f35df34c92001436",
+    reason: null,
+  });
+
+  const testnetHexOk = verifyCanonicalNetworkTag("0x2", "  2-24cdb5fadd98b207  ");
+  assert.equal(testnetHexOk.valid, true);
+  assert.equal(testnetHexOk.chainId, 2);
+  assert.equal(testnetHexOk.expectedTag, "2-24cdb5fadd98b207");
+  assert.equal(testnetHexOk.reason, null);
+
+  const mismatch = verifyCanonicalNetworkTag("2", "2-0000000000000000");
+  assert.equal(mismatch.valid, false);
+  assert.match(mismatch.reason ?? "", /mismatch/i);
+
+  const missing = verifyCanonicalNetworkTag(1, "   ");
+  assert.equal(missing.valid, false);
+  assert.match(missing.reason ?? "", /missing/i);
+
+  const unknownChain = verifyCanonicalNetworkTag(3, "3-devnet");
+  assert.equal(unknownChain.valid, false);
+  assert.match(unknownChain.reason ?? "", /No canonical network tag/i);
+
+  const invalidChain = verifyCanonicalNetworkTag("invalid", "1-f35df34c92001436");
+  assert.equal(invalidChain.valid, false);
+  assert.equal(invalidChain.chainId, null);
+});
+
+test("probeStratumUpstreamBatch sends single-POST JSON-RPC 2.0 batch, correlates out-of-order IDs, handles partial errors, legacy fallback, and redacts credentials", async () => {
+  let callCount = 0;
+  const mockBatchOk: typeof fetch = (async (_input, init) => {
+    callCount += 1;
+    assert.equal(init?.method, "POST");
+    const batch = JSON.parse(String(init?.body ?? "[]")) as Array<{
+      jsonrpc: string;
+      id: number;
+      method: string;
+      params: unknown[];
+    }>;
+    assert.deepEqual(batch, [
+      { jsonrpc: "2.0", id: 1, method: "kovanica_chainId", params: [] },
+      { jsonrpc: "2.0", id: 2, method: "kovanica_blockNumber", params: [] },
+      { jsonrpc: "2.0", id: 3, method: "kovanica_estimateFee", params: [] },
+    ]);
+    return new Response(
+      JSON.stringify([
+        { jsonrpc: "2.0", id: 2, result: "0x1234" },
+        { jsonrpc: "2.0", id: 3, result: { feeRate: "500" } },
+        { jsonrpc: "2.0", id: 1, result: "0x2" },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const ok = await probeStratumUpstreamBatch(
+    "http://operator:supersecret@127.0.0.1:8545",
+    mockBatchOk,
+  );
+  assert.equal(callCount, 1);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.batchSupported, true);
+  assert.equal(ok.chainId, "0x2");
+  assert.equal(ok.blockHeight, "0x1234");
+  assert.equal(ok.feeRate, "500");
+  assert.equal(ok.error, null);
+  assert.ok(ok.latencyMs >= 0);
+  assert.doesNotMatch(ok.url, /supersecret/);
+
+  // Partial item error
+  const mockPartialErr: typeof fetch = (async () =>
+    new Response(
+      JSON.stringify([
+        { jsonrpc: "2.0", id: 1, result: "2" },
+        { jsonrpc: "2.0", id: 2, error: { code: -32000, message: "syncing Bearer secret_tok_777" } },
+        { jsonrpc: "2.0", id: 3, result: "1000" },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )) as typeof fetch;
+  const partial = await probeStratumUpstreamBatch("http://127.0.0.1:8545", mockPartialErr);
+  assert.equal(partial.ok, false);
+  assert.equal(partial.batchSupported, true);
+  assert.equal(partial.chainId, "2");
+  assert.equal(partial.blockHeight, null);
+  assert.equal(partial.feeRate, "1000");
+  assert.match(partial.error ?? "", /kovanica_blockNumber/);
+  assert.doesNotMatch(partial.error ?? "", /secret_tok_777/);
+  assert.match(partial.error ?? "", /\[REDACTED\]/);
+
+  // Legacy non-batch fallback
+  const mockLegacy: typeof fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: "Batch requests not supported" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )) as typeof fetch;
+  const legacy = await probeStratumUpstreamBatch("http://127.0.0.1:8545", mockLegacy);
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.batchSupported, false);
+  assert.equal(legacy.chainId, null);
+  assert.match(legacy.error ?? "", /Batch requests not supported/);
+
+  // Network error with credential sanitization
+  const mockThrow: typeof fetch = (async () => {
+    throw new Error("ECONNREFUSED http://admin:hunter2@127.0.0.1:8545");
+  }) as typeof fetch;
+  const down = await probeStratumUpstreamBatch(
+    "http://admin:hunter2@127.0.0.1:8545",
+    mockThrow,
+  );
+  assert.equal(down.ok, false);
+  assert.equal(down.batchSupported, false);
+  assert.doesNotMatch(down.url, /hunter2/);
+  assert.doesNotMatch(down.error ?? "", /hunter2/);
+
+  // Invalid scheme rejected without calling fetch
+  let invalidCalled = false;
+  const invalid = await probeStratumUpstreamBatch("ws://127.0.0.1:8545", (async () => {
+    invalidCalled = true;
+    return new Response("");
+  }) as typeof fetch);
+  assert.equal(invalidCalled, false);
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.batchSupported, false);
+  assert.match(invalid.error ?? "", /http/i);
 });

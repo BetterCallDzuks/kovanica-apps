@@ -159,10 +159,113 @@ export async function rpcFetch(
 
 export const MAX_FALLBACK_RPC_URLS = 8;
 
+export const CANONICAL_NETWORK_TAGS: Readonly<Record<number, string>> = {
+  1: "1-f35df34c92001436",
+  2: "2-24cdb5fadd98b207",
+};
+
+export interface NetworkTagVerificationResult {
+  valid: boolean;
+  chainId: number | null;
+  expectedTag: string | null;
+  actualTag: string | null;
+  reason?: string;
+}
+
+function parseChainIdNumber(chainId: number | string): number | null {
+  if (typeof chainId === "number") {
+    return Number.isSafeInteger(chainId) && chainId > 0 ? chainId : null;
+  }
+  if (typeof chainId !== "string") {
+    return null;
+  }
+  const trimmed = chainId.trim();
+  if (/^0x[0-9a-fA-F]+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed.slice(2), 16);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * Verifies a reported network tag against the canonical tag for a given chain ID.
+ */
+export function verifyNetworkTagForChain(
+  chainId: number | string,
+  networkTag: string | null | undefined,
+): NetworkTagVerificationResult {
+  const actualTag =
+    typeof networkTag === "string" && networkTag.trim() !== "" ? networkTag.trim() : null;
+  const parsedChainId = parseChainIdNumber(chainId);
+
+  if (parsedChainId === null) {
+    return {
+      valid: false,
+      chainId: null,
+      expectedTag: null,
+      actualTag,
+      reason: "Invalid chainId.",
+    };
+  }
+
+  const expectedTag = CANONICAL_NETWORK_TAGS[parsedChainId] ?? null;
+  if (expectedTag === null) {
+    return {
+      valid: false,
+      chainId: parsedChainId,
+      expectedTag: null,
+      actualTag,
+      reason: `No canonical network tag registered for chainId ${parsedChainId}.`,
+    };
+  }
+
+  if (actualTag === null) {
+    return {
+      valid: false,
+      chainId: parsedChainId,
+      expectedTag,
+      actualTag: null,
+      reason: `Missing network tag for chainId ${parsedChainId} (expected ${expectedTag}).`,
+    };
+  }
+
+  if (actualTag !== expectedTag) {
+    return {
+      valid: false,
+      chainId: parsedChainId,
+      expectedTag,
+      actualTag,
+      reason: `Network tag mismatch for chainId ${parsedChainId}: expected ${expectedTag}, got ${actualTag}.`,
+    };
+  }
+
+  return {
+    valid: true,
+    chainId: parsedChainId,
+    expectedTag,
+    actualTag,
+  };
+}
+
 export interface RpcProbeResult {
   url: string;
   ok: boolean;
   chainId?: string;
+  latencyMs: number;
+  error?: string;
+}
+
+export interface RpcBatchHealthProbeResult {
+  url: string;
+  ok: boolean;
+  chainId?: string;
+  blockHeight?: string;
+  feeRate?: string;
+  batchSupported: boolean;
   latencyMs: number;
   error?: string;
 }
@@ -365,4 +468,201 @@ export async function probeRpcEndpoints(
       }
     }),
   );
+}
+
+interface JsonRpcBatchItemResponse {
+  id?: unknown;
+  result?: unknown;
+  error?: { code?: unknown; message?: unknown };
+}
+
+function formatBatchRpcValue(value: unknown, preferFeeField = false): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (preferFeeField && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const candidate = obj.feeRate ?? obj.fee_rate ?? obj.baseFee ?? obj.fee;
+    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== "") {
+      return String(candidate).trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Probes an RPC endpoint using a single-POST JSON-RPC 2.0 batch request for
+ * `kovanica_chainId`, `kovanica_blockNumber`, and `kovanica_estimateFee`.
+ * Correlates responses by `id`, measures latency in ms, sanitizes credentials,
+ * and gracefully reports `batchSupported: false` if a legacy node rejects batching.
+ */
+export async function probeRpcBatchHealth(
+  rpcUrl: string,
+  fetchImpl?: typeof fetch,
+): Promise<RpcBatchHealthProbeResult> {
+  const trimmed = rpcUrl.trim();
+  const displayUrl = sanitizeRpcUrlForDisplay(trimmed);
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return {
+        url: displayUrl,
+        ok: false,
+        batchSupported: false,
+        latencyMs: 0,
+        error: "RPC URL must start with http:// or https://.",
+      };
+    }
+  } catch {
+    return {
+      url: displayUrl,
+      ok: false,
+      batchSupported: false,
+      latencyMs: 0,
+      error: "Invalid RPC URL.",
+    };
+  }
+
+  const batchPayload = [
+    { jsonrpc: "2.0", id: 1, method: "kovanica_chainId", params: [] },
+    { jsonrpc: "2.0", id: 2, method: "kovanica_blockNumber", params: [] },
+    { jsonrpc: "2.0", id: 3, method: "kovanica_estimateFee", params: [] },
+  ];
+
+  const start = nowMs();
+  try {
+    const response = await rpcFetch(trimmed, batchPayload, { fetchImpl });
+    const latencyMs = Math.max(0, Math.round(nowMs() - start));
+
+    if (!response.ok) {
+      return {
+        url: displayUrl,
+        ok: false,
+        batchSupported: false,
+        latencyMs,
+        error: sanitizeRpcText(`HTTP ${response.status}`),
+      };
+    }
+
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return {
+        url: displayUrl,
+        ok: false,
+        batchSupported: false,
+        latencyMs,
+        error: "Invalid JSON-RPC batch response.",
+      };
+    }
+
+    if (!Array.isArray(body)) {
+      if (body && typeof body === "object") {
+        const legacy = body as JsonRpcBatchItemResponse;
+        if (legacy.error) {
+          const errMsg =
+            typeof legacy.error.message === "string" && legacy.error.message.trim() !== ""
+              ? legacy.error.message
+              : `RPC error ${String(legacy.error.code ?? "unknown")}`;
+          return {
+            url: displayUrl,
+            ok: false,
+            batchSupported: false,
+            latencyMs,
+            error: sanitizeRpcText(errMsg),
+          };
+        }
+      }
+      return {
+        url: displayUrl,
+        ok: false,
+        batchSupported: false,
+        latencyMs,
+        error: "Endpoint does not support JSON-RPC 2.0 batch requests.",
+      };
+    }
+
+    const byId = new Map<number, JsonRpcBatchItemResponse>();
+    for (const item of body) {
+      if (item && typeof item === "object") {
+        const record = item as JsonRpcBatchItemResponse;
+        if (typeof record.id === "number") {
+          byId.set(record.id, record);
+        }
+      }
+    }
+
+    const errors: string[] = [];
+    const extractItem = (
+      id: number,
+      method: string,
+      preferFeeField = false,
+    ): string | undefined => {
+      const item = byId.get(id);
+      if (!item) {
+        errors.push(`Missing response for ${method}.`);
+        return undefined;
+      }
+      if (item.error) {
+        const errMsg =
+          typeof item.error.message === "string" && item.error.message.trim() !== ""
+            ? item.error.message
+            : `RPC error ${String(item.error.code ?? "unknown")}`;
+        errors.push(`${method}: ${sanitizeRpcText(errMsg)}`);
+        return undefined;
+      }
+      const formatted = formatBatchRpcValue(item.result, preferFeeField);
+      if (formatted === null) {
+        errors.push(`Missing result for ${method}.`);
+        return undefined;
+      }
+      return formatted;
+    };
+
+    const chainId = extractItem(1, "kovanica_chainId");
+    const blockHeight = extractItem(2, "kovanica_blockNumber");
+    const feeRate = extractItem(3, "kovanica_estimateFee", true);
+
+    if (errors.length > 0) {
+      return {
+        url: displayUrl,
+        ok: false,
+        ...(chainId !== undefined ? { chainId } : {}),
+        ...(blockHeight !== undefined ? { blockHeight } : {}),
+        ...(feeRate !== undefined ? { feeRate } : {}),
+        batchSupported: true,
+        latencyMs,
+        error: sanitizeRpcText(errors.join("; ")),
+      };
+    }
+
+    return {
+      url: displayUrl,
+      ok: true,
+      chainId,
+      blockHeight,
+      feeRate,
+      batchSupported: true,
+      latencyMs,
+    };
+  } catch (err) {
+    const latencyMs = Math.max(0, Math.round(nowMs() - start));
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    return {
+      url: displayUrl,
+      ok: false,
+      batchSupported: false,
+      latencyMs,
+      error: sanitizeRpcText(rawMessage || "Request failed."),
+    };
+  }
 }
