@@ -1,16 +1,24 @@
 import {
   DEFAULT_FEE_SAFETY_MARGIN_BPS,
+  EscrowClient,
+  HtlcClient,
+  NameRegistryClient,
   decodeTransactionReceiptLogs,
   dryRunCall,
   estimateAndBuildCall,
   estimateBatchCalls,
   estimateCallTxSize,
   waitForTransactionReceipt,
+  type ContractFacadeClient,
   type ContractLogKind,
   type ContractLogKindResolver,
   type DecodedTransactionReceiptLogByKind,
   type DryRunCallClient,
+  type EscrowRecord,
   type EstimateAndBuildCallClient,
+  type HtlcRecord,
+  type NameRecord,
+  type ReadContractStorageOptions,
   type RequestOptions,
   type TransactionReceipt,
   type WaitForTransactionReceiptClient,
@@ -524,4 +532,118 @@ export function formatReceiptTrackingSummary<K extends ContractLogKind = Contrac
   });
 
   return rows;
+}
+
+export type ContractEntityPrecheckQuery =
+  | { family: "name"; contract: string | Uint8Array; name: string; chainId?: number | null }
+  | { family: "escrow"; contract: string | Uint8Array; id: string | Uint8Array; chainId?: number | null }
+  | { family: "htlc"; contract: string | Uint8Array; id: string | Uint8Array; chainId?: number | null };
+
+export type ContractEntityPrecheckResult =
+  | {
+      family: "name";
+      exists: true;
+      summary: string;
+      record: NameRecord;
+    }
+  | {
+      family: "name";
+      exists: false;
+      summary: string;
+    }
+  | {
+      family: "escrow";
+      exists: true;
+      summary: string;
+      record: EscrowRecord;
+    }
+  | {
+      family: "escrow";
+      exists: false;
+      summary: string;
+    }
+  | {
+      family: "htlc";
+      exists: true;
+      summary: string;
+      record: HtlcRecord;
+    }
+  | {
+      family: "htlc";
+      exists: false;
+      summary: string;
+    };
+
+/**
+ * Performs a typed read-before-write on-chain state pre-check using `kovanica-sdk`
+ * contract facades (`NameRegistryClient`, `EscrowClient`, `HtlcClient`).
+ */
+export async function precheckContractEntityAvailability(
+  client: ContractFacadeClient,
+  query: ContractEntityPrecheckQuery,
+  options?: ReadContractStorageOptions,
+): Promise<ContractEntityPrecheckResult> {
+  const contractBytes =
+    typeof query.contract === "string"
+      ? decodeRecipient(query.contract, query.chainId ?? null)
+      : query.contract;
+
+  if (query.family === "name") {
+    const trimmedName = query.name.trim();
+    const facade = new NameRegistryClient(client, contractBytes);
+    const record = await facade.getRecord(trimmedName, options);
+    if (!record) {
+      return {
+        family: "name",
+        exists: false,
+        summary: "Available (not registered)",
+      };
+    }
+    const ownerPreview = `0x${record.ownerHex.slice(0, 12)}…`;
+    const endpointCount = record.relayEndpoints.length;
+    const endpointsNote =
+      endpointCount > 0
+        ? `, ${endpointCount} relay ${endpointCount === 1 ? "endpoint" : "endpoints"}`
+        : "";
+    return {
+      family: "name",
+      exists: true,
+      summary: `Already registered (owner ${ownerPreview}${endpointsNote}) — registering "${trimmedName}" may revert.`,
+      record,
+    };
+  }
+
+  if (query.family === "escrow") {
+    const facade = new EscrowClient(client, contractBytes);
+    const record = await facade.getEscrow(query.id, options);
+    if (!record) {
+      return {
+        family: "escrow",
+        exists: false,
+        summary: "Not found (no on-chain escrow at this id)",
+      };
+    }
+    return {
+      family: "escrow",
+      exists: true,
+      summary: `Escrow found (${record.status}): ${formatAtoms(record.amount)} atoms, ${record.approvals.length}/${record.threshold} approvals (${record.parties.length} parties), deadline ${record.deadline.toString()}.`,
+      record,
+    };
+  }
+
+  const facade = new HtlcClient(client, contractBytes);
+  const record = await facade.getHtlc(query.id, options);
+  if (!record) {
+    return {
+      family: "htlc",
+      exists: false,
+      summary: "Not found (no on-chain HTLC at this id)",
+    };
+  }
+  return {
+    family: "htlc",
+    exists: true,
+    summary: `HTLC found (${record.status}): ${formatAtoms(record.amount)} atoms, expiry ${record.expiry.toString()}, claimed ${record.claimed ? "yes" : "no"}, refunded ${record.refunded ? "yes" : "no"}.`,
+    record,
+  };
 }

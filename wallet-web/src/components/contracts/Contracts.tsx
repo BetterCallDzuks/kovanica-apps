@@ -22,10 +22,12 @@ import {
   formatCallEstimateSummary,
   formatReceiptTrackingSummary,
   inferContractLogKind,
+  precheckContractEntityAvailability,
   simulateContractCallBeforeSign,
   trackSubmittedContractReceipt,
   type CallBatchEstimatePreview,
   type CallEstimatePreview,
+  type ContractEntityPrecheckResult,
   type SimulateContractCallResult,
   type TrackedContractReceipt,
 } from "@/core/call-estimate";
@@ -38,6 +40,7 @@ import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
 import {
   createCallEstimateClient,
+  createContractFacadeClient,
   createDryRunCallClient,
   createReceiptTrackingClient,
   readStorageAt,
@@ -135,6 +138,9 @@ export function Contracts({
   const [estimating, setEstimating] = useState(false);
   const [simulation, setSimulation] = useState<SimulateContractCallResult | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [precheck, setPrecheck] = useState<ContractEntityPrecheckResult | null>(null);
+  const [prechecking, setPrechecking] = useState(false);
+  const [precheckId, setPrecheckId] = useState("");
   const [batchQueue, setBatchQueue] = useState<QueuedBatchCall[]>([]);
   const [batchEstimate, setBatchEstimate] = useState<CallBatchEstimatePreview | null>(null);
   const [estimatingBatch, setEstimatingBatch] = useState(false);
@@ -161,6 +167,7 @@ export function Contracts({
     setReadout(null);
     setEstimate(null);
     setSimulation(null);
+    setPrecheck(null);
   }
 
   function needs(name: string): boolean {
@@ -224,6 +231,61 @@ export function Contracts({
       tokenUri,
       deadline: needs("deadline") ? whole(deadline, "Deadline") : null,
     });
+  }
+
+  async function checkOnChainState() {
+    setError(null);
+    setPrecheck(null);
+    if (contractId !== "name" && contractId !== "escrow" && contractId !== "htlc") return;
+    if (!address.ok) {
+      setError(address.message);
+      return;
+    }
+    if (!net.online) {
+      setError("The node is not responding, so on-chain state cannot be checked.");
+      return;
+    }
+    setPrechecking(true);
+    try {
+      const facadeClient = createContractFacadeClient(net.rpcUrl);
+      if (contractId === "name") {
+        const trimmed = name.trim();
+        if (!trimmed) throw new Error("Enter a name to check its on-chain registration status.");
+        const result = await precheckContractEntityAvailability(facadeClient, {
+          family: "name",
+          contract,
+          name: trimmed,
+          chainId: policyChain,
+        });
+        setPrecheck(result);
+        return;
+      }
+      if (contractId === "escrow") {
+        const idHex = hex32(precheckId, "Escrow id");
+        const result = await precheckContractEntityAvailability(facadeClient, {
+          family: "escrow",
+          contract,
+          id: idHex,
+          chainId: policyChain,
+        });
+        setPrecheck(result);
+        return;
+      }
+      const rawSwapId = needs("record") ? recordId : precheckId;
+      const swapIdHex = hex32(rawSwapId, "Swap id");
+      const result = await precheckContractEntityAvailability(facadeClient, {
+        family: "htlc",
+        contract,
+        id: swapIdHex,
+        chainId: policyChain,
+      });
+      setPrecheck(result);
+    } catch (err) {
+      setPrecheck(null);
+      setError(err instanceof Error ? err.message : "Could not check on-chain contract state");
+    } finally {
+      setPrechecking(false);
+    }
   }
 
   async function estimateCall(): Promise<{ built: CallDraft; valueAtoms: bigint; preview: CallEstimatePreview } | null> {
@@ -502,7 +564,7 @@ export function Contracts({
       </div>
       <div className="flex flex-wrap gap-2">
         {selected.map((item) => (
-          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); setEstimate(null); setSimulation(null); }}>
+          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); setEstimate(null); setSimulation(null); setPrecheck(null); }}>
             {item.label}
           </button>
         ))}
@@ -540,6 +602,63 @@ export function Contracts({
       {needs("calldata") ? <Field label="Call data hex, optional" value={callData} onChange={setCallData} mono /> : null}
       {current.id === "vault_claim" ? <p className="text-sm text-muted">Withdraw claims the vested balance. The contract does not take an amount; the beneficiary receives whatever is unlocked.</p> : null}
       {current.id === "htlc_create" || current.id === "vault_create" ? <p className="text-sm text-muted">The contract pulls Amount from your balance. Leave attached value at 0 unless this call also pays Call.value.</p> : null}
+      {contractId === "name" || contractId === "escrow" || contractId === "htlc" ? (
+        <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium text-paper">On-Chain State Pre-Check</span>
+            <button
+              type="button"
+              className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+              disabled={!net.online || !address.ok || prechecking}
+              onClick={() => void checkOnChainState()}
+            >
+              {prechecking ? "Checking…" : "Check on-chain state"}
+            </button>
+          </div>
+          {contractId === "escrow" ? (
+            <div className="mt-3">
+              <Field label="Escrow id to check (32-byte hex, optional)" value={precheckId} onChange={setPrecheckId} mono />
+            </div>
+          ) : contractId === "htlc" && !needs("record") ? (
+            <div className="mt-3">
+              <Field label="Swap id to check (32-byte hex, optional)" value={precheckId} onChange={setPrecheckId} mono />
+            </div>
+          ) : null}
+          {precheck ? (
+            <div
+              role={precheck.family === "name" && precheck.exists ? "alert" : "status"}
+              className={`mt-3 rounded-2xl border px-3 py-2 text-xs ${
+                precheck.family === "name"
+                  ? precheck.exists
+                    ? "border-clay bg-clay/10 text-clay"
+                    : "border-sage/60 bg-sage/10 text-sage"
+                  : precheck.exists
+                    ? "border-sage/60 bg-sage/10 text-sage"
+                    : "border-line bg-surface text-muted"
+              }`}
+            >
+              <p className="font-medium">
+                {precheck.family === "name"
+                  ? precheck.exists
+                    ? "Name already registered"
+                    : "Name available"
+                  : precheck.exists
+                    ? "On-chain record found"
+                    : "No on-chain record"}
+              </p>
+              <p className="mt-1 break-words text-paper/90">{precheck.summary}</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-muted">
+              {contractId === "name"
+                ? "Optionally check whether this name is already registered on-chain before preparing a transaction."
+                : contractId === "escrow"
+                  ? "Optionally inspect an existing on-chain escrow record by its 32-byte id before preparing a transaction."
+                  : "Optionally inspect an existing on-chain HTLC swap record by its 32-byte id before preparing a transaction."}
+            </p>
+          )}
+        </div>
+      ) : null}
       {current.sign ? (
         <>
           <Field label="Attached value (atoms)" value={value} onChange={setValue} />

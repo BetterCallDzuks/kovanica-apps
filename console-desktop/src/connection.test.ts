@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildRpcHeaders,
+  CANONICAL_NETWORK_TAGS,
   clearSessionRpcBearerToken,
   endpointLine,
   getSessionRpcBearerToken,
@@ -10,12 +11,14 @@ import {
   normalizeRpcBearerToken,
   parseFallbackRpcUrls,
   peerLines,
+  probeRpcBatchHealth,
   probeRpcEndpoints,
   rpcBearerTokenStatus,
   rpcFetch,
   sanitizeRpcUrlForDisplay,
   setSessionRpcBearerToken,
   statusRows,
+  verifyNetworkTagForChain,
   type NodeStatus,
 } from "./connection";
 
@@ -284,5 +287,167 @@ describe("fallback RPC URL parsing and latency probe", () => {
       "https://rpc.example:8545/v1",
     );
     expect(await probeRpcEndpoints([], mockFetch)).toEqual([]);
+  });
+});
+
+describe("single-POST JSON-RPC 2.0 batch health probe and network tag verification", () => {
+  afterEach(() => {
+    clearSessionRpcBearerToken();
+    vi.restoreAllMocks();
+  });
+
+  it("verifies canonical network tags for mainnet and testnet (decimal and hex chain IDs)", () => {
+    expect(CANONICAL_NETWORK_TAGS).toEqual({
+      1: "1-f35df34c92001436",
+      2: "2-24cdb5fadd98b207",
+    });
+
+    const mainnetOk = verifyNetworkTagForChain(1, "1-f35df34c92001436");
+    expect(mainnetOk).toEqual({
+      valid: true,
+      chainId: 1,
+      expectedTag: "1-f35df34c92001436",
+      actualTag: "1-f35df34c92001436",
+    });
+
+    const testnetHexOk = verifyNetworkTagForChain("0x2", "  2-24cdb5fadd98b207  ");
+    expect(testnetHexOk.valid).toBe(true);
+    expect(testnetHexOk.chainId).toBe(2);
+    expect(testnetHexOk.expectedTag).toBe("2-24cdb5fadd98b207");
+
+    const mismatch = verifyNetworkTagForChain("2", "2-deadbeefdeadbeef");
+    expect(mismatch.valid).toBe(false);
+    expect(mismatch.reason).toMatch(/mismatch/i);
+
+    const missing = verifyNetworkTagForChain(1, "");
+    expect(missing.valid).toBe(false);
+    expect(missing.reason).toMatch(/missing/i);
+
+    const unknownChain = verifyNetworkTagForChain(99, "99-abc");
+    expect(unknownChain.valid).toBe(false);
+    expect(unknownChain.reason).toMatch(/No canonical network tag/i);
+
+    const invalidChain = verifyNetworkTagForChain("not-a-chain", "1-f35df34c92001436");
+    expect(invalidChain.valid).toBe(false);
+    expect(invalidChain.chainId).toBeNull();
+  });
+
+  it("sends a single-POST JSON-RPC 2.0 batch and correlates out-of-order response IDs", async () => {
+    let callCount = 0;
+    const mockFetch: typeof fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      callCount += 1;
+      expect(init?.method).toBe("POST");
+      const batch = JSON.parse(String(init?.body ?? "[]")) as Array<{
+        jsonrpc: string;
+        id: number;
+        method: string;
+        params: unknown[];
+      }>;
+      expect(Array.isArray(batch)).toBe(true);
+      expect(batch).toEqual([
+        { jsonrpc: "2.0", id: 1, method: "kovanica_chainId", params: [] },
+        { jsonrpc: "2.0", id: 2, method: "kovanica_blockNumber", params: [] },
+        { jsonrpc: "2.0", id: 3, method: "kovanica_estimateFee", params: [] },
+      ]);
+
+      // Return responses intentionally out of order
+      return new Response(
+        JSON.stringify([
+          { jsonrpc: "2.0", id: 3, result: "1250" },
+          { jsonrpc: "2.0", id: 1, result: "0x2" },
+          { jsonrpc: "2.0", id: 2, result: "0x4b0" },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const result = await probeRpcBatchHealth(
+      "https://alice:supersecret@rpc-batch.example:8545",
+      mockFetch,
+    );
+
+    expect(callCount).toBe(1);
+    expect(result.ok).toBe(true);
+    expect(result.batchSupported).toBe(true);
+    expect(result.chainId).toBe("0x2");
+    expect(result.blockHeight).toBe("0x4b0");
+    expect(result.feeRate).toBe("1250");
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.url).toBe("https://rpc-batch.example:8545");
+    expect(result.url).not.toContain("supersecret");
+    expect(result.error).toBeUndefined();
+  });
+
+  it("reports partial item errors while preserving batchSupported=true and successful fields", async () => {
+    const mockFetch: typeof fetch = (async () =>
+      new Response(
+        JSON.stringify([
+          { jsonrpc: "2.0", id: 1, result: "2" },
+          { jsonrpc: "2.0", id: 2, result: "9901" },
+          {
+            jsonrpc: "2.0",
+            id: 3,
+            error: {
+              code: -32000,
+              message: "fee oracle unavailable for https://bob:hunter2@rpc.example Bearer tok_secret_123",
+            },
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    const result = await probeRpcBatchHealth("https://rpc.example", mockFetch);
+
+    expect(result.ok).toBe(false);
+    expect(result.batchSupported).toBe(true);
+    expect(result.chainId).toBe("2");
+    expect(result.blockHeight).toBe("9901");
+    expect(result.feeRate).toBeUndefined();
+    expect(result.error).toContain("kovanica_estimateFee");
+    expect(result.error).not.toContain("hunter2");
+    expect(result.error).not.toContain("tok_secret_123");
+    expect(result.error).toContain("[REDACTED]");
+  });
+
+  it("gracefully reports batchSupported=false when a legacy node returns a non-array error", async () => {
+    const mockFetch: typeof fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "Batch requests are not supported on legacy node" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    const result = await probeRpcBatchHealth("https://legacy.example:8545", mockFetch);
+
+    expect(result.ok).toBe(false);
+    expect(result.batchSupported).toBe(false);
+    expect(result.error).toContain("Batch requests are not supported");
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("sanitizes credentials on network failures and rejects non-http URLs", async () => {
+    const mockThrowFetch: typeof fetch = (async () => {
+      throw new Error("ECONNREFUSED https://ops:s3cr3t@node.example:8545 Bearer live_key_999");
+    }) as typeof fetch;
+
+    const failed = await probeRpcBatchHealth(
+      "https://ops:s3cr3t@node.example:8545",
+      mockThrowFetch,
+    );
+    expect(failed.ok).toBe(false);
+    expect(failed.batchSupported).toBe(false);
+    expect(failed.url).toBe("https://node.example:8545");
+    expect(failed.url).not.toContain("s3cr3t");
+    expect(failed.error).not.toContain("s3cr3t");
+    expect(failed.error).not.toContain("live_key_999");
+    expect(failed.error).toContain("[REDACTED]");
+
+    const invalid = await probeRpcBatchHealth("ws://node.example:8546", mockThrowFetch);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.batchSupported).toBe(false);
+    expect(invalid.error).toMatch(/http/i);
   });
 });
