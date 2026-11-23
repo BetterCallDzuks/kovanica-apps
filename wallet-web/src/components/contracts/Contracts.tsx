@@ -14,6 +14,16 @@ import {
   type CallDraft,
   type ContractName,
 } from "@/core/contracts";
+import {
+  estimateContractCallBatchPreview,
+  estimateContractCallPreview,
+  formatBatchCallEstimateSummary,
+  formatCallEstimateSummary,
+  simulateContractCallBeforeSign,
+  type CallBatchEstimatePreview,
+  type CallEstimatePreview,
+  type SimulateContractCallResult,
+} from "@/core/call-estimate";
 import { parseAtoms } from "@/core/format";
 import { callNeed, shortfall } from "@/core/history-row";
 import type { TxPreview } from "@/core/session";
@@ -21,7 +31,7 @@ import { ContactSelect } from "@/components/contacts/ContactSelect";
 import { FaucetButton } from "@/components/home/FaucetButton";
 import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
-import { readStorageAt } from "@/services/rpc";
+import { createCallEstimateClient, createDryRunCallClient, readStorageAt } from "@/services/rpc";
 import { signingLock, useNetwork } from "@/stores/network";
 import { useActivity } from "@/stores/activity";
 
@@ -63,6 +73,17 @@ const ACTIONS = {
 
 type ActionId = (typeof ACTIONS)[ContractName][number]["id"];
 
+type QueuedBatchCall = {
+  id: number;
+  contract: string;
+  contractKind: ContractName;
+  actionLabel: string;
+  method: string;
+  args: Uint8Array;
+  valueAtoms: bigint;
+  gasLimit?: bigint;
+};
+
 export function Contracts({
   onReview,
   prefill,
@@ -100,6 +121,14 @@ export function Contracts({
   const [error, setError] = useState<string | null>(null);
   const [readout, setReadout] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  const [estimate, setEstimate] = useState<CallEstimatePreview | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  const [simulation, setSimulation] = useState<SimulateContractCallResult | null>(null);
+  const [simulating, setSimulating] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<QueuedBatchCall[]>([]);
+  const [batchEstimate, setBatchEstimate] = useState<CallBatchEstimatePreview | null>(null);
+  const [estimatingBatch, setEstimatingBatch] = useState(false);
+  const [nextBatchId, setNextBatchId] = useState(1);
   const selected = ACTIONS[contractId];
   const current = selected.find((item) => item.id === action) ?? selected[0];
   const address = checkAddress(contract, policyChain);
@@ -120,6 +149,8 @@ export function Contracts({
     setAction(ACTIONS[next][0].id);
     setError(null);
     setReadout(null);
+    setEstimate(null);
+    setSimulation(null);
   }
 
   function needs(name: string): boolean {
@@ -185,12 +216,58 @@ export function Contracts({
     });
   }
 
-  function review() {
+  async function estimateCall(): Promise<{ built: CallDraft; valueAtoms: bigint; preview: CallEstimatePreview } | null> {
+    setError(null);
+    setReadout(null);
+    if (!current.sign) return null;
+    if (lock.locked || net.probedChainId == null) {
+      setError(lock.locked ? lock.reason : "Node chain id is not available yet.");
+      return null;
+    }
+    if (!address.ok) {
+      setError(address.message);
+      return null;
+    }
+    const valueAtoms = parseAtoms(value);
+    const parsedGas = gas.trim() === "" ? undefined : parseAtoms(gas);
+    if (valueAtoms == null || (gas.trim() !== "" && parsedGas == null)) {
+      setError("Attached value and gas limit must be whole numbers of atoms.");
+      return null;
+    }
+    const gasLimit = parsedGas ?? undefined;
+    setEstimating(true);
+    try {
+      if (needs("hash")) hex32(hash, "Hash");
+      if (needs("secret") && !secret.trim()) throw new Error("Enter the secret as hex or text.");
+      const built = draft();
+      const client = createCallEstimateClient(net.rpcUrl);
+      const preview = await estimateContractCallPreview(client, {
+        contract,
+        method: built.method,
+        args: built.args,
+        valueAtoms,
+        gasLimit,
+        sender: ownerAddress || undefined,
+        nonce: ownerAddress ? undefined : (net.nonce ?? undefined),
+        chainId: net.probedChainId,
+      });
+      setEstimate(preview);
+      return { built, valueAtoms, preview };
+    } catch (err) {
+      setEstimate(null);
+      setError(err instanceof Error ? err.message : "Could not estimate fee and gas for this call");
+      return null;
+    } finally {
+      setEstimating(false);
+    }
+  }
+
+  async function simulateCurrentCall() {
     setError(null);
     setReadout(null);
     if (!current.sign) return;
-    if (lock.locked || net.probedChainId == null || net.nonce == null || net.feeAtoms == null) {
-      setError(lock.locked ? lock.reason : "Balance, fee, and nonce are not available yet.");
+    if (lock.locked || net.probedChainId == null) {
+      setError(lock.locked ? lock.reason : "Node chain id is not available yet.");
       return;
     }
     if (!address.ok) {
@@ -198,8 +275,51 @@ export function Contracts({
       return;
     }
     const valueAtoms = parseAtoms(value);
-    const gasLimit = parseAtoms(gas);
-    if (valueAtoms == null || gasLimit == null) {
+    const parsedGas = gas.trim() === "" ? undefined : parseAtoms(gas);
+    if (valueAtoms == null || (gas.trim() !== "" && parsedGas == null)) {
+      setError("Attached value and gas limit must be whole numbers of atoms.");
+      return;
+    }
+    setSimulating(true);
+    try {
+      if (needs("hash")) hex32(hash, "Hash");
+      if (needs("secret") && !secret.trim()) throw new Error("Enter the secret as hex or text.");
+      const built = draft();
+      const dryRunClient = createDryRunCallClient(net.rpcUrl);
+      const result = await simulateContractCallBeforeSign(
+        dryRunClient,
+        {
+          contract,
+          method: built.method,
+          args: built.args,
+          valueAtoms,
+          gasLimit: parsedGas ?? undefined,
+          chainId: net.probedChainId,
+        },
+        {
+          from: ownerAddress || undefined,
+        },
+      );
+      setSimulation(result);
+    } catch (err) {
+      setSimulation(null);
+      setError(err instanceof Error ? err.message : "Could not simulate this contract call");
+    } finally {
+      setSimulating(false);
+    }
+  }
+
+  function queueCallToBatch() {
+    setError(null);
+    setReadout(null);
+    if (!current.sign) return;
+    if (!address.ok) {
+      setError(address.message);
+      return;
+    }
+    const valueAtoms = parseAtoms(value);
+    const parsedGas = gas.trim() === "" ? undefined : parseAtoms(gas);
+    if (valueAtoms == null || (gas.trim() !== "" && parsedGas == null)) {
       setError("Attached value and gas limit must be whole numbers of atoms.");
       return;
     }
@@ -207,17 +327,90 @@ export function Contracts({
       if (needs("hash")) hex32(hash, "Hash");
       if (needs("secret") && !secret.trim()) throw new Error("Enter the secret as hex or text.");
       const built = draft();
-      onReview(buildCallPreview({
-        contract,
+      const item: QueuedBatchCall = {
+        id: nextBatchId,
+        contract: contract.trim(),
+        contractKind: contractId,
+        actionLabel: current.label,
         method: built.method,
         args: built.args,
         valueAtoms,
-        gasLimit,
-        feeAtoms: net.feeAtoms,
-        nonce: net.nonce,
-        chainId: net.probedChainId,
+        gasLimit: parsedGas ?? undefined,
+      };
+      setNextBatchId((n) => n + 1);
+      setBatchQueue((prev) => [...prev, item]);
+      setBatchEstimate(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not queue call to batch");
+    }
+  }
+
+  async function estimateQueuedBatch() {
+    setError(null);
+    setReadout(null);
+    if (batchQueue.length === 0) {
+      setError("Queue at least one contract call before estimating a batch.");
+      return;
+    }
+    if (lock.locked || net.probedChainId == null) {
+      setError(lock.locked ? lock.reason : "Node chain id is not available yet.");
+      return;
+    }
+    setEstimatingBatch(true);
+    try {
+      const client = createCallEstimateClient(net.rpcUrl);
+      const preview = await estimateContractCallBatchPreview(
+        client,
+        batchQueue.map((item) => ({
+          contract: item.contract,
+          method: item.method,
+          args: item.args,
+          valueAtoms: item.valueAtoms,
+          gasLimit: item.gasLimit,
+        })),
+        {
+          sender: ownerAddress || undefined,
+          startNonce: ownerAddress ? undefined : (net.nonce ?? undefined),
+          chainId: net.probedChainId,
+        },
+      );
+      setBatchEstimate(preview);
+    } catch (err) {
+      setBatchEstimate(null);
+      setError(err instanceof Error ? err.message : "Could not estimate fee and gas for batch calls");
+    } finally {
+      setEstimatingBatch(false);
+    }
+  }
+
+  function clearBatchQueue() {
+    setBatchQueue([]);
+    setBatchEstimate(null);
+  }
+
+  async function review() {
+    const result = await estimateCall();
+    if (!result) return;
+    const resolvedNonce = result.preview.nonce ?? net.nonce;
+    if (resolvedNonce == null) {
+      setError("Sender nonce is not available yet.");
+      return;
+    }
+    try {
+      onReview(buildCallPreview({
+        contract,
+        method: result.built.method,
+        args: result.built.args,
+        valueAtoms: result.valueAtoms,
+        gasLimit: result.preview.gasLimit,
+        feeAtoms: result.preview.marginedFee,
+        nonce: resolvedNonce,
+        chainId: result.preview.chainId,
         networkName: lock.networkName,
-        details: [{ label: "Action", value: current.label }, ...built.details],
+        details: [{ label: "Action", value: current.label }, ...result.built.details],
+        estimatedTxSize: result.preview.estimatedTxSize,
+        feeRatePerByte: result.preview.feeRatePerByte?.toString(),
+        feeMarginBps: result.preview.feeMarginBps,
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not build the call");
@@ -285,7 +478,7 @@ export function Contracts({
   }
 
   return (
-    <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) review(); else void readState(); }}>
+    <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) void review(); else void readState(); }}>
       <div>
         <h2 className="text-2xl font-semibold">Contracts</h2>
         <p className="mt-2 text-sm text-muted">Canonical WASM entry points. A call is not signed until you confirm the method, arguments, fee, and gas. Reads never ask for the seed.</p>
@@ -299,7 +492,7 @@ export function Contracts({
       </div>
       <div className="flex flex-wrap gap-2">
         {selected.map((item) => (
-          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); }}>
+          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); setEstimate(null); setSimulation(null); }}>
             {item.label}
           </button>
         ))}
@@ -341,20 +534,139 @@ export function Contracts({
         <>
           <Field label="Attached value (atoms)" value={value} onChange={setValue} />
           <Field label="Gas limit" value={gas} onChange={setGas} />
-          <p className="text-sm text-muted">Fee {net.feeAtoms == null ? "unavailable" : `${net.feeAtoms.toString()} atoms`} · nonce {net.nonce == null ? "unavailable" : net.nonce.toString()}</p>
+          <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-paper">Fee &amp; Gas Preview</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={lock.locked || simulating}
+                  onClick={() => void simulateCurrentCall()}
+                >
+                  {simulating ? "Simulating…" : "Simulate call (dry-run)"}
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={lock.locked || estimating}
+                  onClick={() => void estimateCall()}
+                >
+                  {estimating ? "Estimating…" : "Estimate fee & gas"}
+                </button>
+              </div>
+            </div>
+            {simulation ? (
+              simulation.ok ? (
+                <div className="mt-3 rounded-2xl border border-sage/60 bg-sage/10 px-3 py-2 text-xs text-sage">
+                  <p className="font-medium">Dry-run simulation succeeded</p>
+                  <p className="mt-1 break-all text-paper/90">{simulation.decodedSummary}</p>
+                </div>
+              ) : (
+                <div
+                  role="alert"
+                  className="mt-3 rounded-2xl border border-clay bg-clay/10 px-3 py-2 text-xs text-clay"
+                >
+                  <p className="font-medium">
+                    Dry-run simulation reverted — signing this call is likely to fail
+                  </p>
+                  <p className="mt-1 break-words">{simulation.reason}</p>
+                </div>
+              )
+            ) : null}
+            {estimate ? (
+              <dl className="mt-3 grid gap-2">
+                {formatCallEstimateSummary(estimate).map((row) => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-3 border-t border-line/60 pt-2">
+                    <dt className="text-xs text-muted">{row.label}</dt>
+                    <dd className="tabular-nums text-right text-paper">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="mt-2 text-xs text-muted">
+                Click &ldquo;Estimate fee &amp; gas&rdquo; or &ldquo;Review call&rdquo; to compute exact wire size, fee rate, +20% safety-margined fee, gas limit, and nonce.
+                {net.nonce != null ? ` Current nonce: ${net.nonce.toString()}.` : ""}
+              </p>
+            )}
+          </div>
+          <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-paper">Batch Call Estimator Queue</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={estimatingBatch}
+                  onClick={queueCallToBatch}
+                >
+                  Queue call to batch
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={lock.locked || estimatingBatch || batchQueue.length === 0}
+                  onClick={() => void estimateQueuedBatch()}
+                >
+                  {estimatingBatch ? "Estimating batch…" : "Estimate batch"}
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-muted disabled:opacity-40"
+                  disabled={estimatingBatch || batchQueue.length === 0}
+                  onClick={clearBatchQueue}
+                >
+                  Clear batch
+                </button>
+              </div>
+            </div>
+            {batchQueue.length > 0 ? (
+              <ul className="mt-3 grid gap-2">
+                {batchQueue.map((item, idx) => {
+                  const callEst = batchEstimate?.calls[idx];
+                  return (
+                    <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line/60 pt-2 text-xs">
+                      <span className="font-mono text-paper">
+                        #{idx + 1} {item.contractKind}.{item.method}
+                      </span>
+                      <span className="tabular-nums text-muted">
+                        {callEst
+                          ? `nonce=${callEst.nonce?.toString() ?? "auto"} • ${callEst.estimatedTxSize}B • fee=${callEst.marginedFee.toString()} • gas=${callEst.gasLimit.toString()}`
+                          : `value=${item.valueAtoms.toString()} atoms • gas=${(item.gasLimit ?? 100000n).toString()}`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-muted">
+                Queue multiple contract calls to preview sequential nonces and aggregate wire size, +20% margined fee, and gas limit in one batch RPC lookup.
+              </p>
+            )}
+            {batchEstimate ? (
+              <dl className="mt-3 grid gap-2">
+                {formatBatchCallEstimateSummary(batchEstimate).map((row) => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-3 border-t border-line/60 pt-2">
+                    <dt className="text-xs text-muted">{row.label}</dt>
+                    <dd className="tabular-nums text-right text-paper">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+          </div>
         </>
       ) : null}
       {lock.locked && current.sign ? <p className="text-sm text-clay">{lock.reason}</p> : null}
-      {current.sign && net.balanceAtoms != null && shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (net.feeAtoms ?? 0n).toString(), amount)) > 0n ? (
+      {current.sign && net.balanceAtoms != null && shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (estimate?.marginedFee ?? net.feeAtoms ?? 0n).toString(), amount)) > 0n ? (
         <div className="rounded-2xl border border-clay px-4 py-3 text-sm text-clay">
-          <p>Balance is short by {shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (net.feeAtoms ?? 0n).toString(), amount)).toString()} atoms for this call value and fee.</p>
+          <p>Balance is short by {shortfall(net.balanceAtoms, callNeed(current.id, value || "0", (estimate?.marginedFee ?? net.feeAtoms ?? 0n).toString(), amount)).toString()} atoms for this call value and fee.</p>
           {ownerAddress ? <div className="mt-3"><FaucetButton address={ownerAddress} onlyHybrid /></div> : null}
         </div>
       ) : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {readout ? <p className="text-sm break-words text-paper">{readout}</p> : null}
-      <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={current.sign ? lock.locked : reading}>
-        {current.sign ? "Review call" : reading ? "Reading…" : "Read"}
+      <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={current.sign ? (lock.locked || estimating) : reading}>
+        {current.sign ? (estimating ? "Estimating…" : "Review call") : reading ? "Reading…" : "Read"}
       </button>
       <ReceiptCard />
     </form>

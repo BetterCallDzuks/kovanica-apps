@@ -31,6 +31,15 @@
             <button id="refresh" type="button">Refresh</button>
           </div>
         </div>
+        <div id="rpc-token-row">
+          <label for="rpc-token">RPC bearer token (optional, session only)</label>
+          <div class="row">
+            <input id="rpc-token" name="rpc-token" type="password" spellcheck="false" autocomplete="off" />
+            <button id="rpc-token-apply" type="button">Set token</button>
+            <button id="rpc-token-clear" type="button">Clear</button>
+          </div>
+          <p id="rpc-token-status" class="muted"></p>
+        </div>
         <p id="endpoint" class="muted"></p>
         <p id="error" class="error" role="alert" hidden></p>
       </section>
@@ -39,6 +48,42 @@
         <h2 id="node-heading">Node</h2>
         <dl id="status" class="readout"></dl>
         <ul id="peers" class="peers"></ul>
+      </section>
+
+      <section id="stratum-panel" class="panel" aria-labelledby="stratum-heading">
+        <div class="stratum-header">
+          <h2 id="stratum-heading">Stratum Gateway Health &amp; Telemetry</h2>
+          <span id="stratum-alert-badge" class="stratum-alert-badge" role="status" aria-live="polite" hidden></span>
+        </div>
+        <label for="stratum-url">Loopback Stratum observability /health endpoint</label>
+        <div class="row">
+          <input id="stratum-url" name="stratum-url" type="text" value="http://127.0.0.1:9100/health" spellcheck="false" autocomplete="off" />
+          <button id="stratum-save" type="button">Save</button>
+          <button id="stratum-reset" type="button">Use default</button>
+          <button id="stratum-refresh" type="button">Refresh</button>
+          <button id="stratum-copy-diagnostics" type="button">Copy Diagnostics JSON</button>
+        </div>
+        <p id="stratum-state" class="muted"></p>
+        <div id="stratum-alerts" class="stratum-alerts" role="status" aria-live="polite" hidden></div>
+        <p id="stratum-diagnostics-status" class="muted" aria-live="polite" hidden></p>
+        <p id="stratum-error" class="error" role="alert" hidden></p>
+        <dl id="stratum-rows" class="readout"></dl>
+        <div id="stratum-workers-section" hidden>
+          <h3>Active Workers</h3>
+          <p id="stratum-workers-empty" class="muted">No active workers connected.</p>
+          <table id="stratum-workers-table" class="workers-table" hidden>
+            <thead>
+              <tr>
+                <th scope="col">Worker</th>
+                <th scope="col">Difficulty</th>
+                <th scope="col">Accepted</th>
+                <th scope="col">Rejected</th>
+                <th scope="col">Connected</th>
+              </tr>
+            </thead>
+            <tbody id="stratum-workers-body"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="wallet-heading">
@@ -209,7 +254,29 @@
             </div>
           </section>
 
+          <section id="address-book-panel" aria-labelledby="address-book-heading">
+            <h3 id="address-book-heading">Address book</h3>
+            <label for="address-book-search">Search contacts</label>
+            <input id="address-book-search" type="text" spellcheck="false" autocomplete="off" />
+            <label for="address-book-label">Label</label>
+            <input id="address-book-label" type="text" maxlength="64" autocomplete="off" />
+            <label for="address-book-address">Canonical PRO-21 address</label>
+            <input id="address-book-address" type="text" spellcheck="false" autocomplete="off" />
+            <label for="address-book-note">Note (optional)</label>
+            <input id="address-book-note" type="text" maxlength="240" autocomplete="off" />
+            <div class="row">
+              <button id="address-book-add" type="button">Save contact</button>
+            </div>
+            <p id="address-book-error" class="error" role="alert" hidden></p>
+            <p id="address-book-empty" class="muted">No saved addresses yet.</p>
+            <ul id="address-book-list" class="history"></ul>
+          </section>
+
           <h3 id="history-heading">History (reported by node)</h3>
+          <div class="row">
+            <button id="export-history-csv" type="button">Export CSV</button>
+            <button id="export-history-json" type="button">Export JSON</button>
+          </div>
           <p id="history-empty" class="muted">No transfers reported by the node.</p>
           <ul id="history" class="history"></ul>
         </div>

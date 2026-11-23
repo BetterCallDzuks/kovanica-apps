@@ -2,6 +2,29 @@ import { create } from "zustand";
 import { chainName, isLocalRpc, LOCAL_NODE_RPC, presetById, type PresetId } from "@/lib/networks";
 
 const CHOICE_KEY = "kvnc.network.v1";
+const RPC_TOKEN_KEY = "kvnc.rpc_token.v1";
+
+function loadSessionRpcToken(): string {
+  try {
+    if (typeof sessionStorage === "undefined") return "";
+    return (sessionStorage.getItem(RPC_TOKEN_KEY) ?? "").replace(/[\r\n]/g, "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function persistSessionRpcToken(token: string) {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    if (token) {
+      sessionStorage.setItem(RPC_TOKEN_KEY, token);
+    } else {
+      sessionStorage.removeItem(RPC_TOKEN_KEY);
+    }
+  } catch {
+    // Keep token in memory only if sessionStorage is unavailable
+  }
+}
 
 export type NodeMode = "full" | "light" | null;
 
@@ -33,6 +56,7 @@ export function getNodeStatusBadge(state: {
 type NetworkState = {
   presetId: PresetId;
   rpcUrl: string;
+  rpcToken: string;
   localNodeMode: boolean;
   nodeMode: NodeMode;
   probedChainId: number | null;
@@ -49,6 +73,8 @@ type NetworkState = {
   feeAtoms: bigint | null;
   indexerUrl: string;
   setIndexerUrl: (indexerUrl: string) => void;
+  setRpcToken: (rpcToken: string) => void;
+  clearRpcToken: () => void;
   selectPreset: (presetId: PresetId) => void;
   setRpcUrl: (rpcUrl: string, presetId?: PresetId) => void;
   setLocalNodeMode: (active: boolean) => void;
@@ -88,6 +114,7 @@ export function savedNetworkChoice(): { presetId: PresetId; rpcUrl: string } | n
 export const useNetwork = create<NetworkState>((set, get) => ({
   presetId: "testnet",
   rpcUrl: presetById("testnet").rpcUrl,
+  rpcToken: loadSessionRpcToken(),
   localNodeMode: isLocalRpc(presetById("testnet").rpcUrl),
   nodeMode: isLocalRpc(presetById("testnet").rpcUrl) ? "full" : null,
   probedChainId: null,
@@ -104,6 +131,15 @@ export const useNetwork = create<NetworkState>((set, get) => ({
   feeAtoms: null,
   indexerUrl: "",
   setIndexerUrl: (indexerUrl) => set({ indexerUrl }),
+  setRpcToken: (rpcToken) => {
+    const cleaned = rpcToken.replace(/[\r\n]/g, "").trim();
+    persistSessionRpcToken(cleaned);
+    set({ rpcToken: cleaned });
+  },
+  clearRpcToken: () => {
+    persistSessionRpcToken("");
+    set({ rpcToken: "" });
+  },
   selectPreset: (presetId) => {
     const preset = presetById(presetId);
     const rpcUrl = preset.rpcUrl;

@@ -72,6 +72,79 @@
         <h2 id="logs-heading">Logs</h2>
         <div id="log-viewer" class="log-viewer" tabindex="0" role="log" aria-label="Node logs, last 200 lines"></div>
       </section>
+
+      <section class="panel stratum-panel" id="stratum-panel" aria-labelledby="stratum-heading">
+        <div class="panel-header">
+          <h2 id="stratum-heading">Stratum Gateway Supervisor</h2>
+          <span id="stratum-status-badge" class="status-badge" data-state="stopped" aria-live="polite">Stopped</span>
+        </div>
+        <p class="note">
+          Supervises an owned <code>kovanica-stratum</code> V1 gateway process with argv-only launch,
+          optional TLS, upstream node JSON-RPC target, and loopback <code>/health</code> monitoring.
+        </p>
+        <div class="fields">
+          <label for="stratum-binary-path">Stratum executable</label>
+          <input id="stratum-binary-path" name="stratumBinary" autocomplete="off" spellcheck="false" placeholder="/usr/local/bin/kovanica-stratum" />
+          <label for="stratum-bind-host">Bind host</label>
+          <input id="stratum-bind-host" name="stratumBindHost" autocomplete="off" spellcheck="false" value="127.0.0.1" />
+          <label for="stratum-bind-port">Bind port</label>
+          <input id="stratum-bind-port" name="stratumBindPort" autocomplete="off" spellcheck="false" value="3333" />
+          <label for="stratum-rpc-url">Upstream node RPC</label>
+          <input id="stratum-rpc-url" name="stratumRpcUrl" autocomplete="off" spellcheck="false" value="http://127.0.0.1:8545" />
+          <label for="stratum-metrics-addr">Observability bind</label>
+          <input id="stratum-metrics-addr" name="stratumMetricsAddr" autocomplete="off" spellcheck="false" value="127.0.0.1:9090" />
+          <label for="stratum-chain-id">Chain ID</label>
+          <input id="stratum-chain-id" name="stratumChainId" autocomplete="off" spellcheck="false" value="2" />
+          <label for="stratum-difficulty">Share difficulty</label>
+          <input id="stratum-difficulty" name="stratumDifficulty" autocomplete="off" spellcheck="false" value="1" />
+          <label for="stratum-tls-toggle">Enable TLS</label>
+          <div class="checkbox-row">
+            <input type="checkbox" id="stratum-tls-toggle" name="stratumTls" />
+            <label for="stratum-tls-self-signed" class="inline-label">
+              <input type="checkbox" id="stratum-tls-self-signed" name="stratumTlsSelfSigned" disabled />
+              Self-signed (testing)
+            </label>
+          </div>
+          <label for="stratum-tls-cert-path">TLS cert (PEM)</label>
+          <input id="stratum-tls-cert-path" name="stratumTlsCert" autocomplete="off" spellcheck="false" disabled placeholder="/path/to/tls_cert.pem" />
+          <label for="stratum-tls-key-path">TLS key (PEM)</label>
+          <input id="stratum-tls-key-path" name="stratumTlsKey" autocomplete="off" spellcheck="false" disabled placeholder="/path/to/tls_key.pem" />
+          <label for="stratum-vardiff-toggle">Enable VarDiff</label>
+          <div class="checkbox-row">
+            <input type="checkbox" id="stratum-vardiff-toggle" name="stratumVardiff" />
+            <span class="note">Dynamic per-worker share difficulty</span>
+          </div>
+          <label for="stratum-vardiff-min">VarDiff min difficulty</label>
+          <input id="stratum-vardiff-min" name="stratumVardiffMin" autocomplete="off" spellcheck="false" disabled value="0.25" />
+          <label for="stratum-vardiff-max">VarDiff max difficulty</label>
+          <input id="stratum-vardiff-max" name="stratumVardiffMax" autocomplete="off" spellcheck="false" disabled value="64" />
+          <label for="stratum-vardiff-target-secs">VarDiff target share (s)</label>
+          <input id="stratum-vardiff-target-secs" name="stratumVardiffTargetSecs" autocomplete="off" spellcheck="false" disabled value="15" />
+          <label for="stratum-ban-threshold">Ban invalid shares</label>
+          <input id="stratum-ban-threshold" name="stratumBanThreshold" autocomplete="off" spellcheck="false" placeholder="0 (disabled)" value="" />
+          <label for="stratum-ban-duration-secs">Ban duration (s)</label>
+          <input id="stratum-ban-duration-secs" name="stratumBanDurationSecs" autocomplete="off" spellcheck="false" placeholder="600" value="" />
+        </div>
+        <div class="action-row">
+          <button type="button" id="stratum-check-button">Check gateway</button>
+          <button type="button" id="stratum-start-button" disabled>Start gateway</button>
+          <button type="button" id="stratum-restart-button" disabled>Restart gateway</button>
+          <button type="button" id="stratum-stop-button" disabled>Stop gateway</button>
+          <button type="button" id="stratum-export-diagnostics-button">Copy / Export Diagnostics JSON</button>
+        </div>
+        <div id="stratum-alerts" class="stratum-alerts" role="status" aria-live="polite" hidden></div>
+        <p id="stratum-diagnostics-status" class="note" aria-live="polite" hidden></p>
+        <p id="stratum-error" class="error" role="alert" hidden></p>
+        <p id="stratum-summary" class="summary" aria-live="polite"></p>
+        <h3>Gateway process</h3>
+        <dl id="stratum-process-readout" class="readout" aria-live="polite"></dl>
+        <h3>Gateway health &amp; stats</h3>
+        <dl id="stratum-health-readout" class="readout" aria-live="polite"></dl>
+        <h3>Active workers</h3>
+        <dl id="stratum-workers-readout" class="readout" aria-live="polite"></dl>
+        <h3>Gateway logs</h3>
+        <div id="stratum-log-viewer" class="log-viewer" tabindex="0" role="log" aria-label="Stratum gateway logs, last 200 lines"></div>
+      </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

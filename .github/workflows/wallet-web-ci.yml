@@ -29,10 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout KovanicaDAG/kovanica-sdk
+      - name: Checkout BetterCallDzuks/kovanica-sdk
         uses: actions/checkout@v4
         with:
-          repository: KovanicaDAG/kovanica-sdk
+          repository: BetterCallDzuks/kovanica-sdk
+          ref: 40f0e1db7292c30978faad706892bd2f093bbe2d
           path: kovanica-sdk
 
       - uses: actions/setup-node@v4
@@ -59,8 +60,8 @@ jobs:
       - name: Verify test vectors
         run: npx tsx src/core/check-vectors.ts
 
-      - name: Verify receipt decoding & history rows
-        run: node --experimental-strip-types --test src/core/receipt.test.ts src/core/history-row.test.ts
+      - name: Verify receipt decoding, history rows & call estimation
+        run: npx tsx --test src/core/receipt.test.ts src/core/history-row.test.ts src/core/call-estimate.test.ts
 
       - name: Build web wallet
         run: npm run build

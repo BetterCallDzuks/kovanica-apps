@@ -6,6 +6,21 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { mountContracts } from "./contracts-panel";
+import {
+  addAddressBookEntry,
+  loadAddressBook,
+  removeAddressBookEntry,
+  saveAddressBook,
+  searchAddressBook,
+  type AddressBookEntry,
+} from "./core/address-book";
+import {
+  exportHistoryCsv,
+  exportHistoryJson,
+  historyExportFilename,
+  triggerHistoryDownload,
+  type HistoryExportRow,
+} from "./core/export-history";
 import { historyHeading as rowTitle, receiptStatusLine } from "./core/history-row";
 import { outboxRows, subscribeOutbox } from "./core/outbox";
 
@@ -682,6 +697,133 @@ export function mountWallet(shownChainId: () => string | null): void {
   window.setInterval(() => {
     paintClaimLabel();
   }, 1000);
+
+  function collectHistoryExportRows(): HistoryExportRow[] {
+    const chainIdRaw = shownChainId();
+    const chainId = chainIdRaw !== null && /^\d+$/.test(chainIdRaw) ? Number(chainIdRaw) : 0;
+    const now = Date.now();
+    const outboxExport: HistoryExportRow[] = outboxRows().map((row) => ({
+      hash: row.hash,
+      status: row.status,
+      direction: "contract",
+      amountAtoms: "0",
+      feeAtoms: "0",
+      counterparty: row.counterparty,
+      chainId,
+      createdAt: now,
+      height: null,
+      note: row.method,
+      gasUsed: row.gasUsed,
+      code: row.code,
+      error: row.error,
+      logs: row.events.length,
+      events: row.events,
+    }));
+    const reported = lastHistory?.transfers ?? [];
+    const transfers = reported.slice();
+    if (
+      pendingClaim &&
+      !reported.some((row) => row.transactionHash === pendingClaim?.transactionHash)
+    ) {
+      transfers.unshift(pendingClaim);
+    }
+    const transferExport: HistoryExportRow[] = transfers.map((row) => ({
+      hash: row.transactionHash,
+      status: row.pending ? "pending" : "confirmed",
+      direction: row.direction,
+      amountAtoms: row.amountAtoms,
+      feeAtoms: "0",
+      counterparty: row.counterparty,
+      chainId,
+      createdAt: now,
+      height: row.height !== null && /^\d+$/.test(row.height) ? Number(row.height) : null,
+      note: "",
+    }));
+    return [...outboxExport, ...transferExport];
+  }
+
+  const exportCsvButton = document.querySelector<HTMLButtonElement>("#export-history-csv");
+  const exportJsonButton = document.querySelector<HTMLButtonElement>("#export-history-json");
+
+  exportCsvButton?.addEventListener("click", () => {
+    clearError();
+    const csv = exportHistoryCsv(collectHistoryExportRows());
+    triggerHistoryDownload(csv, historyExportFilename("csv"), "text/csv;charset=utf-8");
+  });
+
+  exportJsonButton?.addEventListener("click", () => {
+    clearError();
+    const json = exportHistoryJson(collectHistoryExportRows());
+    triggerHistoryDownload(json, historyExportFilename("json"), "application/json;charset=utf-8");
+  });
+
+  const addressBookSearch = document.querySelector<HTMLInputElement>("#address-book-search");
+  const addressBookLabel = document.querySelector<HTMLInputElement>("#address-book-label");
+  const addressBookAddress = document.querySelector<HTMLInputElement>("#address-book-address");
+  const addressBookNote = document.querySelector<HTMLInputElement>("#address-book-note");
+  const addressBookAdd = document.querySelector<HTMLButtonElement>("#address-book-add");
+  const addressBookError = document.querySelector<HTMLParagraphElement>("#address-book-error");
+  const addressBookEmpty = document.querySelector<HTMLParagraphElement>("#address-book-empty");
+  const addressBookList = document.querySelector<HTMLUListElement>("#address-book-list");
+
+  let addressBookEntries: AddressBookEntry[] = loadAddressBook();
+
+  function paintAddressBook(): void {
+    if (!addressBookList || !addressBookEmpty) return;
+    const filtered = searchAddressBook(addressBookEntries, addressBookSearch?.value ?? "");
+    addressBookList.replaceChildren();
+    addressBookEmpty.hidden = filtered.length !== 0;
+    for (const entry of filtered) {
+      const item = document.createElement("li");
+      const summary = document.createElement("span");
+      summary.textContent = entry.note
+        ? `${entry.label} — ${entry.address} (${entry.note})`
+        : `${entry.label} — ${entry.address}`;
+      const useButton = document.createElement("button");
+      useButton.type = "button";
+      useButton.textContent = "Use";
+      useButton.addEventListener("click", () => {
+        recipient.value = entry.address;
+        syncButtons();
+      });
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.textContent = "Remove";
+      removeButton.addEventListener("click", () => {
+        addressBookEntries = removeAddressBookEntry(addressBookEntries, entry.id);
+        saveAddressBook(addressBookEntries);
+        paintAddressBook();
+      });
+      item.append(summary, " ", useButton, " ", removeButton);
+      addressBookList.append(item);
+    }
+  }
+
+  addressBookSearch?.addEventListener("input", () => paintAddressBook());
+  addressBookAdd?.addEventListener("click", () => {
+    if (addressBookError) {
+      addressBookError.hidden = true;
+      addressBookError.textContent = "";
+    }
+    try {
+      addressBookEntries = addAddressBookEntry(addressBookEntries, {
+        label: addressBookLabel?.value ?? "",
+        address: addressBookAddress?.value ?? "",
+        note: addressBookNote?.value ?? "",
+      });
+      saveAddressBook(addressBookEntries);
+      if (addressBookLabel) addressBookLabel.value = "";
+      if (addressBookAddress) addressBookAddress.value = "";
+      if (addressBookNote) addressBookNote.value = "";
+      paintAddressBook();
+    } catch (error) {
+      if (addressBookError) {
+        addressBookError.hidden = false;
+        addressBookError.textContent = messageFrom(error);
+      }
+    }
+  });
+  paintAddressBook();
 
   void refreshStatus().catch((error: unknown) => showError(messageFrom(error)));
   mountContracts(shownChainId);

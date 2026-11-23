@@ -88,9 +88,80 @@ button:disabled {
   opacity: 0.45;
 }
 
-#start-button:not(:disabled) {
+#start-button:not(:disabled),
+#stratum-start-button:not(:disabled) {
   background: #245c45;
   border-color: #3d8f68;
+}
+
+.stratum-panel {
+  border-top: 1px solid #2a2a32;
+  padding-top: 1rem;
+  margin-top: 1.5rem;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+h3 {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9e9eab;
+  margin: 0.9rem 0 0.25rem;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid #3a3a44;
+  background: #1d1d24;
+  color: #c8c8d4;
+}
+
+.status-badge[data-state="running"] {
+  background: #1b3d2f;
+  border-color: #3d8f68;
+  color: #9ee6c2;
+}
+
+.status-badge[data-state="starting"],
+.status-badge[data-state="stopping"] {
+  background: #3a2a12;
+  border-color: #e0b15a;
+  color: #f5d38c;
+}
+
+.status-badge[data-state="exited"] {
+  background: #3d1d22;
+  border-color: #b84a5a;
+  color: #ffb4b4;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+}
+
+.inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #b7b7c2;
 }
 
 .action-row {
@@ -102,6 +173,37 @@ button:disabled {
 .error {
   color: #ffb4b4;
   margin-top: 0.75rem;
+}
+
+.stratum-alerts {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #3a3a44;
+  background: #1a1d26;
+  line-height: 1.4;
+}
+
+.stratum-alerts[data-severity="critical"] {
+  background: #3d1d22;
+  border-color: #b84a5a;
+  color: #ffb4b4;
+}
+
+.stratum-alerts[data-severity="warning"] {
+  background: #3a2a12;
+  border-color: #e0b15a;
+  color: #f5d38c;
+}
+
+.stratum-alerts[data-severity="info"] {
+  background: #172838;
+  border-color: #4f86b8;
+  color: #b8dcff;
+}
+
+.stratum-alerts p + p {
+  margin-top: 0.35rem;
 }
 
 .summary { margin-top: 0.75rem; line-height: 1.45; }

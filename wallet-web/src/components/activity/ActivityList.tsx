@@ -1,3 +1,9 @@
+import {
+  exportHistoryCsv,
+  exportHistoryJson,
+  historyExportFilename,
+  triggerHistoryDownload,
+} from "@/core/export-history";
 import { formatKvnc } from "@/core/format";
 import { historyHeading, receiptStatusLine } from "@/core/history-row";
 import { useActivity, type ActivityRow } from "@/stores/activity";
@@ -16,7 +22,39 @@ export function ActivityList() {
   const note = useActivity((s) => s.indexerNote);
   return (
     <div className="grid gap-3">
-      <p className="text-sm text-muted">{note}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted">{note}</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="min-h-11 rounded-full border border-line px-4 text-sm text-paper disabled:opacity-40"
+            disabled={rows.length === 0}
+            onClick={() => {
+              triggerHistoryDownload(
+                exportHistoryCsv(rows),
+                historyExportFilename("csv"),
+                "text/csv;charset=utf-8",
+              );
+            }}
+          >
+            Export CSV
+          </button>
+          <button
+            type="button"
+            className="min-h-11 rounded-full border border-line px-4 text-sm text-paper disabled:opacity-40"
+            disabled={rows.length === 0}
+            onClick={() => {
+              triggerHistoryDownload(
+                exportHistoryJson(rows),
+                historyExportFilename("json"),
+                "application/json;charset=utf-8",
+              );
+            }}
+          >
+            Export JSON
+          </button>
+        </div>
+      </div>
       {rows.length === 0 ? <p className="rounded-card border border-line bg-ink px-4 py-6 text-sm text-muted">No transactions from this device yet.</p> : null}
       {rows.map((row) => {
         const title = historyHeading(row.direction, row.note);

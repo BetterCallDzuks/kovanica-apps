@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { endpointLine, peerLines, statusRows, type NodeStatus } from "./connection";
+import {
+  buildRpcHeaders,
+  clearSessionRpcBearerToken,
+  endpointLine,
+  getSessionRpcBearerToken,
+  hasSessionRpcBearerToken,
+  normalizeRpcBearerToken,
+  peerLines,
+  rpcBearerTokenStatus,
+  rpcFetch,
+  setSessionRpcBearerToken,
+  statusRows,
+  type NodeStatus,
+} from "./connection";
 
 function status(overrides: Partial<NodeStatus> = {}): NodeStatus {
   return {
@@ -72,6 +85,96 @@ describe("connection screen", () => {
   it("names the endpoint from the label the backend already chose", () => {
     expect(endpointLine("rpc-testnet.kovanica.online")).toBe(
       "Talking to rpc-testnet.kovanica.online",
+    );
+  });
+});
+
+describe("optional RPC bearer token", () => {
+  afterEach(() => {
+    clearSessionRpcBearerToken();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps the bearer token session-scoped in memory and normalizes whitespace", () => {
+    expect(getSessionRpcBearerToken()).toBeNull();
+    expect(hasSessionRpcBearerToken()).toBe(false);
+
+    setSessionRpcBearerToken("  secret-rpc-token-123  ");
+    expect(getSessionRpcBearerToken()).toBe("secret-rpc-token-123");
+    expect(hasSessionRpcBearerToken()).toBe(true);
+
+    setSessionRpcBearerToken("   ");
+    expect(getSessionRpcBearerToken()).toBeNull();
+    expect(hasSessionRpcBearerToken()).toBe(false);
+
+    expect(() => normalizeRpcBearerToken("bad\ntoken")).toThrow(/control characters/i);
+  });
+
+  it("attaches Authorization: Bearer header only when a token is configured", () => {
+    const withoutToken = buildRpcHeaders();
+    expect(withoutToken).toEqual({ "Content-Type": "application/json" });
+    expect("Authorization" in withoutToken).toBe(false);
+
+    setSessionRpcBearerToken("session-token-xyz");
+    const withSession = buildRpcHeaders({ "X-Client": "console" });
+    expect(withSession).toEqual({
+      "Content-Type": "application/json",
+      "X-Client": "console",
+      Authorization: "Bearer session-token-xyz",
+    });
+
+    const withOverride = buildRpcHeaders(undefined, "override-token");
+    expect(withOverride.Authorization).toBe("Bearer override-token");
+
+    const clearedOverride = buildRpcHeaders(undefined, null);
+    expect("Authorization" in clearedOverride).toBe(false);
+  });
+
+  it("sends Authorization: Bearer on rpcFetch when configured and never logs the token", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const mockFetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const secret = "kvnc_live_super_secret_token";
+    setSessionRpcBearerToken(secret);
+
+    await rpcFetch("https://rpc.example", { jsonrpc: "2.0", id: 1, method: "kovanica_chainId", params: [] }, {
+      fetchImpl: mockFetch,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://rpc.example");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe(
+      `Bearer ${secret}`,
+    );
+
+    // Status text never exposes the raw token
+    expect(rpcBearerTokenStatus()).not.toContain(secret);
+    expect(rpcBearerTokenStatus()).toContain("configured");
+
+    // Token is never logged to console
+    for (const spy of [logSpy, infoSpy, warnSpy, errorSpy]) {
+      expect(spy).not.toHaveBeenCalled();
+    }
+
+    clearSessionRpcBearerToken();
+    await rpcFetch("https://rpc.example", { jsonrpc: "2.0", id: 2, method: "kovanica_chainId", params: [] }, {
+      fetchImpl: mockFetch,
+    });
+    expect(calls).toHaveLength(2);
+    expect("Authorization" in ((calls[1]?.init?.headers as Record<string, string>) ?? {})).toBe(
+      false,
     );
   });
 });

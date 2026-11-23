@@ -724,6 +724,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_kovanica_light_ffi_checksum_func_registry_slot_hex(
     ): Int
+    external fun uniffi_kovanica_light_ffi_checksum_func_resolve_dns_seed_peers(
+    ): Int
     external fun uniffi_kovanica_light_ffi_checksum_func_reveal_mnemonic_raw(
     ): Int
     external fun uniffi_kovanica_light_ffi_checksum_func_sign_bond_raw(
@@ -830,6 +832,8 @@ internal object UniffiLib {
     external fun uniffi_kovanica_light_ffi_fn_func_registry_decode_entry(`valueHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_kovanica_light_ffi_fn_func_registry_slot_hex(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_kovanica_light_ffi_fn_func_resolve_dns_seed_peers(`dnsSeedHost`: RustBuffer.ByValue,`defaultPort`: Short,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_kovanica_light_ffi_fn_func_reveal_mnemonic_raw(`keystoreJson`: RustBuffer.ByValue,`passphrase`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1010,7 +1014,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_confirm_account() != 55701) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_kovanica_light_ffi_checksum_func_contract_address_for_raw() != 59815) {
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_contract_address_for_raw() != 1766) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_create_hd_wallet() != 60552) {
@@ -1031,7 +1035,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_execute_block_transactions() != 5262) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_kovanica_light_ffi_checksum_func_faucet_allowed() != 22913) {
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_faucet_allowed() != 24175) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_get_local_account() != 39088) {
@@ -1058,7 +1062,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_lock() != 53030) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_kovanica_light_ffi_checksum_func_mine_pow_block_header() != 27244) {
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_mine_pow_block_header() != 39482) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_prune_local_node_storage() != 39694) {
@@ -1070,6 +1074,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_registry_slot_hex() != 45968) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_resolve_dns_seed_peers() != 53908) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_reveal_mnemonic_raw() != 40673) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1079,7 +1086,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_kovanica_light_ffi_checksum_func_sign_call_hd() != 20075) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_kovanica_light_ffi_checksum_func_sign_call_raw() != 38764) {
+    if (lib.uniffi_kovanica_light_ffi_checksum_func_sign_call_raw() != 42135) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_kovanica_light_ffi_checksum_func_sign_deploy_raw() != 4049) {
@@ -1927,7 +1934,7 @@ public object FfiConverterTypeMinedPowResult: FfiConverterRustBuffer<MinedPowRes
  */
 data class MobileNodeProfile (
     /**
-     * Network chain ID (`2` for `HYBRID_TESTNET`, `1` for `MAINNET`).
+     * Network chain ID (`2` for `TESTNET` / `HYBRID_TESTNET`, `1` for `MAINNET`).
      */
     var `chainId`: kotlin.ULong
     , 
@@ -2457,6 +2464,34 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuffer<List<LocalExecutionReceipt>> {
     override fun read(buf: ByteBuffer): List<LocalExecutionReceipt> {
         val len = buf.getInt()
@@ -2728,7 +2763,7 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
          *
          * Allowed on public testnet (chain 2, [`TESTNET_CHAIN_ID`]) and devnet
          * (chain 3, [`DEVNET_CHAIN_ID`]). Strictly refused on mainnet (1), the retired
-         * local id (1337), and unknown chains.
+         * `local` id (1337), and unknown chains.
          */ fun `faucetAllowed`(`chainId`: kotlin.ULong): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
@@ -2943,6 +2978,23 @@ public object FfiConverterSequenceTypeLocalExecutionReceipt: FfiConverterRustBuf
     
         
         FfiConverterString.lower(`name`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Resolve DNS seed hostname into a list of socket address strings (e.g. "1.2.3.4:8000").
+         * Enables Android and mobile light clients to discover live seed nodes dynamically.
+         */
+    @Throws(LightFfiException::class) fun `resolveDnsSeedPeers`(`dnsSeedHost`: kotlin.String, `defaultPort`: kotlin.UShort): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCallWithError(LightFfiException) { _status ->
+    UniffiLib.uniffi_kovanica_light_ffi_fn_func_resolve_dns_seed_peers(
+    
+        
+        FfiConverterString.lower(`dnsSeedHost`),
+        FfiConverterUShort.lower(`defaultPort`),_status)
 }
     )
     }

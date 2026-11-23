@@ -14,6 +14,12 @@ There is no wallet, stake, mining, or key command.
 | `node_status` | none | Last snapshot. Does not call RPC. |
 | `monitor_refresh` | none | One non-overlapping loopback read when the owned process is running and the poll gate allows it. |
 | `set_monitor_paused` | `paused` | Hides the window from starting a new read. |
+| `stratum_inspect` | `config` (`StratumConfigInput`) | Validates `kovanica-stratum` executable, bind host/port, upstream RPC URL, loopback metrics address, chain ID, difficulty, and TLS paths; returns `CheckedStratumConfig`. |
+| `stratum_start` | `config` (`StratumConfigInput`) | Re-validates config, spawns `kovanica-stratum` via argv only, returns `StratumSnapshot`. |
+| `stratum_stop` | none | SIGTERM, grace, SIGKILL for the owned Stratum gateway child. Returns `StratumSnapshot`. |
+| `stratum_restart` | `config` (`StratumConfigInput`) | Stops the owned Stratum gateway child if running, then spawns a fresh instance with `config`. Returns `StratumSnapshot`. |
+| `stratum_status` | none | Last `StratumSnapshot` (does not poll HTTP). |
+| `stratum_refresh` | none | Polls loopback `GET http://<metrics_addr>/health` when running and updates `StratumHealthView`. |
 
 ## CheckedSetup
 

@@ -1,6 +1,8 @@
 import { blake3 } from "@noble/hashes/blake3.js";
 
-const PREFIX = "kvnc";
+export const ADDRESS_PREFIX = "kvnc";
+export const TESTNET_ADDRESS_PREFIX = "tknc";
+const PREFIX = ADDRESS_PREFIX;
 const SUFFIX = "dag";
 const BODY_CHARS = 57;
 export const ADDRESS_LENGTH = PREFIX.length + BODY_CHARS + SUFFIX.length;
@@ -25,30 +27,37 @@ function checksum29(publicKey: Uint8Array): bigint {
   return word >> BigInt(32 - CHECKSUM_BITS);
 }
 
-export function encodeAddress(publicKey: Uint8Array): string {
+export function encodeAddress(publicKey: Uint8Array, prefix: string = PREFIX): string {
   if (publicKey.length !== 32) throw new Error("address payload must be 32 bytes");
+  if (prefix !== ADDRESS_PREFIX && prefix !== TESTNET_ADDRESS_PREFIX) {
+    throw new Error(`address prefix must be ${ADDRESS_PREFIX} or ${TESTNET_ADDRESS_PREFIX}`);
+  }
   let n = (keyToBigInt(publicKey) << BigInt(CHECKSUM_BITS)) | checksum29(publicKey);
   const chars = new Array<string>(BODY_CHARS);
   for (let i = BODY_CHARS - 1; i >= 0; i -= 1) {
     chars[i] = ALPHABET[Number(n & 31n)]!;
     n >>= 5n;
   }
-  return `${PREFIX}${chars.join("")}${SUFFIX}`;
+  return `${prefix}${chars.join("")}${SUFFIX}`;
 }
 
-export function decodeAddress(value: string): Uint8Array {
+export function decodeAddress(value: string, expectedPrefix?: string): Uint8Array {
   const trimmed = value.trim();
   if (trimmed !== trimmed.toLowerCase()) {
     throw new Error("address must be lowercase");
   }
-  if (!trimmed.startsWith(PREFIX) || !trimmed.endsWith(SUFFIX)) {
-    throw new Error("address must start with kvnc and end with dag");
+  const allowedPrefixes = expectedPrefix
+    ? [expectedPrefix]
+    : [ADDRESS_PREFIX, TESTNET_ADDRESS_PREFIX];
+  const matchedPrefix = allowedPrefixes.find((prefix) => trimmed.startsWith(prefix));
+  if (!matchedPrefix || !trimmed.endsWith(SUFFIX)) {
+    throw new Error("address must start with kvnc or tknc and end with dag");
   }
   if (trimmed.length !== ADDRESS_LENGTH) {
     throw new Error(`address must be ${ADDRESS_LENGTH} characters`);
   }
   let n = 0n;
-  for (const char of trimmed.slice(PREFIX.length, -SUFFIX.length)) {
+  for (const char of trimmed.slice(matchedPrefix.length, -SUFFIX.length)) {
     const index = ALPHABET.indexOf(char);
     if (index < 0) throw new Error("address contains a character outside the base32 alphabet");
     n = (n << 5n) | BigInt(index);

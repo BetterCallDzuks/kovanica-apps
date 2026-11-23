@@ -341,6 +341,9 @@ export function buildCallPreview(input: {
   chainId: number;
   networkName: string;
   details: PreviewDetail[];
+  estimatedTxSize?: number;
+  feeRatePerByte?: string;
+  feeMarginBps?: number;
 }): TxPreview {
   const from = activeAccount();
   if (!from) throw new Error("unlock the wallet before signing");

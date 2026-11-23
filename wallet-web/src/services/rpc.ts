@@ -1,6 +1,13 @@
+import type {
+  DryRunCallClient,
+  EstimateAndBuildCallClient,
+  TransactionReceipt,
+  WaitForTransactionReceiptClient,
+} from "kovanica-sdk";
 import { storageBytes } from "@/core/contracts";
 import { decodeReceipt } from "@/core/receipt";
 import { parseNetworkTagChainId } from "@/lib/networks";
+import { useNetwork } from "@/stores/network";
 import { proxyHealth, proxyIndexer, proxyRpc } from "./rpc.functions";
 
 export type SyncProbe = {
@@ -35,8 +42,16 @@ function parseJson(body: string): unknown {
   }
 }
 
+function currentRpcToken(): string | undefined {
+  const token = useNetwork.getState().rpcToken.replace(/[\r\n]/g, "").trim();
+  return token.length > 0 ? token : undefined;
+}
+
 async function post(rpcUrl: string, method: string, params: unknown[]): Promise<unknown> {
-  const result = await proxyRpc({ data: { rpcUrl, method, params } });
+  const rpcToken = currentRpcToken();
+  const result = await proxyRpc({
+    data: { rpcUrl, method, params, ...(rpcToken ? { rpcToken } : {}) },
+  });
   if (!result.ok) throw new Error(`node returned ${result.status}`);
   const parsed = asRecord(parseJson(result.body));
   if (!parsed) throw new Error("node did not return JSON");
@@ -291,7 +306,15 @@ export async function readStorageAt(rpcUrl: string, address: string, slotHex: st
   let last = "storage was not returned";
   for (const candidate of withRpcPath(rpcUrl)) {
     try {
-      const result = await proxyRpc({ data: { rpcUrl: candidate, method: "kovanica_getStorageAt", params: [address, slot] } });
+      const rpcToken = currentRpcToken();
+      const result = await proxyRpc({
+        data: {
+          rpcUrl: candidate,
+          method: "kovanica_getStorageAt",
+          params: [address, slot],
+          ...(rpcToken ? { rpcToken } : {}),
+        },
+      });
       if (!result.ok) throw new Error(`node returned ${result.status}`);
       const parsed = asRecord(parseJson(result.body));
       if (!parsed) throw new Error("node did not return JSON");
@@ -332,4 +355,122 @@ export async function simulateCall(
     return typeof result === "string" ? result : "0x";
   }
   return "0x";
+}
+
+export async function estimateFeeRate(rpcUrl: string): Promise<bigint> {
+  let last = "fee estimate unavailable";
+  for (const candidate of withRpcPath(rpcUrl)) {
+    try {
+      const raw = await post(candidate, "kovanica_estimateFee", []);
+      const rate = quantity(raw);
+      if (rate != null) return rate;
+    } catch (error) {
+      last = error instanceof Error ? error.message : last;
+    }
+    try {
+      const raw = await post(candidate, "kovanica_estimateFee", [{}]);
+      const rate = quantity(raw);
+      if (rate != null) return rate;
+    } catch (error) {
+      last = error instanceof Error ? error.message : last;
+    }
+  }
+  throw new Error(last);
+}
+
+export async function getAccountNonce(rpcUrl: string, address: string): Promise<bigint> {
+  let last = "nonce unavailable";
+  for (const candidate of withRpcPath(rpcUrl)) {
+    try {
+      const raw = await post(candidate, "kovanica_getNonce", [address]);
+      const nonce = quantity(raw);
+      if (nonce != null) return nonce;
+    } catch (error) {
+      last = error instanceof Error ? error.message : last;
+    }
+  }
+  throw new Error(last);
+}
+
+export function createCallEstimateClient(rpcUrl: string): EstimateAndBuildCallClient {
+  return {
+    estimateFee: () => estimateFeeRate(rpcUrl),
+    getNonce: (address: string) => getAccountNonce(rpcUrl, address),
+  };
+}
+
+export function createDryRunCallClient(rpcUrl: string): DryRunCallClient {
+  return {
+    async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+      const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
+      let last = "dry-run simulation failed";
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          return (await post(candidate, method, normalizedParams)) as TResult;
+        } catch (error) {
+          last = error instanceof Error ? error.message : last;
+        }
+      }
+      throw new Error(last);
+    },
+  };
+}
+
+function normalizeSdkReceipt(raw: unknown): TransactionReceipt | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const txHash = rec.transactionHash ?? rec.txHash ?? rec.hash;
+  if (typeof txHash !== "string" || !txHash.trim()) return null;
+  const blockHashRaw = rec.blockHash ?? rec.block_hash ?? "";
+  const blockNumber = quantity(rec.blockNumber ?? rec.block_number ?? rec.height ?? rec.blockHeight) ?? 0n;
+  const txIndexRaw = quantity(rec.transactionIndex ?? rec.transaction_index);
+  const gasUsed = quantity(rec.gasUsed ?? rec.gas_used);
+  const statusVal = rec.status;
+  const reverted =
+    rec.success === false ||
+    statusVal === 0 ||
+    statusVal === "0x0" ||
+    statusVal === "0" ||
+    (typeof statusVal === "string" && /fail|revert/i.test(statusVal));
+  const rawLogs = Array.isArray(rec.logs) ? rec.logs : Array.isArray(rec.events) ? rec.events : [];
+  const logs = rawLogs.flatMap((entry) => {
+    const item = asRecord(entry);
+    if (!item || typeof item.data !== "string") return [];
+    const topics = Array.isArray(item.topics) ? item.topics.map((t) => String(t)) : undefined;
+    return [
+      {
+        ...(typeof item.address === "string" ? { address: item.address } : {}),
+        ...(topics ? { topics } : {}),
+        data: item.data,
+      },
+    ];
+  });
+
+  return {
+    transactionHash: txHash,
+    blockHash: typeof blockHashRaw === "string" ? blockHashRaw : "",
+    blockNumber,
+    transactionIndex: txIndexRaw,
+    status: reverted ? 0 : 1,
+    success: !reverted,
+    ...(gasUsed != null ? { gasUsed } : {}),
+    logs,
+  };
+}
+
+export function createReceiptTrackingClient(rpcUrl: string): WaitForTransactionReceiptClient {
+  return {
+    async getTransactionReceipt(hash: string): Promise<TransactionReceipt | null> {
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          const result = await post(candidate, "kovanica_getTransactionReceipt", [hash]);
+          const normalized = normalizeSdkReceipt(result);
+          if (normalized) return normalized;
+        } catch {
+          continue;
+        }
+      }
+      return null;
+    },
+  };
 }

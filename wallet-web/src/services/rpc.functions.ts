@@ -22,7 +22,7 @@ const RPC_METHODS = new Set([
   "kovanica_nodeStatus",
 ]);
 
-type RpcInput = { rpcUrl: string; method: string; params: unknown[] };
+type RpcInput = { rpcUrl: string; method: string; params: unknown[]; rpcToken?: string };
 type HttpInput = { url: string };
 
 function parseRpc(input: unknown): RpcInput {
@@ -34,7 +34,13 @@ function parseRpc(input: unknown): RpcInput {
   if (!RPC_METHODS.has(value.method)) throw new Error("RPC method is not used by the wallet");
   if (value.params.length > 8) throw new Error("too many RPC params");
   assertRpcUrl(value.rpcUrl);
-  return { rpcUrl: value.rpcUrl, method: value.method, params: value.params };
+  let rpcToken: string | undefined;
+  if (typeof value.rpcToken === "string") {
+    const cleaned = value.rpcToken.replace(/[\r\n]/g, "").trim();
+    if (cleaned.length > 2048) throw new Error("RPC token is too long");
+    if (cleaned.length > 0) rpcToken = cleaned;
+  }
+  return { rpcUrl: value.rpcUrl, method: value.method, params: value.params, ...(rpcToken ? { rpcToken } : {}) };
 }
 
 function parseHttp(input: unknown): HttpInput {
@@ -49,9 +55,16 @@ export const proxyRpc = createServerFn({ method: "POST" })
   .validator(parseRpc)
   .handler(async ({ data }) => {
     const started = Date.now();
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "application/json",
+    };
+    if (data.rpcToken) {
+      headers.authorization = `Bearer ${data.rpcToken}`;
+    }
     const response = await fetch(data.rpcUrl, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
+      headers,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: data.method, params: data.params }),
       signal: AbortSignal.timeout(8000),
     });

@@ -1,14 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import {
+  clearSessionRpcBearerToken,
   endpointLine,
   peerLines,
+  rpcBearerTokenStatus,
+  setSessionRpcBearerToken,
   statusRows,
   type ConnectionConfig,
   type NodeStatus,
   type StatusRow,
 } from "./connection";
 import { presetById, presetFor } from "./networks";
+import { mountStratumPanel } from "./stratum-panel";
 import { mountWallet } from "./wallet-view";
 import "./styles.css";
 
@@ -34,6 +38,37 @@ const netTestnet = control<HTMLButtonElement>("#net-testnet");
 const netMainnet = control<HTMLButtonElement>("#net-mainnet");
 const netDevnet = control<HTMLButtonElement>("#net-devnet");
 const netCustom = control<HTMLButtonElement>("#net-custom");
+
+const rpcToken = document.querySelector<HTMLInputElement>("#rpc-token");
+const rpcTokenApply = document.querySelector<HTMLButtonElement>("#rpc-token-apply");
+const rpcTokenClear = document.querySelector<HTMLButtonElement>("#rpc-token-clear");
+const rpcTokenStatus = document.querySelector<HTMLParagraphElement>("#rpc-token-status");
+
+function paintRpcTokenStatus(): void {
+  if (rpcTokenStatus) {
+    rpcTokenStatus.textContent = rpcBearerTokenStatus();
+  }
+}
+
+rpcTokenApply?.addEventListener("click", () => {
+  clearError();
+  try {
+    setSessionRpcBearerToken(rpcToken?.value ?? "");
+    if (rpcToken) rpcToken.value = "";
+    paintRpcTokenStatus();
+  } catch (error) {
+    showError(messageFrom(error));
+  }
+});
+
+rpcTokenClear?.addEventListener("click", () => {
+  clearError();
+  clearSessionRpcBearerToken();
+  if (rpcToken) rpcToken.value = "";
+  paintRpcTokenStatus();
+});
+
+paintRpcTokenStatus();
 
 function showError(message: string): void {
   errorText.hidden = false;
@@ -180,6 +215,7 @@ netCustom.addEventListener("click", () => {
 });
 
 labelNetworkButtons();
+mountStratumPanel();
 mountWallet(() => shownChainId);
 
 void (async () => {
