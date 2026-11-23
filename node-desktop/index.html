@@ -109,6 +109,21 @@
           <input id="stratum-tls-cert-path" name="stratumTlsCert" autocomplete="off" spellcheck="false" disabled placeholder="/path/to/tls_cert.pem" />
           <label for="stratum-tls-key-path">TLS key (PEM)</label>
           <input id="stratum-tls-key-path" name="stratumTlsKey" autocomplete="off" spellcheck="false" disabled placeholder="/path/to/tls_key.pem" />
+          <label for="stratum-vardiff-toggle">Enable VarDiff</label>
+          <div class="checkbox-row">
+            <input type="checkbox" id="stratum-vardiff-toggle" name="stratumVardiff" />
+            <span class="note">Dynamic per-worker share difficulty</span>
+          </div>
+          <label for="stratum-vardiff-min">VarDiff min difficulty</label>
+          <input id="stratum-vardiff-min" name="stratumVardiffMin" autocomplete="off" spellcheck="false" disabled value="0.25" />
+          <label for="stratum-vardiff-max">VarDiff max difficulty</label>
+          <input id="stratum-vardiff-max" name="stratumVardiffMax" autocomplete="off" spellcheck="false" disabled value="64" />
+          <label for="stratum-vardiff-target-secs">VarDiff target share (s)</label>
+          <input id="stratum-vardiff-target-secs" name="stratumVardiffTargetSecs" autocomplete="off" spellcheck="false" disabled value="15" />
+          <label for="stratum-ban-threshold">Ban invalid shares</label>
+          <input id="stratum-ban-threshold" name="stratumBanThreshold" autocomplete="off" spellcheck="false" placeholder="0 (disabled)" value="" />
+          <label for="stratum-ban-duration-secs">Ban duration (s)</label>
+          <input id="stratum-ban-duration-secs" name="stratumBanDurationSecs" autocomplete="off" spellcheck="false" placeholder="600" value="" />
         </div>
         <div class="action-row">
           <button type="button" id="stratum-check-button">Check gateway</button>
@@ -122,6 +137,8 @@
         <dl id="stratum-process-readout" class="readout" aria-live="polite"></dl>
         <h3>Gateway health &amp; stats</h3>
         <dl id="stratum-health-readout" class="readout" aria-live="polite"></dl>
+        <h3>Active workers</h3>
+        <dl id="stratum-workers-readout" class="readout" aria-live="polite"></dl>
         <h3>Gateway logs</h3>
         <div id="stratum-log-viewer" class="log-viewer" tabindex="0" role="log" aria-label="Stratum gateway logs, last 200 lines"></div>
       </section>

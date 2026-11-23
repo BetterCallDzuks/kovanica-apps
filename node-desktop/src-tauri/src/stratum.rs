@@ -44,6 +44,18 @@ pub struct StratumConfigInput {
     pub tls_cert_path: Option<String>,
     pub tls_key_path: Option<String>,
     pub tls_self_signed: bool,
+    #[serde(default)]
+    pub vardiff_enabled: bool,
+    #[serde(default)]
+    pub vardiff_min_difficulty: Option<f64>,
+    #[serde(default)]
+    pub vardiff_max_difficulty: Option<f64>,
+    #[serde(default)]
+    pub vardiff_target_share_secs: Option<u64>,
+    #[serde(default)]
+    pub ban_threshold_invalid_shares: Option<u32>,
+    #[serde(default)]
+    pub ban_duration_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -57,12 +69,58 @@ pub struct CheckedStratumConfig {
     pub rpc_url: String,
     pub metrics_addr: String,
     pub health_url: String,
+    pub workers_url: String,
     pub chain_id: u64,
     pub difficulty: f64,
     pub tls_enabled: bool,
     pub tls_cert_path: Option<String>,
     pub tls_key_path: Option<String>,
     pub tls_self_signed: bool,
+    pub vardiff_enabled: bool,
+    pub vardiff_min_difficulty: Option<f64>,
+    pub vardiff_max_difficulty: Option<f64>,
+    pub vardiff_target_share_secs: Option<u64>,
+    pub ban_threshold_invalid_shares: Option<u32>,
+    pub ban_duration_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StratumWorkerEntry {
+    pub worker_name: String,
+    pub difficulty: f64,
+    pub shares_accepted: u64,
+    pub shares_rejected: u64,
+    pub connected_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StratumWorkersSnapshot {
+    pub reach: RpcReach,
+    pub workers: Vec<StratumWorkerEntry>,
+    pub banned_ips: u64,
+    pub detail: Option<String>,
+}
+
+impl StratumWorkersSnapshot {
+    pub fn unknown() -> Self {
+        Self {
+            reach: RpcReach::Unknown,
+            workers: Vec::new(),
+            banned_ips: 0,
+            detail: None,
+        }
+    }
+
+    pub fn unavailable(detail: Option<String>) -> Self {
+        Self {
+            reach: RpcReach::Unreachable,
+            workers: Vec::new(),
+            banned_ips: 0,
+            detail,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -112,6 +170,7 @@ pub struct StratumSnapshot {
     pub process: ProcessStatus,
     pub health: StratumHealthView,
     pub health_seq: u64,
+    pub workers: StratumWorkersSnapshot,
     pub config: Option<CheckedStratumConfig>,
     pub stop_grace_secs: u64,
 }
@@ -217,6 +276,52 @@ pub fn check_stratum_config(input: &StratumConfigInput) -> Result<CheckedStratum
 
     let binary_sha256 = sha256_file(&binary_path)?;
     let health_url = format!("http://{metrics_sock}/health");
+    let workers_url = format!("http://{metrics_sock}/workers");
+
+    if input.vardiff_enabled {
+        if let Some(min) = input.vardiff_min_difficulty {
+            if !min.is_finite() || min <= 0.0 {
+                return Err("VarDiff minimum difficulty must be a positive finite number.".into());
+            }
+        }
+        if let Some(max) = input.vardiff_max_difficulty {
+            if !max.is_finite() || max <= 0.0 {
+                return Err("VarDiff maximum difficulty must be a positive finite number.".into());
+            }
+        }
+        if let (Some(min), Some(max)) = (input.vardiff_min_difficulty, input.vardiff_max_difficulty)
+        {
+            if min > max {
+                return Err(
+                    "VarDiff minimum difficulty must not exceed maximum difficulty.".into(),
+                );
+            }
+        }
+        if let Some(target) = input.vardiff_target_share_secs {
+            if target == 0 {
+                return Err("VarDiff target share seconds must be greater than 0.".into());
+            }
+        }
+    }
+
+    if let Some(threshold) = input.ban_threshold_invalid_shares {
+        if threshold > 0 {
+            let duration = input.ban_duration_secs.unwrap_or(0);
+            if duration == 0 {
+                return Err(
+                    "ban duration seconds must be greater than 0 when ban threshold is active."
+                        .into(),
+                );
+            }
+        }
+    }
+    if let Some(duration) = input.ban_duration_secs {
+        if duration == 0 && input.ban_threshold_invalid_shares.unwrap_or(0) > 0 {
+            return Err(
+                "ban duration seconds must be greater than 0 when ban threshold is active.".into(),
+            );
+        }
+    }
 
     Ok(CheckedStratumConfig {
         binary: binary_path.display().to_string(),
@@ -227,12 +332,31 @@ pub fn check_stratum_config(input: &StratumConfigInput) -> Result<CheckedStratum
         rpc_url: rpc_url.to_string(),
         metrics_addr: metrics_sock.to_string(),
         health_url,
+        workers_url,
         chain_id: input.chain_id,
         difficulty: input.difficulty,
         tls_enabled: input.tls_enabled,
         tls_cert_path,
         tls_key_path,
         tls_self_signed: input.tls_enabled && input.tls_self_signed,
+        vardiff_enabled: input.vardiff_enabled,
+        vardiff_min_difficulty: if input.vardiff_enabled {
+            input.vardiff_min_difficulty
+        } else {
+            None
+        },
+        vardiff_max_difficulty: if input.vardiff_enabled {
+            input.vardiff_max_difficulty
+        } else {
+            None
+        },
+        vardiff_target_share_secs: if input.vardiff_enabled {
+            input.vardiff_target_share_secs
+        } else {
+            None
+        },
+        ban_threshold_invalid_shares: input.ban_threshold_invalid_shares,
+        ban_duration_secs: input.ban_duration_secs,
     })
 }
 
@@ -265,6 +389,29 @@ pub fn build_stratum_args(cfg: &CheckedStratumConfig) -> Vec<String> {
             args.push("--tls-key".to_string());
             args.push(key.clone());
         }
+    }
+    if cfg.vardiff_enabled {
+        args.push("--vardiff-enabled".to_string());
+        if let Some(min) = cfg.vardiff_min_difficulty {
+            args.push("--vardiff-min-difficulty".to_string());
+            args.push(min.to_string());
+        }
+        if let Some(max) = cfg.vardiff_max_difficulty {
+            args.push("--vardiff-max-difficulty".to_string());
+            args.push(max.to_string());
+        }
+        if let Some(target) = cfg.vardiff_target_share_secs {
+            args.push("--vardiff-target-share-secs".to_string());
+            args.push(target.to_string());
+        }
+    }
+    if let Some(threshold) = cfg.ban_threshold_invalid_shares {
+        args.push("--ban-threshold-invalid-shares".to_string());
+        args.push(threshold.to_string());
+    }
+    if let Some(duration) = cfg.ban_duration_secs {
+        args.push("--ban-duration-secs".to_string());
+        args.push(duration.to_string());
     }
     args
 }
@@ -340,6 +487,103 @@ pub async fn fetch_stratum_health(health_url: &str) -> Result<StratumHealthView,
     Ok(parse_stratum_health(status, &body))
 }
 
+/// Parse the JSON returned by `kovanica-stratum`'s `GET /workers` endpoint.
+/// Supports either `{ "workers": [...], "banned_ips": N }` or a direct `[...]` array.
+pub fn parse_stratum_workers(http_status: u16, body: &str) -> StratumWorkersSnapshot {
+    if http_status != 200 {
+        return StratumWorkersSnapshot::unavailable(Some(format!("workers HTTP {http_status}")));
+    }
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        return StratumWorkersSnapshot::unavailable(Some(
+            "workers response was not valid JSON".into(),
+        ));
+    };
+
+    let (items, banned_ips) = match &value {
+        Value::Object(obj) => {
+            let list = obj
+                .get("workers")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let banned = obj.get("banned_ips").and_then(Value::as_u64).unwrap_or(0);
+            (list, banned)
+        }
+        Value::Array(arr) => (arr.clone(), 0),
+        _ => {
+            return StratumWorkersSnapshot::unavailable(Some(
+                "workers response was not a JSON object or array".into(),
+            ));
+        }
+    };
+
+    let mut workers = Vec::with_capacity(items.len());
+    for entry in items {
+        let Some(obj) = entry.as_object() else {
+            continue;
+        };
+        let worker_name = obj
+            .get("worker_name")
+            .or_else(|| obj.get("workerName"))
+            .and_then(Value::as_str)
+            .unwrap_or("(anonymous)")
+            .to_string();
+        let difficulty = obj
+            .get("difficulty")
+            .and_then(Value::as_f64)
+            .filter(|d| d.is_finite() && *d >= 0.0)
+            .unwrap_or(0.0);
+        let shares_accepted = obj
+            .get("shares_accepted")
+            .or_else(|| obj.get("sharesAccepted"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let shares_rejected = obj
+            .get("shares_rejected")
+            .or_else(|| obj.get("sharesRejected"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let connected_secs = obj
+            .get("connected_secs")
+            .or_else(|| obj.get("connectedSecs"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        workers.push(StratumWorkerEntry {
+            worker_name,
+            difficulty,
+            shares_accepted,
+            shares_rejected,
+            connected_secs,
+        });
+    }
+
+    StratumWorkersSnapshot {
+        reach: RpcReach::Reachable,
+        workers,
+        banned_ips,
+        detail: None,
+    }
+}
+
+pub async fn fetch_stratum_workers(workers_url: &str) -> Result<StratumWorkersSnapshot, String> {
+    let client = reqwest::Client::builder()
+        .timeout(HEALTH_TIMEOUT)
+        .connect_timeout(HEALTH_TIMEOUT)
+        .build()
+        .map_err(|err| err.to_string())?;
+    let resp = client
+        .get(workers_url)
+        .send()
+        .await
+        .map_err(|err| format!("stratum workers request failed: {err}"))?;
+    let status = resp.status().as_u16();
+    let body = resp
+        .text()
+        .await
+        .map_err(|err| format!("stratum workers body failed: {err}"))?;
+    Ok(parse_stratum_workers(status, &body))
+}
+
 struct StratumInner {
     child: Option<Child>,
     state: ProcessState,
@@ -350,6 +594,7 @@ struct StratumInner {
     status_seq: u64,
     health: StratumHealthView,
     health_seq: u64,
+    workers: StratumWorkersSnapshot,
     config: Option<CheckedStratumConfig>,
 }
 
@@ -379,6 +624,7 @@ impl StratumSession {
                 status_seq: 1,
                 health: StratumHealthView::unknown(),
                 health_seq: 1,
+                workers: StratumWorkersSnapshot::unknown(),
                 config: None,
             }),
             logs: Arc::new(Mutex::new(VecDeque::new())),
@@ -418,10 +664,18 @@ impl StratumSession {
         } else {
             inner.health.clone()
         };
+        let workers = if inner.state == ProcessState::Exited {
+            StratumWorkersSnapshot::unavailable(Some(
+                "stratum gateway exited; workers are not live".into(),
+            ))
+        } else {
+            inner.workers.clone()
+        };
         StratumSnapshot {
             process,
             health,
             health_seq: inner.health_seq,
+            workers,
             config: inner.config.clone(),
             stop_grace_secs: self.grace.as_secs(),
         }
@@ -499,6 +753,7 @@ impl StratumSession {
             inner.last_error = None;
             inner.config = Some(cfg.clone());
             inner.health = StratumHealthView::unknown();
+            inner.workers = StratumWorkersSnapshot::unknown();
             inner.health_seq = inner.health_seq.wrapping_add(1);
             inner.observe();
         }
@@ -594,12 +849,31 @@ impl StratumSession {
         inner.config.as_ref().map(|c| c.health_url.clone())
     }
 
+    pub fn workers_target(&self) -> Option<String> {
+        self.reap();
+        let inner = self.inner.lock().expect("stratum lock");
+        if inner.state != ProcessState::Running {
+            return None;
+        }
+        inner.config.as_ref().map(|c| c.workers_url.clone())
+    }
+
     pub fn record_health(&self, view: StratumHealthView) {
         let mut inner = self.inner.lock().expect("stratum lock");
         if inner.state != ProcessState::Running {
             return;
         }
         inner.health = view;
+        inner.health_seq = inner.health_seq.wrapping_add(1);
+    }
+
+    pub fn record_observability(&self, health: StratumHealthView, workers: StratumWorkersSnapshot) {
+        let mut inner = self.inner.lock().expect("stratum lock");
+        if inner.state != ProcessState::Running {
+            return;
+        }
+        inner.health = health;
+        inner.workers = workers;
         inner.health_seq = inner.health_seq.wrapping_add(1);
     }
 
@@ -749,6 +1023,12 @@ mod tests {
             tls_cert_path: None,
             tls_key_path: None,
             tls_self_signed: false,
+            vardiff_enabled: false,
+            vardiff_min_difficulty: None,
+            vardiff_max_difficulty: None,
+            vardiff_target_share_secs: None,
+            ban_threshold_invalid_shares: None,
+            ban_duration_secs: None,
         }
     }
 
@@ -870,6 +1150,115 @@ mod tests {
         assert_eq!(stopped.process.state, ProcessState::Exited);
         assert_eq!(stopped.process.pid, None);
         assert_eq!(stopped.health.reach, RpcReach::Unreachable);
+        assert_eq!(stopped.workers.reach, RpcReach::Unreachable);
         assert!(session.health_target().is_none());
+    }
+
+    #[test]
+    fn validates_and_builds_vardiff_and_ban_args() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = make_script(tmp.path(), "kovanica-stratum", "#!/bin/sh\nexit 0\n");
+
+        // Valid VarDiff + ban config
+        let mut cfg_in = base_input(&bin);
+        cfg_in.vardiff_enabled = true;
+        cfg_in.vardiff_min_difficulty = Some(0.5);
+        cfg_in.vardiff_max_difficulty = Some(16.0);
+        cfg_in.vardiff_target_share_secs = Some(15);
+        cfg_in.ban_threshold_invalid_shares = Some(5);
+        cfg_in.ban_duration_secs = Some(300);
+
+        let checked = check_stratum_config(&cfg_in).unwrap();
+        assert!(checked.vardiff_enabled);
+        assert_eq!(checked.workers_url, "http://127.0.0.1:9090/workers");
+        let args = build_stratum_args(&checked);
+        assert!(args.contains(&"--vardiff-enabled".to_string()));
+        assert!(args.contains(&"--vardiff-min-difficulty".to_string()));
+        assert!(args.contains(&"0.5".to_string()));
+        assert!(args.contains(&"--vardiff-max-difficulty".to_string()));
+        assert!(args.contains(&"16".to_string()));
+        assert!(args.contains(&"--vardiff-target-share-secs".to_string()));
+        assert!(args.contains(&"15".to_string()));
+        assert!(args.contains(&"--ban-threshold-invalid-shares".to_string()));
+        assert!(args.contains(&"5".to_string()));
+        assert!(args.contains(&"--ban-duration-secs".to_string()));
+        assert!(args.contains(&"300".to_string()));
+
+        // Reject min > max when vardiff_enabled is true
+        let mut bad_range = cfg_in.clone();
+        bad_range.vardiff_min_difficulty = Some(32.0);
+        bad_range.vardiff_max_difficulty = Some(8.0);
+        assert!(check_stratum_config(&bad_range)
+            .unwrap_err()
+            .contains("must not exceed maximum"));
+
+        // Reject non-positive min difficulty
+        let mut bad_min = cfg_in.clone();
+        bad_min.vardiff_min_difficulty = Some(0.0);
+        assert!(check_stratum_config(&bad_min)
+            .unwrap_err()
+            .contains("positive finite"));
+
+        // Reject zero target share seconds
+        let mut bad_target = cfg_in.clone();
+        bad_target.vardiff_target_share_secs = Some(0);
+        assert!(check_stratum_config(&bad_target)
+            .unwrap_err()
+            .contains("greater than 0"));
+
+        // Reject ban threshold > 0 without positive ban duration
+        let mut bad_ban = base_input(&bin);
+        bad_ban.ban_threshold_invalid_shares = Some(3);
+        bad_ban.ban_duration_secs = Some(0);
+        assert!(check_stratum_config(&bad_ban)
+            .unwrap_err()
+            .contains("ban duration seconds must be greater than 0"));
+    }
+
+    #[test]
+    fn parses_stratum_workers_json_and_fallback() {
+        let body = r#"{
+            "workers": [
+                {
+                    "worker_name": "rig-alpha.01",
+                    "difficulty": 4.5,
+                    "shares_accepted": 120,
+                    "shares_rejected": 2,
+                    "connected_secs": 3600
+                },
+                {
+                    "worker_name": "rig-beta.02",
+                    "difficulty": 2.0,
+                    "shares_accepted": 45,
+                    "shares_rejected": 0,
+                    "connected_secs": 900
+                }
+            ],
+            "banned_ips": 1
+        }"#;
+        let snap = parse_stratum_workers(200, body);
+        assert_eq!(snap.reach, RpcReach::Reachable);
+        assert_eq!(snap.banned_ips, 1);
+        assert_eq!(snap.workers.len(), 2);
+        assert_eq!(snap.workers[0].worker_name, "rig-alpha.01");
+        assert_eq!(snap.workers[0].difficulty, 4.5);
+        assert_eq!(snap.workers[0].shares_accepted, 120);
+        assert_eq!(snap.workers[0].shares_rejected, 2);
+        assert_eq!(snap.workers[0].connected_secs, 3600);
+
+        // Direct JSON array also supported
+        let arr_snap = parse_stratum_workers(
+            200,
+            r#"[{"worker_name":"solo","difficulty":1.0,"shares_accepted":9,"shares_rejected":1,"connected_secs":30}]"#,
+        );
+        assert_eq!(arr_snap.reach, RpcReach::Reachable);
+        assert_eq!(arr_snap.workers.len(), 1);
+        assert_eq!(arr_snap.workers[0].worker_name, "solo");
+
+        // Graceful fallback when /workers is unavailable (e.g. 404 or invalid JSON)
+        let missing = parse_stratum_workers(404, "not found");
+        assert_eq!(missing.reach, RpcReach::Unreachable);
+        assert!(missing.workers.is_empty());
+        assert!(missing.detail.unwrap().contains("404"));
     }
 }

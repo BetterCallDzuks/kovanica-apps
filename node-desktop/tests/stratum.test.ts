@@ -101,6 +101,15 @@ function sampleSnapshot(opts: {
   uptimeSeconds?: string;
   logs?: string[];
   tlsEnabled?: boolean;
+  workersReach?: "unknown" | "reachable" | "unreachable";
+  workers?: Array<{
+    workerName: string;
+    difficulty: number;
+    sharesAccepted: number;
+    sharesRejected: number;
+    connectedSecs: number;
+  }>;
+  bannedIps?: number;
 }): StratumSnapshot {
   const reach = opts.reach ?? "unknown";
   const kind = reach === "unreachable" ? "unavailable" : "unknown";
@@ -132,6 +141,12 @@ function sampleSnapshot(opts: {
       detail: null,
     },
     healthSeq: opts.healthSeq,
+    workers: {
+      reach: opts.workersReach ?? reach,
+      workers: opts.workers ?? [],
+      bannedIps: opts.bannedIps ?? 0,
+      detail: null,
+    },
     config:
       opts.state === "running"
         ? {
@@ -143,12 +158,19 @@ function sampleSnapshot(opts: {
             rpcUrl: "http://127.0.0.1:8545",
             metricsAddr: "127.0.0.1:9090",
             healthUrl: "http://127.0.0.1:9090/health",
+            workersUrl: "http://127.0.0.1:9090/workers",
             chainId: 2,
             difficulty: 1,
             tlsEnabled: opts.tlsEnabled ?? false,
             tlsCertPath: null,
             tlsKeyPath: null,
             tlsSelfSigned: false,
+            vardiffEnabled: false,
+            vardiffMinDifficulty: null,
+            vardiffMaxDifficulty: null,
+            vardiffTargetShareSecs: null,
+            banThresholdInvalidShares: null,
+            banDurationSecs: null,
           }
         : null,
     stopGraceSecs: 10,
@@ -168,6 +190,12 @@ function harness() {
     ["stratum-tls-self-signed", "input"],
     ["stratum-tls-cert-path", "input"],
     ["stratum-tls-key-path", "input"],
+    ["stratum-vardiff-toggle", "input"],
+    ["stratum-vardiff-min", "input"],
+    ["stratum-vardiff-max", "input"],
+    ["stratum-vardiff-target-secs", "input"],
+    ["stratum-ban-threshold", "input"],
+    ["stratum-ban-duration-secs", "input"],
     ["stratum-check-button", "button"],
     ["stratum-start-button", "button"],
     ["stratum-restart-button", "button"],
@@ -177,6 +205,7 @@ function harness() {
     ["stratum-summary", "p"],
     ["stratum-process-readout", "dl"],
     ["stratum-health-readout", "dl"],
+    ["stratum-workers-readout", "dl"],
     ["stratum-log-viewer", "div"],
   ];
   const nodes = new Map(defs.map(([id, tag]) => [id, element(tag, id)]));
@@ -186,6 +215,9 @@ function harness() {
   nodes.get("stratum-metrics-addr")!.value = "127.0.0.1:9090";
   nodes.get("stratum-chain-id")!.value = "2";
   nodes.get("stratum-difficulty")!.value = "1";
+  nodes.get("stratum-vardiff-min")!.value = "0.25";
+  nodes.get("stratum-vardiff-max")!.value = "64";
+  nodes.get("stratum-vardiff-target-secs")!.value = "15";
   nodes.get("stratum-start-button")!.disabled = true;
   nodes.get("stratum-restart-button")!.disabled = true;
   nodes.get("stratum-stop-button")!.disabled = true;
@@ -302,6 +334,41 @@ test("Stratum form validation and payload conversion enforce required fields and
   assert.equal(stratumStatusLabel("running"), "Running");
   assert.equal(stratumStatusLabel("stopped"), "Stopped");
   assert.equal(stratumStatusLabel("exited"), "Exited");
+
+  // VarDiff & ban rules
+  assert.match(
+    validateStratumForm({
+      ...base,
+      vardiffEnabled: true,
+      vardiffMinDifficulty: "64",
+      vardiffMaxDifficulty: "8",
+      vardiffTargetShareSecs: "15",
+    })!,
+    /must not exceed maximum/i,
+  );
+  assert.match(
+    validateStratumForm({
+      ...base,
+      banThresholdInvalidShares: "5",
+      banDurationSecs: "",
+    })!,
+    /Ban duration seconds is required/i,
+  );
+  const fullPayload = toStratumPayload({
+    ...base,
+    vardiffEnabled: true,
+    vardiffMinDifficulty: "0.5",
+    vardiffMaxDifficulty: "32",
+    vardiffTargetShareSecs: "15",
+    banThresholdInvalidShares: "5",
+    banDurationSecs: "300",
+  });
+  assert.equal(fullPayload.vardiffEnabled, true);
+  assert.equal(fullPayload.vardiffMinDifficulty, 0.5);
+  assert.equal(fullPayload.vardiffMaxDifficulty, 32);
+  assert.equal(fullPayload.vardiffTargetShareSecs, 15);
+  assert.equal(fullPayload.banThresholdInvalidShares, 5);
+  assert.equal(fullPayload.banDurationSecs, 300);
 });
 
 test("HTML and CSS contain Stratum Gateway supervisor controls and status badge styling", () => {
@@ -311,6 +378,9 @@ test("HTML and CSS contain Stratum Gateway supervisor controls and status badge 
   assert.match(html, /id="stratum-restart-button"/);
   assert.match(html, /id="stratum-stop-button"/);
   assert.match(html, /id="stratum-tls-toggle"/);
+  assert.match(html, /id="stratum-vardiff-toggle"/);
+  assert.match(html, /id="stratum-ban-threshold"/);
+  assert.match(html, /id="stratum-workers-readout"/);
   assert.match(html, /id="stratum-log-viewer"/);
   assert.match(css, /\.status-badge\[data-state="running"\]/);
 });
@@ -421,6 +491,17 @@ test("start, live health polling, restart, stop, and stale snapshot rejection wo
       currentJobId: "job-0009",
       tlsEnabled: false,
       logs: ["started stratum pid 7001", "miner connected"],
+      workersReach: "reachable",
+      bannedIps: 1,
+      workers: [
+        {
+          workerName: "rig-alpha.01",
+          difficulty: 4.5,
+          sharesAccepted: 120,
+          sharesRejected: 2,
+          connectedSecs: 3600,
+        },
+      ],
     }),
   );
   await world.flush();
@@ -429,6 +510,14 @@ test("start, live health polling, restart, stop, and stale snapshot rejection wo
   assert.equal(hRows["Active miners"], "4");
   assert.equal(hRows["Current job"], "job-0009");
   assert.equal(hRows["Uptime (s)"], "120");
+  const wRows = readout(world.nodes.get("stratum-workers-readout")!);
+  assert.equal(wRows["Workers endpoint"], "reachable");
+  assert.equal(wRows["Active workers"], "1");
+  assert.equal(wRows["Banned IPs"], "1");
+  assert.equal(
+    wRows["rig-alpha.01"],
+    "diff=4.5 accepted=120 rejected=2 connected=3600s",
+  );
 
   // Restart produces a new PID
   world.nodes.get("stratum-restart-button")!.dispatch("click");

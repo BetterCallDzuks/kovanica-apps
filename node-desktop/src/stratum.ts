@@ -20,6 +20,12 @@ export interface StratumFormInput {
   tlsCertPath: string;
   tlsKeyPath: string;
   tlsSelfSigned: boolean;
+  vardiffEnabled?: boolean;
+  vardiffMinDifficulty?: string;
+  vardiffMaxDifficulty?: string;
+  vardiffTargetShareSecs?: string;
+  banThresholdInvalidShares?: string;
+  banDurationSecs?: string;
 }
 
 export interface StratumConfigPayload {
@@ -34,12 +40,34 @@ export interface StratumConfigPayload {
   tlsCertPath: string | null;
   tlsKeyPath: string | null;
   tlsSelfSigned: boolean;
+  vardiffEnabled: boolean;
+  vardiffMinDifficulty: number | null;
+  vardiffMaxDifficulty: number | null;
+  vardiffTargetShareSecs: number | null;
+  banThresholdInvalidShares: number | null;
+  banDurationSecs: number | null;
 }
 
 export interface CheckedStratumConfig extends StratumConfigPayload {
   binarySha256: string;
   listenAddr: string;
   healthUrl: string;
+  workersUrl?: string;
+}
+
+export interface StratumWorkerEntry {
+  workerName: string;
+  difficulty: number;
+  sharesAccepted: number;
+  sharesRejected: number;
+  connectedSecs: number;
+}
+
+export interface StratumWorkersSnapshot {
+  reach: "unknown" | "reachable" | "unreachable";
+  workers: StratumWorkerEntry[];
+  bannedIps: number;
+  detail: string | null;
 }
 
 export interface StratumProcessStatus {
@@ -66,6 +94,7 @@ export interface StratumSnapshot {
   process: StratumProcessStatus;
   health: StratumHealthView;
   healthSeq: number;
+  workers?: StratumWorkersSnapshot;
   config: CheckedStratumConfig | null;
   stopGraceSecs: number;
 }
@@ -134,12 +163,63 @@ export function validateStratumForm(input: StratumFormInput): string | null {
       return "TLS is enabled: enter both certificate and private key paths, or enable self-signed TLS.";
     }
   }
+  if (input.vardiffEnabled) {
+    const minRaw = (input.vardiffMinDifficulty ?? "").trim();
+    const maxRaw = (input.vardiffMaxDifficulty ?? "").trim();
+    const targetRaw = (input.vardiffTargetShareSecs ?? "").trim();
+    let minVal: number | null = null;
+    let maxVal: number | null = null;
+    if (minRaw !== "") {
+      minVal = Number(minRaw);
+      if (!Number.isFinite(minVal) || minVal <= 0) {
+        return "VarDiff minimum difficulty must be a positive number.";
+      }
+    }
+    if (maxRaw !== "") {
+      maxVal = Number(maxRaw);
+      if (!Number.isFinite(maxVal) || maxVal <= 0) {
+        return "VarDiff maximum difficulty must be a positive number.";
+      }
+    }
+    if (minVal !== null && maxVal !== null && minVal > maxVal) {
+      return "VarDiff minimum difficulty must not exceed maximum difficulty.";
+    }
+    if (targetRaw !== "") {
+      const targetVal = Number(targetRaw);
+      if (!Number.isInteger(targetVal) || targetVal <= 0) {
+        return "VarDiff target share seconds must be a positive integer.";
+      }
+    }
+  }
+  const banThresholdRaw = (input.banThresholdInvalidShares ?? "").trim();
+  const banDurationRaw = (input.banDurationSecs ?? "").trim();
+  let banThresholdVal: number | null = null;
+  if (banThresholdRaw !== "") {
+    banThresholdVal = Number(banThresholdRaw);
+    if (!Number.isInteger(banThresholdVal) || banThresholdVal < 0) {
+      return "Ban invalid share threshold must be a non-negative integer.";
+    }
+  }
+  if (banDurationRaw !== "") {
+    const banDurationVal = Number(banDurationRaw);
+    if (!Number.isInteger(banDurationVal) || banDurationVal <= 0) {
+      return "Ban duration seconds must be a positive integer.";
+    }
+  } else if (banThresholdVal !== null && banThresholdVal > 0) {
+    return "Ban duration seconds is required when ban invalid share threshold is greater than 0.";
+  }
   return null;
 }
 
 export function toStratumPayload(input: StratumFormInput): StratumConfigPayload {
   const cert = input.tlsCertPath.trim();
   const key = input.tlsKeyPath.trim();
+  const vardiffOn = Boolean(input.vardiffEnabled);
+  const minRaw = (input.vardiffMinDifficulty ?? "").trim();
+  const maxRaw = (input.vardiffMaxDifficulty ?? "").trim();
+  const targetRaw = (input.vardiffTargetShareSecs ?? "").trim();
+  const banThresholdRaw = (input.banThresholdInvalidShares ?? "").trim();
+  const banDurationRaw = (input.banDurationSecs ?? "").trim();
   return {
     binary: input.binary.trim(),
     bindHost: input.bindHost.trim(),
@@ -152,6 +232,16 @@ export function toStratumPayload(input: StratumFormInput): StratumConfigPayload 
     tlsCertPath: cert === "" ? null : cert,
     tlsKeyPath: key === "" ? null : key,
     tlsSelfSigned: input.tlsEnabled && input.tlsSelfSigned,
+    vardiffEnabled: vardiffOn,
+    vardiffMinDifficulty:
+      vardiffOn && minRaw !== "" ? Number(minRaw) : null,
+    vardiffMaxDifficulty:
+      vardiffOn && maxRaw !== "" ? Number(maxRaw) : null,
+    vardiffTargetShareSecs:
+      vardiffOn && targetRaw !== "" ? Number(targetRaw) : null,
+    banThresholdInvalidShares:
+      banThresholdRaw !== "" ? Number(banThresholdRaw) : null,
+    banDurationSecs: banDurationRaw !== "" ? Number(banDurationRaw) : null,
   };
 }
 
@@ -168,6 +258,12 @@ export function stratumConfigKey(input: StratumFormInput): string {
     input.tlsCertPath,
     input.tlsKeyPath,
     input.tlsSelfSigned,
+    Boolean(input.vardiffEnabled),
+    input.vardiffMinDifficulty ?? "",
+    input.vardiffMaxDifficulty ?? "",
+    input.vardiffTargetShareSecs ?? "",
+    input.banThresholdInvalidShares ?? "",
+    input.banDurationSecs ?? "",
   ]);
 }
 
@@ -207,6 +303,12 @@ export function mountStratumApp(host: AppHost): () => void {
   const tlsSelfSigned = control<CheckboxEl>("#stratum-tls-self-signed");
   const tlsCertInput = control<InputEl>("#stratum-tls-cert-path");
   const tlsKeyInput = control<InputEl>("#stratum-tls-key-path");
+  const vardiffToggle = control<CheckboxEl>("#stratum-vardiff-toggle");
+  const vardiffMinInput = control<InputEl>("#stratum-vardiff-min");
+  const vardiffMaxInput = control<InputEl>("#stratum-vardiff-max");
+  const vardiffTargetInput = control<InputEl>("#stratum-vardiff-target-secs");
+  const banThresholdInput = control<InputEl>("#stratum-ban-threshold");
+  const banDurationInput = control<InputEl>("#stratum-ban-duration-secs");
   const checkButton = control<ButtonEl>("#stratum-check-button");
   const startButton = control<ButtonEl>("#stratum-start-button");
   const restartButton = control<ButtonEl>("#stratum-restart-button");
@@ -216,6 +318,7 @@ export function mountStratumApp(host: AppHost): () => void {
   const summaryBanner = control<TextEl>("#stratum-summary");
   const processReadout = control<ReadoutEl>("#stratum-process-readout");
   const healthReadout = control<ReadoutEl>("#stratum-health-readout");
+  const workersReadout = control<ReadoutEl>("#stratum-workers-readout");
   const logViewer = control<ReadoutEl>("#stratum-log-viewer");
 
   let approvedKey = "";
@@ -249,6 +352,12 @@ export function mountStratumApp(host: AppHost): () => void {
       tlsCertPath: tlsCertInput.value,
       tlsKeyPath: tlsKeyInput.value,
       tlsSelfSigned: tlsSelfSigned.checked,
+      vardiffEnabled: vardiffToggle.checked,
+      vardiffMinDifficulty: vardiffMinInput.value,
+      vardiffMaxDifficulty: vardiffMaxInput.value,
+      vardiffTargetShareSecs: vardiffTargetInput.value,
+      banThresholdInvalidShares: banThresholdInput.value,
+      banDurationSecs: banDurationInput.value,
     };
   }
 
@@ -292,6 +401,10 @@ export function mountStratumApp(host: AppHost): () => void {
     tlsSelfSigned.disabled = !tlsOn;
     tlsCertInput.disabled = !tlsOn;
     tlsKeyInput.disabled = !tlsOn;
+    const vardiffOn = vardiffToggle.checked;
+    vardiffMinInput.disabled = !vardiffOn;
+    vardiffMaxInput.disabled = !vardiffOn;
+    vardiffTargetInput.disabled = !vardiffOn;
   }
 
   function syncButtons(): void {
@@ -320,12 +433,21 @@ export function mountStratumApp(host: AppHost): () => void {
         ? "TLS enabled (self-signed)."
         : `TLS enabled (cert ${cfg.tlsCertPath ?? "none"}).`
       : "TLS disabled (plain TCP).";
+    const vardiffText = cfg.vardiffEnabled
+      ? `VarDiff enabled (${cfg.vardiffMinDifficulty ?? "default"}..${cfg.vardiffMaxDifficulty ?? "default"}, target ${cfg.vardiffTargetShareSecs ?? "default"}s).`
+      : "VarDiff disabled.";
+    const banText =
+      cfg.banThresholdInvalidShares && cfg.banThresholdInvalidShares > 0
+        ? `IP ban after ${cfg.banThresholdInvalidShares} invalid shares for ${cfg.banDurationSecs ?? 0}s.`
+        : "IP ban disabled.";
     return [
       `Listen ${cfg.listenAddr}.`,
       `Upstream RPC ${cfg.rpcUrl}.`,
       `Health ${cfg.healthUrl}.`,
       `Chain ${cfg.chainId}, difficulty ${cfg.difficulty}.`,
       tlsText,
+      vardiffText,
+      banText,
       `Executable SHA-256 ${cfg.binarySha256}.`,
     ].join(" ");
   }
@@ -382,6 +504,40 @@ export function mountStratumApp(host: AppHost): () => void {
       ["Health timestamp", fieldText(h.timestamp)],
       ["Health detail", h.detail ?? "none"],
     ]);
+    renderWorkers(snapshot);
+  }
+
+  function renderWorkers(snapshot: StratumSnapshot): void {
+    const w = snapshot.workers;
+    if (!w || w.reach === "unknown") {
+      fill(workersReadout, [
+        ["Workers endpoint", "unknown"],
+        ["Active workers", "0"],
+        ["Banned IPs", "0"],
+      ]);
+      return;
+    }
+    if (w.reach === "unreachable") {
+      fill(workersReadout, [
+        ["Workers endpoint", "unreachable"],
+        ["Active workers", "unavailable"],
+        ["Banned IPs", "unavailable"],
+        ["Workers detail", w.detail ?? "none"],
+      ]);
+      return;
+    }
+    const rows: Array<[string, string]> = [
+      ["Workers endpoint", "reachable"],
+      ["Active workers", String(w.workers.length)],
+      ["Banned IPs", String(w.bannedIps)],
+    ];
+    for (const entry of w.workers) {
+      rows.push([
+        entry.workerName,
+        `diff=${entry.difficulty} accepted=${entry.sharesAccepted} rejected=${entry.sharesRejected} connected=${entry.connectedSecs}s`,
+      ]);
+    }
+    fill(workersReadout, rows);
   }
 
   function applySnapshot(snapshot: StratumSnapshot): boolean {
@@ -562,11 +718,17 @@ export function mountStratumApp(host: AppHost): () => void {
     difficultyInput,
     tlsCertInput,
     tlsKeyInput,
+    vardiffMinInput,
+    vardiffMaxInput,
+    vardiffTargetInput,
+    banThresholdInput,
+    banDurationInput,
   ]) {
     input.addEventListener("input", onInput);
   }
   tlsToggle.addEventListener("change", onInput);
   tlsSelfSigned.addEventListener("change", onInput);
+  vardiffToggle.addEventListener("change", onInput);
   checkButton.addEventListener("click", () => {
     void onCheck();
   });

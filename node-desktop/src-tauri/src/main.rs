@@ -9,8 +9,8 @@ use kovanica_node_desktop::monitor::fetch_monitor;
 use kovanica_node_desktop::policy::{check_setup, kovanica_env_names};
 use kovanica_node_desktop::session::{BeginPoll, Session, Snapshot, WindowClose};
 use kovanica_node_desktop::stratum::{
-    check_stratum_config, fetch_stratum_health, CheckedStratumConfig, StratumConfigInput,
-    StratumHealthView, StratumSession, StratumSnapshot,
+    check_stratum_config, fetch_stratum_health, fetch_stratum_workers, CheckedStratumConfig,
+    StratumConfigInput, StratumHealthView, StratumSession, StratumSnapshot, StratumWorkersSnapshot,
 };
 use kovanica_node_desktop::supervisor::{
     arm_exit_hook, clear_gdk_dispatch, delete_event_targets_tracked, disarm_window_teardown,
@@ -335,11 +335,19 @@ async fn stratum_refresh(state: State<'_, StratumSession>) -> Result<StratumSnap
     let Some(health_url) = state.health_target() else {
         return Ok(state.snapshot());
     };
+    let workers_url = state.workers_target();
     let view = match fetch_stratum_health(&health_url).await {
         Ok(view) => view,
         Err(err) => StratumHealthView::unavailable(Some(err)),
     };
-    state.record_health(view);
+    let workers = match workers_url {
+        Some(url) => match fetch_stratum_workers(&url).await {
+            Ok(w) => w,
+            Err(err) => StratumWorkersSnapshot::unavailable(Some(err)),
+        },
+        None => StratumWorkersSnapshot::unavailable(None),
+    };
+    state.record_observability(view, workers);
     Ok(state.snapshot())
 }
 
