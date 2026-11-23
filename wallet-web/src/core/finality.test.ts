@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  ADDRESS_PREFIX,
   CHAIN_IDS,
   KovanicaAbortError,
   NETWORK_TAGS,
+  TESTNET_ADDRESS_PREFIX,
   bytesToHex,
   encodeAddress,
   getPublicKey,
   hexToBytes,
   signCallContractTransaction,
+  signTransferTransaction,
   type FailoverEvent,
   type FinalityProgress,
 } from "kovanica-sdk";
@@ -18,7 +21,9 @@ import {
   createWalletFailoverClient,
   formatFinalityProgressBadge,
   probeWalletRpcEndpoint,
+  validateAddressBookEntry,
   verifySignedCallTxBeforeBroadcast,
+  verifySignedTransferTxBeforeBroadcast,
   watchSubmittedTxFinality,
 } from "./finality.ts";
 
@@ -481,5 +486,210 @@ describe("wallet multi-RPC failover and finality helpers", () => {
     assert.equal(wrongChainProbe.ok, false);
     assert.equal(wrongChainProbe.chainId, 1n);
     assert.match(wrongChainProbe.error ?? "", /expected chainId 2, got 1/i);
+  });
+
+  it("verifies a valid signed transfer transaction before broadcast with kvnc, tknc, and 64-hex recipients", () => {
+    const secretKey = new Uint8Array(32).fill(0x41);
+    const publicKey = getPublicKey(secretKey);
+    const recipientBytes = new Uint8Array(32).fill(0x7a);
+    const recipientMainnet = encodeAddress(recipientBytes, ADDRESS_PREFIX);
+    const recipientTestnet = encodeAddress(recipientBytes, TESTNET_ADDRESS_PREFIX);
+    const recipientHex = bytesToHex(recipientBytes);
+    const amount = 250_000n;
+
+    const signed = signTransferTransaction({
+      privateKey: secretKey,
+      to: recipientBytes,
+      amount,
+      nonce: 12n,
+      fee: 1_200n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    const okMainnet = verifySignedTransferTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+      expectedRecipient: recipientMainnet,
+      expectedAmount: amount,
+    });
+    assert.equal(okMainnet.ok, true);
+    assert.equal(okMainnet.signatureValid, true);
+    assert.equal(okMainnet.error, undefined);
+    assert.equal(okMainnet.decoded?.amount, amount);
+    assert.equal(okMainnet.decoded?.nonce, 12n);
+    assert.equal(okMainnet.decoded?.fee, 1_200n);
+    assert.equal(okMainnet.decoded?.chainId, BigInt(CHAIN_IDS.TESTNET));
+    assert.equal(okMainnet.decoded?.recipientHex, `0x${recipientHex}`);
+
+    const okTestnet = verifySignedTransferTxBeforeBroadcast(`0x${signed.rawTxHex}`, publicKey, {
+      chainId: BigInt(CHAIN_IDS.TESTNET),
+      expectedRecipient: recipientTestnet,
+      expectedAmount: amount,
+    });
+    assert.equal(okTestnet.ok, true);
+    assert.equal(okTestnet.signatureValid, true);
+
+    const okLegacyHex = verifySignedTransferTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+      expectedRecipient: recipientHex,
+      expectedAmount: amount,
+    });
+    assert.equal(okLegacyHex.ok, true);
+    assert.equal(okLegacyHex.signatureValid, true);
+  });
+
+  it("fails closed on tampered transfer signature, wrong recipient, wrong amount, wrong key, or corrupted hex", () => {
+    const secretKey = new Uint8Array(32).fill(0x51);
+    const publicKey = getPublicKey(secretKey);
+    const otherPublicKey = getPublicKey(new Uint8Array(32).fill(0x52));
+    const recipientBytes = new Uint8Array(32).fill(0x88);
+    const wrongRecipientBytes = new Uint8Array(32).fill(0x99);
+
+    const signed = signTransferTransaction({
+      privateKey: secretKey,
+      to: recipientBytes,
+      amount: 500_000n,
+      nonce: 4n,
+      fee: 1_000n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    // Tamper with a byte inside the 64-byte signature (right before the trailing 32-byte wireHash).
+    const tamperedBytes = hexToBytes(signed.rawTxHex);
+    const sigByteIndex = tamperedBytes.length - 32 - 1;
+    tamperedBytes[sigByteIndex] = tamperedBytes[sigByteIndex]! ^ 0xff;
+    const tamperedResult = verifySignedTransferTxBeforeBroadcast(
+      bytesToHex(tamperedBytes),
+      publicKey,
+      { chainId: CHAIN_IDS.TESTNET },
+    );
+    assert.equal(tamperedResult.ok, false);
+    assert.equal(tamperedResult.signatureValid, false);
+    assert.match(tamperedResult.error ?? "", /signature/i);
+
+    // Wrong expected recipient.
+    const wrongRecipientResult = verifySignedTransferTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+      expectedRecipient: encodeAddress(wrongRecipientBytes, TESTNET_ADDRESS_PREFIX),
+    });
+    assert.equal(wrongRecipientResult.ok, false);
+    assert.equal(wrongRecipientResult.signatureValid, true);
+    assert.match(wrongRecipientResult.error ?? "", /recipient address mismatch/i);
+
+    // Invalid expected recipient string.
+    const invalidRecipientResult = verifySignedTransferTxBeforeBroadcast(
+      signed.rawTxHex,
+      publicKey,
+      {
+        chainId: CHAIN_IDS.TESTNET,
+        expectedRecipient: "not-a-valid-address",
+      },
+    );
+    assert.equal(invalidRecipientResult.ok, false);
+    assert.equal(invalidRecipientResult.signatureValid, true);
+    assert.match(invalidRecipientResult.error ?? "", /invalid expectedRecipient/i);
+
+    // Wrong expected amount.
+    const wrongAmountResult = verifySignedTransferTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+      expectedAmount: 500_001n,
+    });
+    assert.equal(wrongAmountResult.ok, false);
+    assert.equal(wrongAmountResult.signatureValid, true);
+    assert.match(wrongAmountResult.error ?? "", /transfer amount mismatch/i);
+
+    // Wrong public key.
+    const wrongKeyResult = verifySignedTransferTxBeforeBroadcast(signed.rawTxHex, otherPublicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(wrongKeyResult.ok, false);
+    assert.equal(wrongKeyResult.signatureValid, false);
+    assert.match(wrongKeyResult.error ?? "", /signature/i);
+
+    // Wrong chainId (signed for Chain 2, verified with Chain 1).
+    const wrongChainResult = verifySignedTransferTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.MAINNET,
+    });
+    assert.equal(wrongChainResult.ok, false);
+    assert.equal(wrongChainResult.signatureValid, false);
+
+    // Corrupted / non-hex input.
+    const corruptedHexResult = verifySignedTransferTxBeforeBroadcast("0xzzzz-not-hex", publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(corruptedHexResult.ok, false);
+    assert.equal(corruptedHexResult.signatureValid, false);
+    assert.equal(corruptedHexResult.decoded, undefined);
+    assert.match(corruptedHexResult.error ?? "", /invalid hex/i);
+
+    // Truncated bytes.
+    const truncatedResult = verifySignedTransferTxBeforeBroadcast(
+      signed.rawTxHex.slice(0, 32),
+      publicKey,
+      { chainId: CHAIN_IDS.TESTNET },
+    );
+    assert.equal(truncatedResult.ok, false);
+    assert.equal(truncatedResult.signatureValid, false);
+    assert.equal(truncatedResult.decoded, undefined);
+  });
+
+  it("validates address-book entries per chain policy, accepting PRO-21 on Chain 1/2 and gating legacy 64-hex to Chain 3", () => {
+    const payload = new Uint8Array(32).fill(0xab);
+    const mainnetAddr = encodeAddress(payload, ADDRESS_PREFIX);
+    const testnetAddr = encodeAddress(payload, TESTNET_ADDRESS_PREFIX);
+    const legacyHex = bytesToHex(payload);
+
+    // Valid PRO-21 on Chain 1 (Mainnet) and Chain 2 (Testnet).
+    const mainnetOn1 = validateAddressBookEntry(mainnetAddr, CHAIN_IDS.MAINNET);
+    assert.equal(mainnetOn1.ok, true);
+    assert.equal(mainnetOn1.inspection.valid, true);
+    assert.equal(mainnetOn1.inspection.chainAllowed, true);
+    assert.equal(mainnetOn1.canonicalAddress, mainnetAddr);
+    assert.equal(mainnetOn1.error, undefined);
+
+    const testnetOn2 = validateAddressBookEntry(testnetAddr, CHAIN_IDS.TESTNET);
+    assert.equal(testnetOn2.ok, true);
+    assert.equal(testnetOn2.inspection.valid, true);
+    assert.equal(testnetOn2.inspection.chainAllowed, true);
+    assert.equal(testnetOn2.canonicalAddress, testnetAddr);
+
+    // Mainnet kvnc...dag is also allowed on Testnet (Chain 2).
+    const mainnetOn2 = validateAddressBookEntry(mainnetAddr, BigInt(CHAIN_IDS.TESTNET));
+    assert.equal(mainnetOn2.ok, true);
+    assert.equal(mainnetOn2.inspection.chainAllowed, true);
+
+    // Testnet tknc...dag is rejected on Mainnet (Chain 1).
+    const testnetOn1 = validateAddressBookEntry(testnetAddr, CHAIN_IDS.MAINNET);
+    assert.equal(testnetOn1.ok, false);
+    assert.equal(testnetOn1.inspection.chainAllowed, false);
+    assert.match(testnetOn1.error ?? "", /testnet/i);
+
+    // Legacy 64-hex rejected on Chain 1 and Chain 2.
+    const legacyOn1 = validateAddressBookEntry(legacyHex, CHAIN_IDS.MAINNET);
+    assert.equal(legacyOn1.ok, false);
+    assert.equal(legacyOn1.inspection.valid, false);
+    assert.equal(legacyOn1.inspection.chainAllowed, false);
+    assert.match(legacyOn1.error ?? "", /legacy/i);
+
+    const legacyOn2 = validateAddressBookEntry(`0x${legacyHex}`, CHAIN_IDS.TESTNET);
+    assert.equal(legacyOn2.ok, false);
+    assert.equal(legacyOn2.inspection.valid, false);
+    assert.equal(legacyOn2.inspection.chainAllowed, false);
+    assert.match(legacyOn2.error ?? "", /legacy/i);
+
+    // Legacy 64-hex allowed on Chain 3 (Devnet).
+    const legacyOn3 = validateAddressBookEntry(legacyHex, CHAIN_IDS.DEVNET);
+    assert.equal(legacyOn3.ok, true);
+    assert.equal(legacyOn3.inspection.valid, true);
+    assert.equal(legacyOn3.inspection.chainAllowed, true);
+    assert.equal(legacyOn3.canonicalAddress, mainnetAddr);
+
+    // Corrupted PRO-21 checksum fails closed.
+    const flipped = mainnetAddr[mainnetAddr.length - 4] === "q" ? "p" : "q";
+    const badChecksum =
+      mainnetAddr.slice(0, mainnetAddr.length - 4) + flipped + mainnetAddr.slice(mainnetAddr.length - 3);
+    const badChecksumResult = validateAddressBookEntry(badChecksum, CHAIN_IDS.MAINNET);
+    assert.equal(badChecksumResult.ok, false);
+    assert.equal(badChecksumResult.inspection.valid, false);
+    assert.equal(badChecksumResult.inspection.checksumValid, false);
   });
 });

@@ -751,6 +751,198 @@ export function verifyCanonicalNetworkTag(
   };
 }
 
+export type FaucetHealthStatus = "healthy" | "low_balance" | "degraded" | "offline";
+
+export interface FaucetHealthSummary {
+  status: FaucetHealthStatus;
+  chainId: number | null;
+  networkTag: string | null;
+  canonicalTestnetTagValid: boolean;
+  balanceAtoms: bigint | null;
+  dripsSucceeded: number;
+  rateLimited: number;
+  alerts: string[];
+}
+
+function readNonNegativeBigInt(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): bigint | null {
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "bigint" && raw >= 0n) {
+      return raw;
+    }
+    if (typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0) {
+      return BigInt(raw);
+    }
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (/^\d+$/.test(trimmed) || /^0x[0-9a-fA-F]+$/.test(trimmed)) {
+        try {
+          const parsed = BigInt(trimmed);
+          if (parsed >= 0n) {
+            return parsed;
+          }
+        } catch {
+          // ignore malformed bigint strings
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses `kovanica-faucet` `/health` style payloads into a normalized operator
+ * summary. Validates the canonical Chain 2 testnet tag (`2-24cdb5fadd98b207`),
+ * enforces the optional `minBalanceAtoms` balance floor, and fails safe to
+ * `status: "offline"` on null, primitive, or malformed inputs.
+ */
+export function parseFaucetHealthSummary(
+  healthJson: unknown,
+  minBalanceAtoms?: bigint,
+): FaucetHealthSummary {
+  if (!healthJson || typeof healthJson !== "object" || Array.isArray(healthJson)) {
+    return {
+      status: "offline",
+      chainId: null,
+      networkTag: null,
+      canonicalTestnetTagValid: false,
+      balanceAtoms: null,
+      dripsSucceeded: 0,
+      rateLimited: 0,
+      alerts: ["Faucet health payload is unavailable or malformed."],
+    };
+  }
+
+  const record = healthJson as Record<string, unknown>;
+  const rawStatus =
+    typeof record.status === "string" ? record.status.trim().toLowerCase() : null;
+  const okFlag = readBooleanFlag(record, ["ok", "healthy"]);
+
+  const rawChainId = record.chainId ?? record.chain_id;
+  const chainId =
+    typeof rawChainId === "number" || typeof rawChainId === "string"
+      ? parseChainIdNumber(rawChainId)
+      : null;
+
+  const rawNetworkTag = record.networkTag ?? record.network_tag;
+  const networkTag =
+    typeof rawNetworkTag === "string" && rawNetworkTag.trim() !== ""
+      ? rawNetworkTag.trim()
+      : null;
+
+  const balanceAtoms = readNonNegativeBigInt(record, [
+    "balanceAtoms",
+    "balance_atoms",
+    "balance",
+  ]);
+  const dripsVal = readNonNegativeNumber(record, [
+    "dripsSucceeded",
+    "drips_succeeded",
+    "faucet_drips_succeeded",
+  ]);
+  const rateLimitedVal = readNonNegativeNumber(record, [
+    "rateLimited",
+    "rate_limited",
+    "faucet_rate_limited",
+  ]);
+
+  const hasRecognizedField =
+    rawStatus !== null ||
+    okFlag !== null ||
+    chainId !== null ||
+    networkTag !== null ||
+    balanceAtoms !== null ||
+    dripsVal !== null ||
+    rateLimitedVal !== null;
+
+  if (!hasRecognizedField) {
+    return {
+      status: "offline",
+      chainId: null,
+      networkTag: null,
+      canonicalTestnetTagValid: false,
+      balanceAtoms: null,
+      dripsSucceeded: 0,
+      rateLimited: 0,
+      alerts: ["Faucet health payload is unavailable or malformed."],
+    };
+  }
+
+  const dripsSucceeded = dripsVal !== null ? Math.floor(dripsVal) : 0;
+  const rateLimited = rateLimitedVal !== null ? Math.floor(rateLimitedVal) : 0;
+
+  const alerts: string[] = [];
+  const isOffline =
+    rawStatus === "offline" ||
+    rawStatus === "down" ||
+    rawStatus === "stopped" ||
+    rawStatus === "unreachable";
+
+  if (isOffline) {
+    alerts.push("Faucet service is offline.");
+  }
+
+  let canonicalTestnetTagValid = false;
+  if (chainId !== null && chainId !== 2) {
+    alerts.push(`Faucet chainId ${chainId} does not match canonical testnet chainId 2.`);
+  } else {
+    const tagCheck = verifyCanonicalNetworkTag(2, networkTag);
+    canonicalTestnetTagValid = tagCheck.valid;
+    if (!tagCheck.valid && tagCheck.reason) {
+      alerts.push(tagCheck.reason);
+    }
+  }
+
+  let lowBalance = rawStatus === "low_balance";
+  if (minBalanceAtoms !== undefined && minBalanceAtoms > 0n) {
+    if (balanceAtoms === null) {
+      lowBalance = true;
+      alerts.push(
+        `Faucet balance is unavailable (minimum required: ${minBalanceAtoms.toString()} atoms).`,
+      );
+    } else if (balanceAtoms < minBalanceAtoms) {
+      lowBalance = true;
+      alerts.push(
+        `Faucet balance (${balanceAtoms.toString()} atoms) is below minimum threshold (${minBalanceAtoms.toString()} atoms).`,
+      );
+    }
+  } else if (balanceAtoms === 0n && minBalanceAtoms !== 0n) {
+    lowBalance = true;
+    alerts.push("Faucet balance is 0 atoms.");
+  }
+
+  let status: FaucetHealthStatus;
+  if (isOffline) {
+    status = "offline";
+  } else if (
+    !canonicalTestnetTagValid ||
+    rawStatus === "degraded" ||
+    rawStatus === "unhealthy" ||
+    rawStatus === "error" ||
+    okFlag === false
+  ) {
+    status = "degraded";
+  } else if (lowBalance) {
+    status = "low_balance";
+  } else {
+    status = "healthy";
+  }
+
+  return {
+    status,
+    chainId,
+    networkTag,
+    canonicalTestnetTagValid,
+    balanceAtoms,
+    dripsSucceeded,
+    rateLimited,
+    alerts,
+  };
+}
+
 export interface SnapshotVerifyReport {
   ok: boolean;
   chainId: number | null;

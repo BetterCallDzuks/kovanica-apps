@@ -5,12 +5,18 @@ import {
   bytesToHex,
   createFailoverClient,
   decodeSignedCallTransaction,
+  decodeSignedTransferTransaction,
+  hexToBytes,
+  inspectAddress,
   parseContractAddress,
   probeRpcNode,
   sanitizeRpcUrl,
   verifyCallTransactionSignature,
+  verifyTransferTransactionSignature,
   waitForTransactionFinality,
+  type AddressInspectionResult,
   type DecodedSignedCallTransaction,
+  type DecodedSignedTransferTransaction,
   type FailoverHttpTransportOptions,
   type FeeBufferEstimate,
   type FinalityProgress,
@@ -23,7 +29,12 @@ import {
 } from "kovanica-sdk";
 
 export { DEFAULT_FEE_BUFFER_MULTIPLIER_BPS, DEFAULT_FINALITY_CONFIRMATIONS };
-export type { DecodedSignedCallTransaction, RpcNodeProbeResult };
+export type {
+  AddressInspectionResult,
+  DecodedSignedCallTransaction,
+  DecodedSignedTransferTransaction,
+  RpcNodeProbeResult,
+};
 
 export type PreBroadcastVerificationOptions = {
   chainId?: bigint | number;
@@ -34,6 +45,26 @@ export type PreBroadcastVerificationResult = {
   ok: boolean;
   signatureValid: boolean;
   decoded?: DecodedSignedCallTransaction;
+  error?: string;
+};
+
+export type PreBroadcastTransferVerificationOptions = {
+  chainId?: bigint | number;
+  expectedRecipient?: string;
+  expectedAmount?: bigint;
+};
+
+export type PreBroadcastTransferVerificationResult = {
+  ok: boolean;
+  signatureValid: boolean;
+  decoded?: DecodedSignedTransferTransaction;
+  error?: string;
+};
+
+export type AddressBookValidationResult = {
+  ok: boolean;
+  inspection: AddressInspectionResult;
+  canonicalAddress?: string;
   error?: string;
 };
 
@@ -322,6 +353,160 @@ export function verifySignedCallTxBeforeBroadcast(
     ok: true,
     signatureValid: true,
     decoded,
+  };
+}
+
+/**
+ * Decodes a signed native Transfer transaction offline and self-verifies its Ed25519
+ * signature against `expectedPublicKey` (and optional `chainId`, `expectedRecipient`,
+ * and `expectedAmount`) prior to broadcast. Fails closed on any decode error,
+ * signature failure, or mismatch.
+ */
+export function verifySignedTransferTxBeforeBroadcast(
+  rawTxHex: string,
+  expectedPublicKey: Uint8Array,
+  options?: PreBroadcastTransferVerificationOptions,
+): PreBroadcastTransferVerificationResult {
+  let resolvedChainId: bigint | undefined;
+  if (options?.chainId !== undefined) {
+    if (typeof options.chainId === "bigint") {
+      if (options.chainId < 0n || options.chainId > 0xffffffffffffffffn) {
+        return {
+          ok: false,
+          signatureValid: false,
+          error: `Invalid chainId: ${options.chainId.toString()}`,
+        };
+      }
+      resolvedChainId = options.chainId;
+    } else if (Number.isSafeInteger(options.chainId) && options.chainId >= 0) {
+      resolvedChainId = BigInt(options.chainId);
+    } else {
+      return {
+        ok: false,
+        signatureValid: false,
+        error: `Invalid chainId: ${String(options.chainId)}`,
+      };
+    }
+  }
+
+  let decoded: DecodedSignedTransferTransaction;
+  try {
+    decoded = decodeSignedTransferTransaction(
+      rawTxHex,
+      resolvedChainId !== undefined ? { chainId: resolvedChainId } : undefined,
+    );
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      signatureValid: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (!(expectedPublicKey instanceof Uint8Array) || expectedPublicKey.length !== 32) {
+    return {
+      ok: false,
+      signatureValid: false,
+      decoded,
+      error: "Expected 32-byte Ed25519 public key",
+    };
+  }
+
+  const signatureValid = verifyTransferTransactionSignature(decoded, expectedPublicKey);
+  if (!signatureValid) {
+    return {
+      ok: false,
+      signatureValid: false,
+      decoded,
+      error: "Signed transfer transaction Ed25519 signature verification failed",
+    };
+  }
+
+  if (!bytesEqual(decoded.senderBytes, expectedPublicKey)) {
+    return {
+      ok: false,
+      signatureValid,
+      decoded,
+      error: "Signed transfer transaction sender does not match expected public key",
+    };
+  }
+
+  if (options?.expectedRecipient !== undefined) {
+    const inspected = inspectAddress(options.expectedRecipient);
+    if (!inspected.valid || !inspected.payloadHex) {
+      return {
+        ok: false,
+        signatureValid,
+        decoded,
+        error: `Invalid expectedRecipient: ${inspected.error ?? "invalid address"}`,
+      };
+    }
+
+    const expectedRecipientBytes = hexToBytes(inspected.payloadHex.slice(2));
+    if (!bytesEqual(decoded.recipientBytes, expectedRecipientBytes)) {
+      return {
+        ok: false,
+        signatureValid,
+        decoded,
+        error: `Recipient address mismatch: expected ${inspected.payloadHex}, got ${decoded.recipientHex}`,
+      };
+    }
+  }
+
+  if (options?.expectedAmount !== undefined) {
+    if (typeof options.expectedAmount !== "bigint" || options.expectedAmount < 0n) {
+      return {
+        ok: false,
+        signatureValid,
+        decoded,
+        error: `Invalid expectedAmount: ${String(options.expectedAmount)}`,
+      };
+    }
+
+    if (decoded.amount !== options.expectedAmount) {
+      return {
+        ok: false,
+        signatureValid,
+        decoded,
+        error: `Transfer amount mismatch: expected ${options.expectedAmount.toString()}, got ${decoded.amount.toString()}`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    signatureValid: true,
+    decoded,
+  };
+}
+
+/**
+ * Validates an address-book entry against PRO-21 checksum and chain-policy rules
+ * by delegating to `kovanica-sdk`'s `inspectAddress`. Fails closed whenever
+ * `valid === false` or `chainAllowed !== true`.
+ */
+export function validateAddressBookEntry(
+  address: string,
+  chainId: number | bigint,
+): AddressBookValidationResult {
+  const inspection = inspectAddress(address, chainId);
+  if (!inspection.valid || inspection.chainAllowed !== true) {
+    return {
+      ok: false,
+      inspection,
+      error: inspection.error ?? "Address is not valid or not allowed on the selected chain",
+    };
+  }
+
+  const canonicalAddress =
+    inspection.format === "pro21-testnet"
+      ? inspection.canonicalTestnet
+      : inspection.canonicalMainnet;
+
+  return {
+    ok: true,
+    inspection,
+    ...(canonicalAddress !== undefined ? { canonicalAddress } : {}),
   };
 }
 
