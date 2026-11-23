@@ -108,6 +108,7 @@ function sampleSnapshot(opts: {
     sharesAccepted: number;
     sharesRejected: number;
     connectedSecs: number;
+    extranonceSubscribed?: boolean;
   }>;
   bannedIps?: number;
 }): StratumSnapshot {
@@ -143,7 +144,10 @@ function sampleSnapshot(opts: {
     healthSeq: opts.healthSeq,
     workers: {
       reach: opts.workersReach ?? reach,
-      workers: opts.workers ?? [],
+      workers: (opts.workers ?? []).map((w) => ({
+        ...w,
+        extranonceSubscribed: w.extranonceSubscribed ?? false,
+      })),
       bannedIps: opts.bannedIps ?? 0,
       detail: null,
     },
@@ -500,6 +504,15 @@ test("start, live health polling, restart, stop, and stale snapshot rejection wo
           sharesAccepted: 120,
           sharesRejected: 2,
           connectedSecs: 3600,
+          extranonceSubscribed: true,
+        },
+        {
+          workerName: "rig-beta.02",
+          difficulty: 2,
+          sharesAccepted: 45,
+          sharesRejected: 0,
+          connectedSecs: 900,
+          extranonceSubscribed: false,
         },
       ],
     }),
@@ -512,11 +525,15 @@ test("start, live health polling, restart, stop, and stale snapshot rejection wo
   assert.equal(hRows["Uptime (s)"], "120");
   const wRows = readout(world.nodes.get("stratum-workers-readout")!);
   assert.equal(wRows["Workers endpoint"], "reachable");
-  assert.equal(wRows["Active workers"], "1");
+  assert.equal(wRows["Active workers"], "2");
   assert.equal(wRows["Banned IPs"], "1");
   assert.equal(
     wRows["rig-alpha.01"],
-    "diff=4.5 accepted=120 rejected=2 connected=3600s",
+    "diff=4.5 accepted=120 rejected=2 connected=3600s [xnsub]",
+  );
+  assert.equal(
+    wRows["rig-beta.02"],
+    "diff=2 accepted=45 rejected=0 connected=900s",
   );
 
   // Restart produces a new PID

@@ -225,3 +225,30 @@ export function formatCallEstimateSummary(estimate: CallEstimatePreview): Previe
   }
   return rows;
 }
+
+/** Formats a `CallBatchEstimatePreview` into human-readable summary rows for multi-call batch review. */
+export function formatBatchCallEstimateSummary(preview: CallBatchEstimatePreview): PreviewDetail[] {
+  const count = preview.calls.length;
+  const feeMarginBps = preview.calls[0]?.feeMarginBps ?? DEFAULT_FEE_SAFETY_MARGIN_BPS;
+  const firstNonce = preview.startNonce ?? preview.calls[0]?.nonce ?? null;
+  const lastNonce =
+    firstNonce != null && count > 0 ? firstNonce + BigInt(count - 1) : null;
+  const nonceRange =
+    firstNonce == null
+      ? "auto"
+      : count <= 1 || lastNonce === firstNonce
+        ? firstNonce.toString()
+        : `${firstNonce.toString()}..${lastNonce!.toString()}`;
+
+  return [
+    { label: "Batch size", value: `${count} ${count === 1 ? "call" : "calls"}` },
+    { label: "Total wire size", value: `${preview.totalEstimatedTxSize} bytes` },
+    { label: "Fee rate", value: `${formatAtoms(preview.feeRatePerByte)} atoms/byte` },
+    {
+      label: `Total margined fee (${formatSafetyMarginPercent(feeMarginBps)})`,
+      value: `${formatKvnc(preview.totalMarginedFee)} KVNC (${formatAtoms(preview.totalMarginedFee)} atoms)`,
+    },
+    { label: "Total gas limit", value: formatAtoms(preview.totalGasLimit) },
+    { label: "Nonce range", value: nonceRange },
+  ];
+}

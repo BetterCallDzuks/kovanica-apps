@@ -61,6 +61,7 @@ export interface StratumWorkerEntry {
   sharesAccepted: number;
   sharesRejected: number;
   connectedSecs: number;
+  extranonceSubscribed: boolean;
 }
 
 export interface StratumWorkersSnapshot {
@@ -532,9 +533,10 @@ export function mountStratumApp(host: AppHost): () => void {
       ["Banned IPs", String(w.bannedIps)],
     ];
     for (const entry of w.workers) {
+      const xnsubBadge = entry.extranonceSubscribed ? " [xnsub]" : "";
       rows.push([
         entry.workerName,
-        `diff=${entry.difficulty} accepted=${entry.sharesAccepted} rejected=${entry.sharesRejected} connected=${entry.connectedSecs}s`,
+        `diff=${entry.difficulty} accepted=${entry.sharesAccepted} rejected=${entry.sharesRejected} connected=${entry.connectedSecs}s${xnsubBadge}`,
       ]);
     }
     fill(workersReadout, rows);

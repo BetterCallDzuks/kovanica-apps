@@ -15,8 +15,11 @@ import {
   type ContractName,
 } from "@/core/contracts";
 import {
+  estimateContractCallBatchPreview,
   estimateContractCallPreview,
+  formatBatchCallEstimateSummary,
   formatCallEstimateSummary,
+  type CallBatchEstimatePreview,
   type CallEstimatePreview,
 } from "@/core/call-estimate";
 import { parseAtoms } from "@/core/format";
@@ -68,6 +71,17 @@ const ACTIONS = {
 
 type ActionId = (typeof ACTIONS)[ContractName][number]["id"];
 
+type QueuedBatchCall = {
+  id: number;
+  contract: string;
+  contractKind: ContractName;
+  actionLabel: string;
+  method: string;
+  args: Uint8Array;
+  valueAtoms: bigint;
+  gasLimit?: bigint;
+};
+
 export function Contracts({
   onReview,
   prefill,
@@ -107,6 +121,10 @@ export function Contracts({
   const [reading, setReading] = useState(false);
   const [estimate, setEstimate] = useState<CallEstimatePreview | null>(null);
   const [estimating, setEstimating] = useState(false);
+  const [batchQueue, setBatchQueue] = useState<QueuedBatchCall[]>([]);
+  const [batchEstimate, setBatchEstimate] = useState<CallBatchEstimatePreview | null>(null);
+  const [estimatingBatch, setEstimatingBatch] = useState(false);
+  const [nextBatchId, setNextBatchId] = useState(1);
   const selected = ACTIONS[contractId];
   const current = selected.find((item) => item.id === action) ?? selected[0];
   const address = checkAddress(contract, policyChain);
@@ -237,6 +255,85 @@ export function Contracts({
     } finally {
       setEstimating(false);
     }
+  }
+
+  function queueCallToBatch() {
+    setError(null);
+    setReadout(null);
+    if (!current.sign) return;
+    if (!address.ok) {
+      setError(address.message);
+      return;
+    }
+    const valueAtoms = parseAtoms(value);
+    const parsedGas = gas.trim() === "" ? undefined : parseAtoms(gas);
+    if (valueAtoms == null || (gas.trim() !== "" && parsedGas == null)) {
+      setError("Attached value and gas limit must be whole numbers of atoms.");
+      return;
+    }
+    try {
+      if (needs("hash")) hex32(hash, "Hash");
+      if (needs("secret") && !secret.trim()) throw new Error("Enter the secret as hex or text.");
+      const built = draft();
+      const item: QueuedBatchCall = {
+        id: nextBatchId,
+        contract: contract.trim(),
+        contractKind: contractId,
+        actionLabel: current.label,
+        method: built.method,
+        args: built.args,
+        valueAtoms,
+        gasLimit: parsedGas ?? undefined,
+      };
+      setNextBatchId((n) => n + 1);
+      setBatchQueue((prev) => [...prev, item]);
+      setBatchEstimate(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not queue call to batch");
+    }
+  }
+
+  async function estimateQueuedBatch() {
+    setError(null);
+    setReadout(null);
+    if (batchQueue.length === 0) {
+      setError("Queue at least one contract call before estimating a batch.");
+      return;
+    }
+    if (lock.locked || net.probedChainId == null) {
+      setError(lock.locked ? lock.reason : "Node chain id is not available yet.");
+      return;
+    }
+    setEstimatingBatch(true);
+    try {
+      const client = createCallEstimateClient(net.rpcUrl);
+      const preview = await estimateContractCallBatchPreview(
+        client,
+        batchQueue.map((item) => ({
+          contract: item.contract,
+          method: item.method,
+          args: item.args,
+          valueAtoms: item.valueAtoms,
+          gasLimit: item.gasLimit,
+        })),
+        {
+          sender: ownerAddress || undefined,
+          startNonce: ownerAddress ? undefined : (net.nonce ?? undefined),
+          chainId: net.probedChainId,
+        },
+      );
+      setBatchEstimate(preview);
+    } catch (err) {
+      setBatchEstimate(null);
+      setError(err instanceof Error ? err.message : "Could not estimate fee and gas for batch calls");
+    } finally {
+      setEstimatingBatch(false);
+    }
+  }
+
+  function clearBatchQueue() {
+    setBatchQueue([]);
+    setBatchEstimate(null);
   }
 
   async function review() {
@@ -412,6 +509,70 @@ export function Contracts({
                 {net.nonce != null ? ` Current nonce: ${net.nonce.toString()}.` : ""}
               </p>
             )}
+          </div>
+          <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-paper">Batch Call Estimator Queue</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={estimatingBatch}
+                  onClick={queueCallToBatch}
+                >
+                  Queue call to batch
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={lock.locked || estimatingBatch || batchQueue.length === 0}
+                  onClick={() => void estimateQueuedBatch()}
+                >
+                  {estimatingBatch ? "Estimating batch…" : "Estimate batch"}
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-muted disabled:opacity-40"
+                  disabled={estimatingBatch || batchQueue.length === 0}
+                  onClick={clearBatchQueue}
+                >
+                  Clear batch
+                </button>
+              </div>
+            </div>
+            {batchQueue.length > 0 ? (
+              <ul className="mt-3 grid gap-2">
+                {batchQueue.map((item, idx) => {
+                  const callEst = batchEstimate?.calls[idx];
+                  return (
+                    <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line/60 pt-2 text-xs">
+                      <span className="font-mono text-paper">
+                        #{idx + 1} {item.contractKind}.{item.method}
+                      </span>
+                      <span className="tabular-nums text-muted">
+                        {callEst
+                          ? `nonce=${callEst.nonce?.toString() ?? "auto"} • ${callEst.estimatedTxSize}B • fee=${callEst.marginedFee.toString()} • gas=${callEst.gasLimit.toString()}`
+                          : `value=${item.valueAtoms.toString()} atoms • gas=${(item.gasLimit ?? 100000n).toString()}`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-muted">
+                Queue multiple contract calls to preview sequential nonces and aggregate wire size, +20% margined fee, and gas limit in one batch RPC lookup.
+              </p>
+            )}
+            {batchEstimate ? (
+              <dl className="mt-3 grid gap-2">
+                {formatBatchCallEstimateSummary(batchEstimate).map((row) => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-3 border-t border-line/60 pt-2">
+                    <dt className="text-xs text-muted">{row.label}</dt>
+                    <dd className="tabular-nums text-right text-paper">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
           </div>
         </>
       ) : null}

@@ -8,6 +8,7 @@ import {
   DEFAULT_FEE_SAFETY_MARGIN_BPS,
   estimateContractCallBatchPreview,
   estimateContractCallPreview,
+  formatBatchCallEstimateSummary,
   formatCallEstimateSummary,
   formatSafetyMarginPercent,
 } from "./call-estimate.ts";
@@ -246,6 +247,62 @@ describe("contract call fee/gas & wire-size preview", () => {
     assert.ok(rows[2]?.value.includes("34,080 atoms"));
     assert.equal(rows[3]?.value, "100,000");
     assert.equal(rows[4]?.value, "5");
+
+    const batchRows = formatBatchCallEstimateSummary({
+      calls: [
+        {
+          estimatedTxSize: 284,
+          feeRatePerByte: 100n,
+          marginedFee: 34_080n,
+          feeMarginBps: 12_000,
+          gasLimit: 100_000n,
+          nonce: 10n,
+          chainId: 2,
+        },
+        {
+          estimatedTxSize: 316,
+          feeRatePerByte: 100n,
+          marginedFee: 37_920n,
+          feeMarginBps: 12_000,
+          gasLimit: 150_000n,
+          nonce: 11n,
+          chainId: 2,
+        },
+        {
+          estimatedTxSize: 250,
+          feeRatePerByte: 100n,
+          marginedFee: 30_000n,
+          feeMarginBps: 12_000,
+          gasLimit: 120_000n,
+          nonce: 12n,
+          chainId: 2,
+        },
+      ],
+      totalEstimatedTxSize: 850,
+      totalMarginedFee: 102_000n,
+      totalGasLimit: 370_000n,
+      feeRatePerByte: 100n,
+      startNonce: 10n,
+      chainId: 2,
+    });
+
+    assert.deepEqual(
+      batchRows.map((r) => r.label),
+      [
+        "Batch size",
+        "Total wire size",
+        "Fee rate",
+        "Total margined fee (+20%)",
+        "Total gas limit",
+        "Nonce range",
+      ],
+    );
+    assert.equal(batchRows[0]?.value, "3 calls");
+    assert.equal(batchRows[1]?.value, "850 bytes");
+    assert.equal(batchRows[2]?.value, "100 atoms/byte");
+    assert.ok(batchRows[3]?.value.includes("102,000 atoms"));
+    assert.equal(batchRows[4]?.value, "370,000");
+    assert.equal(batchRows[5]?.value, "10..12");
   });
 
   it("rejects negative fee rates from RPC", async () => {

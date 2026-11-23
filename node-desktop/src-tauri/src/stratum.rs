@@ -92,6 +92,8 @@ pub struct StratumWorkerEntry {
     pub shares_accepted: u64,
     pub shares_rejected: u64,
     pub connected_secs: u64,
+    #[serde(default)]
+    pub extranonce_subscribed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -548,12 +550,18 @@ pub fn parse_stratum_workers(http_status: u16, body: &str) -> StratumWorkersSnap
             .or_else(|| obj.get("connectedSecs"))
             .and_then(Value::as_u64)
             .unwrap_or(0);
+        let extranonce_subscribed = obj
+            .get("extranonce_subscribed")
+            .or_else(|| obj.get("extranonceSubscribed"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         workers.push(StratumWorkerEntry {
             worker_name,
             difficulty,
             shares_accepted,
             shares_rejected,
             connected_secs,
+            extranonce_subscribed,
         });
     }
 
@@ -1224,7 +1232,8 @@ mod tests {
                     "difficulty": 4.5,
                     "shares_accepted": 120,
                     "shares_rejected": 2,
-                    "connected_secs": 3600
+                    "connected_secs": 3600,
+                    "extranonce_subscribed": true
                 },
                 {
                     "worker_name": "rig-beta.02",
@@ -1245,15 +1254,18 @@ mod tests {
         assert_eq!(snap.workers[0].shares_accepted, 120);
         assert_eq!(snap.workers[0].shares_rejected, 2);
         assert_eq!(snap.workers[0].connected_secs, 3600);
+        assert!(snap.workers[0].extranonce_subscribed);
+        assert!(!snap.workers[1].extranonce_subscribed);
 
-        // Direct JSON array also supported
+        // Direct JSON array also supported (including camelCase extranonceSubscribed)
         let arr_snap = parse_stratum_workers(
             200,
-            r#"[{"worker_name":"solo","difficulty":1.0,"shares_accepted":9,"shares_rejected":1,"connected_secs":30}]"#,
+            r#"[{"worker_name":"solo","difficulty":1.0,"shares_accepted":9,"shares_rejected":1,"connected_secs":30,"extranonceSubscribed":true}]"#,
         );
         assert_eq!(arr_snap.reach, RpcReach::Reachable);
         assert_eq!(arr_snap.workers.len(), 1);
         assert_eq!(arr_snap.workers[0].worker_name, "solo");
+        assert!(arr_snap.workers[0].extranonce_subscribed);
 
         // Graceful fallback when /workers is unavailable (e.g. 404 or invalid JSON)
         let missing = parse_stratum_workers(404, "not found");
