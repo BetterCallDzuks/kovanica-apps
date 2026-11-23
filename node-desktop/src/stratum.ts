@@ -1042,6 +1042,45 @@ export function buildRpcProbeCommand(
   return `kovanica rpc probe ${trimmed} --json`;
 }
 
+/**
+ * Builds a shell-safe `kovanica tx envelope decode` CLI command string.
+ * Validates the `kvnc-tx:v1:<base64url>` format with strict charset `[A-Za-z0-9_-]`,
+ * rejects shell metacharacters, whitespace/control characters, and invalid chain IDs.
+ */
+export function buildAirgapEnvelopeDecodeCommand(
+  envelope: string,
+  expectedChainId?: 1 | 2 | 3,
+): string {
+  if (typeof envelope !== "string") {
+    throw new Error("Air-gap envelope must be a non-empty string.");
+  }
+  const trimmed = envelope.trim();
+  if (trimmed === "") {
+    throw new Error("Air-gap envelope must not be empty.");
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001F\u007F]/.test(trimmed)) {
+    throw new Error("Air-gap envelope must not contain whitespace or control characters.");
+  }
+  if (/[;&|$`(){}[\]<>'"\\*?~!#%]/.test(trimmed)) {
+    throw new Error("Air-gap envelope contains disallowed shell metacharacters.");
+  }
+  if (!/^kvnc-tx:v1:[A-Za-z0-9_-]+$/.test(trimmed)) {
+    throw new Error(
+      "Air-gap envelope must match 'kvnc-tx:v1:<base64url>' with strict base64url charset [A-Za-z0-9_-].",
+    );
+  }
+
+  if (expectedChainId !== undefined) {
+    if (expectedChainId !== 1 && expectedChainId !== 2 && expectedChainId !== 3) {
+      throw new Error("expectedChainId must be 1, 2, or 3.");
+    }
+    return `kovanica tx envelope decode ${trimmed} --expected-chain-id ${expectedChainId} --json`;
+  }
+
+  return `kovanica tx envelope decode ${trimmed} --json`;
+}
+
 function parseFailedChecksList(raw: unknown): string[] {
   if (!Array.isArray(raw)) {
     return [];

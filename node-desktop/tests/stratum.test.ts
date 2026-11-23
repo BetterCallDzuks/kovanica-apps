@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  buildAirgapEnvelopeDecodeCommand,
   buildRpcProbeCommand,
   buildSanitizedStratumDiagnostics,
   buildSnapshotVerifyCommand,
@@ -1330,6 +1331,54 @@ test("buildRpcProbeCommand emits shell-safe CLI command and rejects invalid sche
   // Invalid chainId rejected
   assert.throws(
     () => buildRpcProbeCommand("http://127.0.0.1:8545", 99 as unknown as 1),
+    /expectedChainId/i,
+  );
+});
+
+test("buildAirgapEnvelopeDecodeCommand validates kvnc-tx:v1:<base64url>, emits shell-safe CLI command, and rejects invalid inputs", () => {
+  const sampleEnvelope = "kvnc-tx:v1:eyJjaGFpbklkIjoyLCJub25jZSI6MX0_-AZ09";
+
+  assert.equal(
+    buildAirgapEnvelopeDecodeCommand(sampleEnvelope, 1),
+    `kovanica tx envelope decode ${sampleEnvelope} --expected-chain-id 1 --json`,
+  );
+  assert.equal(
+    buildAirgapEnvelopeDecodeCommand(`  ${sampleEnvelope}  `, 2),
+    `kovanica tx envelope decode ${sampleEnvelope} --expected-chain-id 2 --json`,
+  );
+  assert.equal(
+    buildAirgapEnvelopeDecodeCommand(sampleEnvelope, 3),
+    `kovanica tx envelope decode ${sampleEnvelope} --expected-chain-id 3 --json`,
+  );
+  assert.equal(
+    buildAirgapEnvelopeDecodeCommand(sampleEnvelope),
+    `kovanica tx envelope decode ${sampleEnvelope} --json`,
+  );
+
+  // Invalid format, non-base64url chars, shell metacharacters, whitespace/control chars rejected
+  for (const badEnvelope of [
+    "",
+    "   ",
+    "kvnc-tx:v1:",
+    "kvnc-tx:v2:abc123",
+    "other-tx:v1:abc123",
+    "kvnc-tx:v1:abc+def/ghi=",
+    "kvnc-tx:v1:abc;rm -rf /",
+    "kvnc-tx:v1:abc$(whoami)",
+    "kvnc-tx:v1:abc`id`",
+    "kvnc-tx:v1:abc|cat",
+    "kvnc-tx:v1:abc&bg",
+    "kvnc-tx:v1:abc def",
+    "kvnc-tx:v1:abc\nwhoami",
+    "kvnc-tx:v1:abc'quote'",
+    'kvnc-tx:v1:abc"quote"',
+  ]) {
+    assert.throws(() => buildAirgapEnvelopeDecodeCommand(badEnvelope, 2));
+  }
+
+  // Invalid chainId rejected
+  assert.throws(
+    () => buildAirgapEnvelopeDecodeCommand(sampleEnvelope, 99 as unknown as 1),
     /expectedChainId/i,
   );
 });

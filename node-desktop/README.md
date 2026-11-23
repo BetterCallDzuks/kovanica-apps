@@ -103,6 +103,10 @@ Polling does not overlap, times out after 3 seconds, and backs off up to 30 seco
 
 There is no remote admin endpoint and no transaction submission.
 
+## Operator Utilities & CLI Builders
+
+`src/stratum.ts` includes Stratum and faucet health parsers (`parseStratumHealthSummary`, `parseFaucetHealthSummary`) along with shell-safe CLI command builders for `kovanica snapshot verify` (`buildSnapshotVerifyCommand`), `kovanica rpc probe` (`buildRpcProbeCommand`), and `kovanica tx envelope decode` (`buildAirgapEnvelopeDecodeCommand`).
+
 ## Build
 
 From `node-desktop/`, with no sibling `crates/` tree:

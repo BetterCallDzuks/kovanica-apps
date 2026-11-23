@@ -971,6 +971,178 @@ export function parseIndexerHealthSummary(healthJson: unknown): IndexerHealthSum
   };
 }
 
+export type LightnodeSyncState = "synced" | "catching_up" | "stalled" | "offline";
+
+export interface LightnodeHealthSummary {
+  syncState: LightnodeSyncState;
+  headerHeight: number;
+  networkHeadHeight: number;
+  lagHeaders: number;
+  verifiedPeers: number;
+  networkTag: string | null;
+  alerts: string[];
+}
+
+export const LIGHTNODE_SYNCED_MAX_LAG_HEADERS = 2;
+export const LIGHTNODE_CATCHING_UP_MAX_LAG_HEADERS = 50;
+
+function classifyLightnodeLag(lagHeaders: number): Exclude<LightnodeSyncState, "offline"> {
+  if (lagHeaders <= LIGHTNODE_SYNCED_MAX_LAG_HEADERS) {
+    return "synced";
+  }
+  if (lagHeaders <= LIGHTNODE_CATCHING_UP_MAX_LAG_HEADERS) {
+    return "catching_up";
+  }
+  return "stalled";
+}
+
+/**
+ * Parses `kovanica-lightnode` sync summary JSON (snake_case & camelCase) into a
+ * normalized health summary. Raises alerts on `catching_up`, `stalled`, `offline`,
+ * or `verifiedPeers === 0`, and fails safe to `syncState: "offline"` on null,
+ * primitive, or malformed inputs.
+ */
+export function parseLightnodeSyncSummary(payload: unknown): LightnodeHealthSummary {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      syncState: "offline",
+      headerHeight: 0,
+      networkHeadHeight: 0,
+      lagHeaders: 0,
+      verifiedPeers: 0,
+      networkTag: null,
+      alerts: ["Lightnode sync summary payload is unavailable or malformed."],
+    };
+  }
+
+  const record = payload as Record<string, unknown>;
+  const rawStatus =
+    typeof record.status === "string" ? record.status.trim().toLowerCase() : null;
+  const rawSyncState =
+    typeof record.sync_state === "string"
+      ? record.sync_state.trim().toLowerCase()
+      : typeof record.syncState === "string"
+        ? record.syncState.trim().toLowerCase()
+        : null;
+
+  const headerHeightVal = readNonNegativeInt(record, [
+    "header_height",
+    "headerHeight",
+    "verified_header_height",
+    "verifiedHeaderHeight",
+    "local_height",
+    "localHeight",
+  ]);
+  const networkHeadHeightVal = readNonNegativeInt(record, [
+    "network_head_height",
+    "networkHeadHeight",
+    "head_height",
+    "headHeight",
+    "remote_head_height",
+    "remoteHeadHeight",
+  ]);
+  const lagHeadersVal = readNonNegativeInt(record, [
+    "lag_headers",
+    "lagHeaders",
+    "header_lag",
+    "headerLag",
+  ]);
+  const verifiedPeersVal = readNonNegativeInt(record, [
+    "verified_peers",
+    "verifiedPeers",
+    "peer_count",
+    "peerCount",
+  ]);
+  const rawNetworkTag = record.network_tag ?? record.networkTag;
+  const networkTag =
+    typeof rawNetworkTag === "string" && rawNetworkTag.trim() !== ""
+      ? rawNetworkTag.trim()
+      : null;
+
+  const hasRecognizedField =
+    rawStatus !== null ||
+    rawSyncState !== null ||
+    headerHeightVal !== null ||
+    networkHeadHeightVal !== null ||
+    lagHeadersVal !== null ||
+    verifiedPeersVal !== null ||
+    networkTag !== null;
+
+  if (!hasRecognizedField) {
+    return {
+      syncState: "offline",
+      headerHeight: 0,
+      networkHeadHeight: 0,
+      lagHeaders: 0,
+      verifiedPeers: 0,
+      networkTag: null,
+      alerts: ["Lightnode sync summary payload is unavailable or malformed."],
+    };
+  }
+
+  const headerHeight = headerHeightVal ?? 0;
+  const networkHeadHeight = networkHeadHeightVal ?? 0;
+  const lagHeaders =
+    lagHeadersVal !== null ? lagHeadersVal : Math.max(0, networkHeadHeight - headerHeight);
+  const verifiedPeers = verifiedPeersVal ?? 0;
+
+  const isOffline =
+    rawSyncState === "offline" ||
+    rawStatus === "offline" ||
+    rawStatus === "down" ||
+    rawStatus === "stopped" ||
+    rawStatus === "unreachable" ||
+    rawStatus === "error";
+
+  let syncState: LightnodeSyncState;
+  if (isOffline) {
+    syncState = "offline";
+  } else if (
+    rawSyncState === "synced" ||
+    rawSyncState === "catching_up" ||
+    rawSyncState === "stalled"
+  ) {
+    syncState = rawSyncState;
+  } else if (rawSyncState === "catching-up" || rawSyncState === "syncing") {
+    syncState = "catching_up";
+  } else if (
+    headerHeightVal !== null ||
+    networkHeadHeightVal !== null ||
+    lagHeadersVal !== null
+  ) {
+    syncState = classifyLightnodeLag(lagHeaders);
+  } else {
+    syncState = "offline";
+  }
+
+  const alerts: string[] = [];
+  if (syncState === "offline") {
+    alerts.push("Lightnode is offline or unreachable.");
+  } else if (syncState === "catching_up") {
+    alerts.push(
+      `Lightnode is catching up by ${lagHeaders} header${lagHeaders === 1 ? "" : "s"} (header=${headerHeight}, head=${networkHeadHeight}).`,
+    );
+  } else if (syncState === "stalled") {
+    alerts.push(
+      `Lightnode is stalled behind network head by ${lagHeaders} header${lagHeaders === 1 ? "" : "s"} (header=${headerHeight}, head=${networkHeadHeight}).`,
+    );
+  }
+
+  if (syncState !== "offline" && verifiedPeers === 0) {
+    alerts.push("Lightnode has 0 verified peers.");
+  }
+
+  return {
+    syncState,
+    headerHeight,
+    networkHeadHeight,
+    lagHeaders,
+    verifiedPeers,
+    networkTag,
+    alerts,
+  };
+}
+
 export type ClusterOverallStatus = "healthy" | "degraded" | "critical";
 
 export interface ClusterServiceHealthInput {

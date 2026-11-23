@@ -4,6 +4,7 @@ import {
   ADDRESS_PREFIX,
   CHAIN_IDS,
   KovanicaAbortError,
+  KovanicaRpcError,
   NETWORK_TAGS,
   TESTNET_ADDRESS_PREFIX,
   bytesToHex,
@@ -14,12 +15,14 @@ import {
   signTransferTransaction,
   type FailoverEvent,
   type FinalityProgress,
+  type MempoolFeeStats,
 } from "kovanica-sdk";
 import {
   DEFAULT_FEE_BUFFER_MULTIPLIER_BPS,
   computeBufferedTxFee,
   createWalletFailoverClient,
   exportAirgapTxEnvelope,
+  fetchWalletFeeTiers,
   formatFinalityProgressBadge,
   importAirgapTxEnvelope,
   probeWalletRpcEndpoint,
@@ -892,5 +895,112 @@ describe("wallet multi-RPC failover and finality helpers", () => {
     if (!badExport.ok) {
       assert.ok(badExport.error.length > 0);
     }
+  });
+
+  it("computes monotonic mempool fee tiers when mempool stats are populated", async () => {
+    let estimateFeeCalls = 0;
+    const populatedStats: MempoolFeeStats = {
+      pendingCount: 24,
+      totalBytes: 4_800,
+      minFeePerByte: 10n,
+      p50FeePerByte: 25n,
+      p90FeePerByte: 60n,
+      maxFeePerByte: 120n,
+    };
+
+    const tiers = await fetchWalletFeeTiers({
+      async getMempoolStats() {
+        return populatedStats;
+      },
+      async estimateFee() {
+        estimateFeeCalls += 1;
+        return 100n;
+      },
+    });
+
+    assert.equal(estimateFeeCalls, 0);
+    assert.equal(tiers.source, "mempool");
+    assert.equal(tiers.economy, 10n);
+    assert.equal(tiers.standard, 30n); // ceil(25 * 12000 / 10000)
+    assert.equal(tiers.priority, 72n); // ceil(60 * 12000 / 10000)
+    assert.ok(tiers.economy <= tiers.standard);
+    assert.ok(tiers.standard <= tiers.priority);
+
+    // Custom safetyMultiplierBps (1.1x = 11000 bps) with ceiling rounding.
+    const customTiers = await fetchWalletFeeTiers(
+      {
+        async getMempoolStats() {
+          return populatedStats;
+        },
+        async estimateFee() {
+          estimateFeeCalls += 1;
+          return 100n;
+        },
+      },
+      { safetyMultiplierBps: 11_000 },
+    );
+
+    assert.equal(estimateFeeCalls, 0);
+    assert.equal(customTiers.source, "mempool");
+    assert.equal(customTiers.economy, 10n);
+    assert.equal(customTiers.standard, 28n); // ceil(25 * 11000 / 10000) = ceil(27.5) = 28
+    assert.equal(customTiers.priority, 66n); // ceil(60 * 11000 / 10000) = 66
+    assert.ok(customTiers.economy <= customTiers.standard);
+    assert.ok(customTiers.standard <= customTiers.priority);
+  });
+
+  it("falls back to estimateFee() with monotonic tiers when mempool is empty", async () => {
+    let estimateFeeCalls = 0;
+    const emptyStats: MempoolFeeStats = {
+      pendingCount: 0,
+      totalBytes: 0,
+      minFeePerByte: null,
+      p50FeePerByte: null,
+      p90FeePerByte: null,
+      maxFeePerByte: null,
+    };
+
+    const tiers = await fetchWalletFeeTiers({
+      async getMempoolStats() {
+        return emptyStats;
+      },
+      async estimateFee() {
+        estimateFeeCalls += 1;
+        return 50n;
+      },
+    });
+
+    assert.equal(estimateFeeCalls, 1);
+    assert.equal(tiers.source, "fallback");
+    assert.equal(tiers.economy, 50n);
+    assert.equal(tiers.standard, 60n); // ceil(50 * 12000 / 10000)
+    assert.equal(tiers.priority, 72n); // ceil(60 * 12000 / 10000)
+    assert.ok(tiers.economy <= tiers.standard);
+    assert.ok(tiers.standard <= tiers.priority);
+  });
+
+  it("falls back cleanly to estimateFee() when a legacy node rejects getMempoolStats (-32601)", async () => {
+    let estimateFeeCalls = 0;
+
+    const tiers = await fetchWalletFeeTiers(
+      {
+        async getMempoolStats() {
+          throw new KovanicaRpcError(-32601, "Method not found");
+        },
+        async estimateFee() {
+          estimateFeeCalls += 1;
+          return 100n;
+        },
+      },
+      { safetyMultiplierBps: 12_500 },
+    );
+
+    assert.equal(estimateFeeCalls, 1);
+    assert.equal(tiers.source, "fallback");
+    assert.equal(tiers.economy, 100n);
+    assert.equal(tiers.standard, 125n); // ceil(100 * 12500 / 10000)
+    assert.equal(tiers.priority, 157n); // ceil(125 * 12500 / 10000) = ceil(156.25) = 157
+    assert.ok(tiers.economy <= tiers.standard);
+    assert.ok(tiers.standard <= tiers.priority);
   });
 });
