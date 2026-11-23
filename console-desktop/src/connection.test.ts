@@ -549,4 +549,56 @@ describe("single-POST JSON-RPC 2.0 batch health probe and network tag verificati
     expect(failed.warnings.join(" ")).not.toContain("tok_999");
     expect(failed.warnings.some((w) => /batch/i.test(w))).toBe(true);
   });
+
+  it("extracts Kovanica RPC identity headers and verifies canonical tag automatically in formatNodeDoctorSummary", async () => {
+    const mockFetch: typeof fetch = (async () =>
+      new Response(
+        JSON.stringify([
+          { jsonrpc: "2.0", id: 1, result: "0x2" },
+          { jsonrpc: "2.0", id: 2, result: "1500" },
+          { jsonrpc: "2.0", id: 3, result: "750" },
+        ]),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Kovanica-Network-Tag": "  2-24cdb5fadd98b207  ",
+            "X-Kovanica-Rpc-Version": "1.2.0",
+            "X-Kovanica-Chain-Id": "2",
+          },
+        },
+      )) as typeof fetch;
+
+    const probed = await probeRpcBatchHealth("https://rpc-testnet.kovanica.online:8545", mockFetch);
+    expect(probed.ok).toBe(true);
+    expect(probed.networkTag).toBe("2-24cdb5fadd98b207");
+    expect(probed.rpcVersion).toBe("1.2.0");
+    expect(probed.headerChainId).toBe("2");
+
+    // Omitting explicit networkTag falls back to probed.networkTag automatically
+    const doctorOk = formatNodeDoctorSummary(probed);
+    expect(doctorOk.ready).toBe(true);
+    expect(doctorOk.severity).toBe("ok");
+    expect(doctorOk.canonicalTagValid).toBe(true);
+    expect(doctorOk.warnings).toEqual([]);
+
+    // Mismatched header networkTag fails closed when explicit parameter is omitted
+    const doctorMismatch = formatNodeDoctorSummary({
+      ...probed,
+      networkTag: "2-deadbeefdeadbeef",
+    });
+    expect(doctorMismatch.ready).toBe(false);
+    expect(doctorMismatch.severity).toBe("error");
+    expect(doctorMismatch.canonicalTagValid).toBe(false);
+    expect(doctorMismatch.headline).toMatch(/mismatch/i);
+
+    // Explicit networkTag parameter takes precedence over probed.networkTag
+    const doctorOverride = formatNodeDoctorSummary(
+      { ...probed, networkTag: "2-deadbeefdeadbeef" },
+      "2-24cdb5fadd98b207",
+    );
+    expect(doctorOverride.ready).toBe(true);
+    expect(doctorOverride.severity).toBe("ok");
+    expect(doctorOverride.canonicalTagValid).toBe(true);
+  });
 });

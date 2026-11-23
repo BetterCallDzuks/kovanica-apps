@@ -751,6 +751,182 @@ export function verifyCanonicalNetworkTag(
   };
 }
 
+export interface SnapshotVerifyReport {
+  ok: boolean;
+  chainId: number | null;
+  networkTag: string | null;
+  verifiedFiles: number;
+  failedChecks: string[];
+  summary: string;
+}
+
+/**
+ * Builds a shell-safe `kovanica snapshot verify` CLI command string.
+ * Rejects empty paths, leading dashes, control characters/whitespace,
+ * shell metacharacters, path traversal (`..`), and invalid chain IDs.
+ */
+export function buildSnapshotVerifyCommand(
+  snapshotPath: string,
+  expectedChainId?: 1 | 2 | 3,
+): string {
+  if (typeof snapshotPath !== "string") {
+    throw new Error("Snapshot path must be a non-empty string.");
+  }
+  const trimmed = snapshotPath.trim();
+  if (trimmed === "") {
+    throw new Error("Snapshot path must not be empty.");
+  }
+  if (trimmed.startsWith("-")) {
+    throw new Error("Snapshot path must not start with '-'.");
+  }
+  if (trimmed.includes("..")) {
+    throw new Error("Snapshot path must not contain path traversal ('..').");
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001F\u007F]/.test(trimmed)) {
+    throw new Error("Snapshot path must not contain whitespace or control characters.");
+  }
+  if (/[;&|$`(){}[\]<>'"\\*?~!#%]/.test(trimmed)) {
+    throw new Error("Snapshot path contains disallowed shell metacharacters.");
+  }
+
+  if (expectedChainId !== undefined) {
+    if (expectedChainId !== 1 && expectedChainId !== 2 && expectedChainId !== 3) {
+      throw new Error("expectedChainId must be 1, 2, or 3.");
+    }
+    return `kovanica snapshot verify ${trimmed} --expected-chain-id ${expectedChainId} --json`;
+  }
+
+  return `kovanica snapshot verify ${trimmed} --json`;
+}
+
+function parseFailedChecksList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const checks: string[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const trimmed = item.trim();
+      if (trimmed !== "") {
+        checks.push(sanitizeDiagnosticText(trimmed));
+      }
+    } else if (item && typeof item === "object" && !Array.isArray(item)) {
+      const obj = item as Record<string, unknown>;
+      const label =
+        typeof obj.message === "string" && obj.message.trim() !== ""
+          ? obj.message.trim()
+          : typeof obj.check === "string" && obj.check.trim() !== ""
+            ? obj.check.trim()
+            : typeof obj.reason === "string" && obj.reason.trim() !== ""
+              ? obj.reason.trim()
+              : null;
+      if (label !== null) {
+        checks.push(sanitizeDiagnosticText(label));
+      }
+    }
+  }
+  return checks;
+}
+
+/**
+ * Safely parses `kovanica snapshot verify --json` output into a normalized report.
+ * Fails closed (`ok: false`) on empty, malformed, non-object, or incomplete JSON.
+ */
+export function parseSnapshotVerifyReport(jsonText: string): SnapshotVerifyReport {
+  if (typeof jsonText !== "string" || jsonText.trim() === "") {
+    return {
+      ok: false,
+      chainId: null,
+      networkTag: null,
+      verifiedFiles: 0,
+      failedChecks: ["Malformed snapshot verify JSON output."],
+      summary: "Snapshot verification failed: malformed JSON output.",
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return {
+      ok: false,
+      chainId: null,
+      networkTag: null,
+      verifiedFiles: 0,
+      failedChecks: ["Malformed snapshot verify JSON output."],
+      summary: "Snapshot verification failed: malformed JSON output.",
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      chainId: null,
+      networkTag: null,
+      verifiedFiles: 0,
+      failedChecks: ["Snapshot verify output must be a JSON object."],
+      summary: "Snapshot verification failed: expected a JSON object.",
+    };
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const rawOk = readBooleanFlag(record, ["ok", "valid", "verified"]);
+  const rawChainId = record.chainId ?? record.chain_id;
+  const chainId =
+    typeof rawChainId === "number" || typeof rawChainId === "string"
+      ? parseChainIdNumber(rawChainId)
+      : null;
+
+  const rawNetworkTag = record.networkTag ?? record.network_tag;
+  const networkTag =
+    typeof rawNetworkTag === "string" && rawNetworkTag.trim() !== ""
+      ? rawNetworkTag.trim()
+      : null;
+
+  const rawVerifiedFiles = record.verifiedFiles ?? record.verified_files;
+  let verifiedFiles = 0;
+  if (Array.isArray(rawVerifiedFiles)) {
+    verifiedFiles = rawVerifiedFiles.length;
+  } else {
+    const numericFiles = readNonNegativeNumber(record, ["verifiedFiles", "verified_files"]);
+    verifiedFiles = numericFiles !== null ? Math.floor(numericFiles) : 0;
+  }
+
+  const failedChecks = parseFailedChecksList(
+    record.failedChecks ?? record.failed_checks ?? record.errors,
+  );
+
+  if (rawOk === null) {
+    failedChecks.push("Missing boolean verification status in snapshot report.");
+  }
+
+  const ok = rawOk === true && failedChecks.length === 0;
+
+  const rawSummary = typeof record.summary === "string" ? record.summary.trim() : "";
+  let summary: string;
+  if (rawSummary !== "" && (ok || rawOk === false)) {
+    summary = sanitizeDiagnosticText(rawSummary);
+  } else if (ok) {
+    const details = [`${verifiedFiles} file${verifiedFiles === 1 ? "" : "s"}`];
+    if (chainId !== null) details.push(`chainId=${chainId}`);
+    if (networkTag !== null) details.push(`tag=${networkTag}`);
+    summary = `Snapshot verified (${details.join(", ")}).`;
+  } else {
+    const reason = failedChecks.length > 0 ? failedChecks.join("; ") : "verification failed";
+    summary = `Snapshot verification failed: ${reason}`;
+  }
+
+  return {
+    ok,
+    chainId,
+    networkTag,
+    verifiedFiles,
+    failedChecks,
+    summary,
+  };
+}
+
 export interface StratumRpcProbeResult {
   url: string;
   ok: boolean;

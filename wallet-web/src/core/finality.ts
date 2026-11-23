@@ -2,20 +2,40 @@ import {
   DEFAULT_FEE_BUFFER_MULTIPLIER_BPS,
   DEFAULT_FINALITY_CONFIRMATIONS,
   applyFeeBuffer,
+  bytesToHex,
   createFailoverClient,
+  decodeSignedCallTransaction,
+  parseContractAddress,
+  probeRpcNode,
   sanitizeRpcUrl,
+  verifyCallTransactionSignature,
   waitForTransactionFinality,
+  type DecodedSignedCallTransaction,
   type FailoverHttpTransportOptions,
   type FeeBufferEstimate,
   type FinalityProgress,
   type FinalityResult,
   type KovanicaClient,
+  type RpcNodeProbeResult,
   type RpcRetryConfig,
   type TransactionReceipt,
   type WaitForFinalityOptions,
 } from "kovanica-sdk";
 
 export { DEFAULT_FEE_BUFFER_MULTIPLIER_BPS, DEFAULT_FINALITY_CONFIRMATIONS };
+export type { DecodedSignedCallTransaction, RpcNodeProbeResult };
+
+export type PreBroadcastVerificationOptions = {
+  chainId?: bigint | number;
+  expectedContract?: string;
+};
+
+export type PreBroadcastVerificationResult = {
+  ok: boolean;
+  signatureValid: boolean;
+  decoded?: DecodedSignedCallTransaction;
+  error?: string;
+};
 
 export type WalletFailoverClientOptions = Omit<FailoverHttpTransportOptions, "urls"> & {
   retry?: RpcRetryConfig;
@@ -190,4 +210,132 @@ export function computeBufferedTxFee(
     baseFee,
     safetyMultiplierBps !== undefined ? { safetyMultiplierBps } : undefined,
   );
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a[i]! ^ b[i]!;
+  }
+  return diff === 0;
+}
+
+/**
+ * Decodes a signed Call contract transaction offline and self-verifies its Ed25519
+ * signature against `expectedPublicKey` (and optional `expectedContract` / `chainId`)
+ * prior to broadcast. Fails closed on any decode error, signature failure, or mismatch.
+ */
+export function verifySignedCallTxBeforeBroadcast(
+  rawTxHex: string,
+  expectedPublicKey: Uint8Array,
+  options?: PreBroadcastVerificationOptions,
+): PreBroadcastVerificationResult {
+  let resolvedChainId: number | undefined;
+  if (options?.chainId !== undefined) {
+    if (typeof options.chainId === "bigint") {
+      if (options.chainId < 0n || options.chainId > BigInt(Number.MAX_SAFE_INTEGER)) {
+        return {
+          ok: false,
+          signatureValid: false,
+          error: `Invalid chainId: ${options.chainId.toString()}`,
+        };
+      }
+      resolvedChainId = Number(options.chainId);
+    } else if (Number.isSafeInteger(options.chainId) && options.chainId >= 0) {
+      resolvedChainId = options.chainId;
+    } else {
+      return {
+        ok: false,
+        signatureValid: false,
+        error: `Invalid chainId: ${String(options.chainId)}`,
+      };
+    }
+  }
+
+  let decoded: DecodedSignedCallTransaction;
+  try {
+    decoded = decodeSignedCallTransaction(
+      rawTxHex,
+      resolvedChainId !== undefined ? { chainId: resolvedChainId } : undefined,
+    );
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      signatureValid: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (!(expectedPublicKey instanceof Uint8Array) || expectedPublicKey.length !== 32) {
+    return {
+      ok: false,
+      signatureValid: false,
+      decoded,
+      error: "Expected 32-byte Ed25519 public key",
+    };
+  }
+
+  const signatureValid = verifyCallTransactionSignature(decoded, expectedPublicKey);
+  if (!signatureValid) {
+    return {
+      ok: false,
+      signatureValid: false,
+      decoded,
+      error: "Signed call transaction Ed25519 signature verification failed",
+    };
+  }
+
+  if (!bytesEqual(decoded.senderBytes, expectedPublicKey)) {
+    return {
+      ok: false,
+      signatureValid,
+      decoded,
+      error: "Signed call transaction sender does not match expected public key",
+    };
+  }
+
+  if (options?.expectedContract !== undefined) {
+    let expectedContractBytes: Uint8Array;
+    try {
+      expectedContractBytes = parseContractAddress(options.expectedContract);
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        signatureValid,
+        decoded,
+        error: `Invalid expectedContract: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    if (!bytesEqual(decoded.contractBytes, expectedContractBytes)) {
+      return {
+        ok: false,
+        signatureValid,
+        decoded,
+        error: `Contract address mismatch: expected 0x${bytesToHex(expectedContractBytes)}, got ${decoded.contractHex}`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    signatureValid: true,
+    decoded,
+  };
+}
+
+/**
+ * Probes a wallet RPC endpoint for batch support, chain metadata, and canonical
+ * `X-Kovanica-Network-Tag` header verification by delegating to `kovanica-sdk`'s `probeRpcNode`.
+ */
+export async function probeWalletRpcEndpoint(
+  url: string,
+  expectedChainId?: number | bigint,
+  fetchImpl?: typeof fetch,
+): Promise<RpcNodeProbeResult> {
+  return probeRpcNode(url, {
+    ...(expectedChainId !== undefined ? { expectedChainId } : {}),
+    ...(fetchImpl !== undefined ? { fetch: fetchImpl } : {}),
+  });
 }
