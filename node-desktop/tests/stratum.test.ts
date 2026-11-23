@@ -5,10 +5,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   buildSanitizedStratumDiagnostics,
+  buildSnapshotVerifyCommand,
   CANONICAL_NETWORK_TAGS,
   evaluateStratumAlerts,
   formatRpcProbeResult,
   mountStratumApp,
+  parseSnapshotVerifyReport,
   parseStratumHealthSummary,
   probeStratumUpstreamBatch,
   probeStratumUpstreamRpc,
@@ -16,6 +18,7 @@ import {
   toStratumPayload,
   validateStratumForm,
   verifyCanonicalNetworkTag,
+  type SnapshotVerifyReport,
   type StratumFormInput,
   type StratumSnapshot,
 } from "../src/stratum.ts";
@@ -1068,5 +1071,114 @@ test("parseStratumHealthSummary parses /health and /workers payloads, computes r
     assert.equal(offline.rejectedShares, 0);
     assert.equal(offline.rejectionRatio, 0);
     assert.ok(offline.alerts.length > 0);
+  }
+});
+
+test("buildSnapshotVerifyCommand emits shell-safe CLI command and rejects metacharacters and path traversal", () => {
+  assert.equal(
+    buildSnapshotVerifyCommand("/var/lib/kovanica/snapshots/mainnet-12000.tar.zst", 1),
+    "kovanica snapshot verify /var/lib/kovanica/snapshots/mainnet-12000.tar.zst --expected-chain-id 1 --json",
+  );
+  assert.equal(
+    buildSnapshotVerifyCommand("  /tmp/snap_testnet.tar.gz  ", 2),
+    "kovanica snapshot verify /tmp/snap_testnet.tar.gz --expected-chain-id 2 --json",
+  );
+  assert.equal(
+    buildSnapshotVerifyCommand("/data/devnet.snap", 3),
+    "kovanica snapshot verify /data/devnet.snap --expected-chain-id 3 --json",
+  );
+  assert.equal(
+    buildSnapshotVerifyCommand("/data/snapshot.tar.zst"),
+    "kovanica snapshot verify /data/snapshot.tar.zst --json",
+  );
+
+  // Path traversal rejected
+  assert.throws(() => buildSnapshotVerifyCommand("../etc/passwd", 1), /traversal/i);
+  assert.throws(() => buildSnapshotVerifyCommand("/var/lib/kovanica/../../etc/shadow", 2), /traversal/i);
+
+  // Shell metacharacters, whitespace, option injection, and empty paths rejected
+  for (const badPath of [
+    "",
+    "   ",
+    "-rf",
+    "/tmp/snap;rm -rf /",
+    "/tmp/snap$(whoami).tar",
+    "/tmp/snap`id`.tar",
+    "/tmp/snap|cat",
+    "/tmp/snap&bg",
+    "/tmp/snap with space.tar",
+    "/tmp/snap\nwhoami",
+    "/tmp/snap'quote.tar",
+    '/tmp/snap"quote.tar',
+  ]) {
+    assert.throws(() => buildSnapshotVerifyCommand(badPath, 2));
+  }
+
+  // Invalid chainId rejected
+  assert.throws(
+    () => buildSnapshotVerifyCommand("/tmp/snap.tar", 99 as unknown as 1),
+    /expectedChainId/i,
+  );
+});
+
+test("parseSnapshotVerifyReport parses valid JSON output and fails closed on malformed or incomplete JSON", () => {
+  const okReport: SnapshotVerifyReport = parseSnapshotVerifyReport(
+    JSON.stringify({
+      ok: true,
+      chain_id: 2,
+      network_tag: "2-24cdb5fadd98b207",
+      verified_files: 14,
+      failed_checks: [],
+      summary: "All 14 snapshot files verified.",
+    }),
+  );
+  assert.deepEqual(okReport, {
+    ok: true,
+    chainId: 2,
+    networkTag: "2-24cdb5fadd98b207",
+    verifiedFiles: 14,
+    failedChecks: [],
+    summary: "All 14 snapshot files verified.",
+  });
+
+  // CamelCase failing report with synthesized summary
+  const failedReport = parseSnapshotVerifyReport(
+    JSON.stringify({
+      ok: false,
+      chainId: "0x1",
+      networkTag: "1-f35df34c92001436",
+      verifiedFiles: 5,
+      failedChecks: ["manifest hash mismatch", "missing blocks.idx"],
+    }),
+  );
+  assert.equal(failedReport.ok, false);
+  assert.equal(failedReport.chainId, 1);
+  assert.equal(failedReport.networkTag, "1-f35df34c92001436");
+  assert.equal(failedReport.verifiedFiles, 5);
+  assert.deepEqual(failedReport.failedChecks, ["manifest hash mismatch", "missing blocks.idx"]);
+  assert.match(failedReport.summary, /manifest hash mismatch/);
+
+  // Contradictory ok=true with non-empty failedChecks must fail closed
+  const contradictory = parseSnapshotVerifyReport(
+    JSON.stringify({
+      ok: true,
+      chainId: 2,
+      networkTag: "2-24cdb5fadd98b207",
+      verifiedFiles: 3,
+      failedChecks: ["signature invalid"],
+    }),
+  );
+  assert.equal(contradictory.ok, false);
+  assert.deepEqual(contradictory.failedChecks, ["signature invalid"]);
+
+  // Malformed, empty, non-object, or missing-status JSON must fail closed
+  for (const badJson of ["", "   ", "{not-json", "null", "[]", "42", "{}"]) {
+    const report = parseSnapshotVerifyReport(badJson);
+    assert.equal(report.ok, false);
+    assert.equal(report.chainId, null);
+    assert.equal(report.networkTag, null);
+    assert.equal(report.verifiedFiles, 0);
+    assert.ok(report.failedChecks.length > 0);
+    assert.match(report.summary, /failed/i);
   }
 });

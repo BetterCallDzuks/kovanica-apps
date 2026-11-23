@@ -265,10 +265,15 @@ export interface RpcBatchHealthProbeResult {
   chainId?: string;
   blockHeight?: string;
   feeRate?: string;
+  networkTag?: string;
+  rpcVersion?: string;
+  headerChainId?: string;
   batchSupported: boolean;
   latencyMs: number;
   error?: string;
 }
+
+export type RpcBatchHealthResult = RpcBatchHealthProbeResult;
 
 /** Redacts embedded URL credentials and bearer tokens from display/error text. */
 export function sanitizeRpcText(input: string): string {
@@ -497,11 +502,27 @@ function formatBatchRpcValue(value: unknown, preferFeeField = false): string | n
   return null;
 }
 
+function readOptionalResponseHeader(
+  headers: Headers | undefined,
+  name: string,
+): string | undefined {
+  if (!headers || typeof headers.get !== "function") {
+    return undefined;
+  }
+  const raw = headers.get(name);
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 /**
  * Probes an RPC endpoint using a single-POST JSON-RPC 2.0 batch request for
  * `kovanica_chainId`, `kovanica_blockNumber`, and `kovanica_estimateFee`.
  * Correlates responses by `id`, measures latency in ms, sanitizes credentials,
- * and gracefully reports `batchSupported: false` if a legacy node rejects batching.
+ * extracts optional Kovanica identity headers, and gracefully reports
+ * `batchSupported: false` if a legacy node rejects batching.
  */
 export async function probeRpcBatchHealth(
   rpcUrl: string,
@@ -541,11 +562,20 @@ export async function probeRpcBatchHealth(
   try {
     const response = await rpcFetch(trimmed, batchPayload, { fetchImpl });
     const latencyMs = Math.max(0, Math.round(nowMs() - start));
+    const networkTag = readOptionalResponseHeader(response.headers, "X-Kovanica-Network-Tag");
+    const rpcVersion = readOptionalResponseHeader(response.headers, "X-Kovanica-Rpc-Version");
+    const headerChainId = readOptionalResponseHeader(response.headers, "X-Kovanica-Chain-Id");
+    const identityHeaders = {
+      ...(networkTag !== undefined ? { networkTag } : {}),
+      ...(rpcVersion !== undefined ? { rpcVersion } : {}),
+      ...(headerChainId !== undefined ? { headerChainId } : {}),
+    };
 
     if (!response.ok) {
       return {
         url: displayUrl,
         ok: false,
+        ...identityHeaders,
         batchSupported: false,
         latencyMs,
         error: sanitizeRpcText(`HTTP ${response.status}`),
@@ -559,6 +589,7 @@ export async function probeRpcBatchHealth(
       return {
         url: displayUrl,
         ok: false,
+        ...identityHeaders,
         batchSupported: false,
         latencyMs,
         error: "Invalid JSON-RPC batch response.",
@@ -576,6 +607,7 @@ export async function probeRpcBatchHealth(
           return {
             url: displayUrl,
             ok: false,
+            ...identityHeaders,
             batchSupported: false,
             latencyMs,
             error: sanitizeRpcText(errMsg),
@@ -585,6 +617,7 @@ export async function probeRpcBatchHealth(
       return {
         url: displayUrl,
         ok: false,
+        ...identityHeaders,
         batchSupported: false,
         latencyMs,
         error: "Endpoint does not support JSON-RPC 2.0 batch requests.",
@@ -639,6 +672,7 @@ export async function probeRpcBatchHealth(
         ...(chainId !== undefined ? { chainId } : {}),
         ...(blockHeight !== undefined ? { blockHeight } : {}),
         ...(feeRate !== undefined ? { feeRate } : {}),
+        ...identityHeaders,
         batchSupported: true,
         latencyMs,
         error: sanitizeRpcText(errors.join("; ")),
@@ -651,6 +685,7 @@ export async function probeRpcBatchHealth(
       chainId,
       blockHeight,
       feeRate,
+      ...identityHeaders,
       batchSupported: true,
       latencyMs,
     };
@@ -698,8 +733,10 @@ export function formatNodeDoctorSummary(
   let canonicalTagValid = false;
   let tagMismatch = false;
 
+  const effectiveNetworkTag = networkTag ?? batchProbeResult.networkTag;
+
   if (batchProbeResult.chainId !== undefined && batchProbeResult.chainId.trim() !== "") {
-    const tagCheck = verifyNetworkTagForChain(batchProbeResult.chainId, networkTag);
+    const tagCheck = verifyNetworkTagForChain(batchProbeResult.chainId, effectiveNetworkTag);
     canonicalTagValid = tagCheck.valid;
     if (!tagCheck.valid) {
       if (tagCheck.reason) {

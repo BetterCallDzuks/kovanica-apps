@@ -9,7 +9,13 @@ import { bytesToHex } from "@/core/bytes";
 import { storageBytes } from "@/core/contracts";
 import {
   createWalletFailoverClient,
+  probeWalletRpcEndpoint,
+  verifySignedCallTxBeforeBroadcast,
   watchSubmittedTxFinality,
+  type DecodedSignedCallTransaction,
+  type PreBroadcastVerificationOptions,
+  type PreBroadcastVerificationResult,
+  type RpcNodeProbeResult,
   type WalletFailoverClient,
   type WalletFailoverClientOptions,
   type WatchSubmittedTxFinalityOptions,
@@ -507,7 +513,13 @@ export function createReceiptTrackingClient(rpcUrl: string): WaitForTransactionR
 
 export {
   createWalletFailoverClient,
+  probeWalletRpcEndpoint,
+  verifySignedCallTxBeforeBroadcast,
   watchSubmittedTxFinality,
+  type DecodedSignedCallTransaction,
+  type PreBroadcastVerificationOptions,
+  type PreBroadcastVerificationResult,
+  type RpcNodeProbeResult,
   type WalletFailoverClient,
   type WalletFailoverClientOptions,
   type WatchSubmittedTxFinalityOptions,

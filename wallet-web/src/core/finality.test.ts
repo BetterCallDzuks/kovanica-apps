@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { KovanicaAbortError, type FailoverEvent, type FinalityProgress } from "kovanica-sdk";
+import {
+  CHAIN_IDS,
+  KovanicaAbortError,
+  NETWORK_TAGS,
+  bytesToHex,
+  encodeAddress,
+  getPublicKey,
+  hexToBytes,
+  signCallContractTransaction,
+  type FailoverEvent,
+  type FinalityProgress,
+} from "kovanica-sdk";
 import {
   DEFAULT_FEE_BUFFER_MULTIPLIER_BPS,
   computeBufferedTxFee,
   createWalletFailoverClient,
   formatFinalityProgressBadge,
+  probeWalletRpcEndpoint,
+  verifySignedCallTxBeforeBroadcast,
   watchSubmittedTxFinality,
 } from "./finality.ts";
 
@@ -278,5 +291,195 @@ describe("wallet multi-RPC failover and finality helpers", () => {
 
     assert.throws(() => computeBufferedTxFee(-1n), /non-negative/i);
     assert.throws(() => computeBufferedTxFee(100n, 9_999), /10000/);
+  });
+
+  it("verifies a valid signed call transaction before broadcast and enforces expectedContract", () => {
+    const secretKey = new Uint8Array(32).fill(0x11);
+    const publicKey = getPublicKey(secretKey);
+    const contractBytes = new Uint8Array(32).fill(0x42);
+    const contractHex = `0x${bytesToHex(contractBytes)}`;
+    const contractAddress = encodeAddress(contractBytes);
+
+    const signed = signCallContractTransaction({
+      sender: publicKey,
+      secretKey,
+      call: {
+        contract: contractBytes,
+        method: "transfer",
+        args: new Uint8Array([1, 2, 3, 4]),
+        call_value: 0n,
+        gas_limit: 50_000n,
+      },
+      nonce: 7n,
+      fee: 1_500n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    const okHex = verifySignedCallTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: BigInt(CHAIN_IDS.TESTNET),
+      expectedContract: contractHex,
+    });
+    assert.equal(okHex.ok, true);
+    assert.equal(okHex.signatureValid, true);
+    assert.equal(okHex.error, undefined);
+    assert.equal(okHex.decoded?.method, "transfer");
+    assert.equal(okHex.decoded?.nonce, 7n);
+    assert.equal(okHex.decoded?.fee, 1_500n);
+    assert.equal(okHex.decoded?.chainId, CHAIN_IDS.TESTNET);
+    assert.equal(okHex.decoded?.contractHex, contractHex);
+
+    const okAddr = verifySignedCallTxBeforeBroadcast(`0x${signed.rawTxHex}`, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+      expectedContract: contractAddress,
+    });
+    assert.equal(okAddr.ok, true);
+    assert.equal(okAddr.signatureValid, true);
+  });
+
+  it("fails closed on tampered signature, wrong expected contract, wrong public key, or corrupted hex", () => {
+    const secretKey = new Uint8Array(32).fill(0x22);
+    const publicKey = getPublicKey(secretKey);
+    const otherPublicKey = getPublicKey(new Uint8Array(32).fill(0x33));
+    const contractBytes = new Uint8Array(32).fill(0x55);
+    const wrongContractBytes = new Uint8Array(32).fill(0x66);
+
+    const signed = signCallContractTransaction({
+      sender: publicKey,
+      secretKey,
+      call: {
+        contract: contractBytes,
+        method: "mint",
+        args: new Uint8Array([0xaa, 0xbb]),
+        call_value: 10n,
+        gas_limit: 100_000n,
+      },
+      nonce: 3n,
+      fee: 2_000n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    // Tamper with a byte inside the 64-byte signature (located right before the trailing 32-byte wireHash).
+    const tamperedBytes = hexToBytes(signed.rawTxHex);
+    const sigByteIndex = tamperedBytes.length - 32 - 1;
+    tamperedBytes[sigByteIndex] = tamperedBytes[sigByteIndex]! ^ 0xff;
+    const tamperedResult = verifySignedCallTxBeforeBroadcast(
+      bytesToHex(tamperedBytes),
+      publicKey,
+      { chainId: CHAIN_IDS.TESTNET },
+    );
+    assert.equal(tamperedResult.ok, false);
+    assert.equal(tamperedResult.signatureValid, false);
+    assert.match(tamperedResult.error ?? "", /signature/i);
+
+    // Wrong expected contract.
+    const wrongContractResult = verifySignedCallTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+      expectedContract: `0x${bytesToHex(wrongContractBytes)}`,
+    });
+    assert.equal(wrongContractResult.ok, false);
+    assert.equal(wrongContractResult.signatureValid, true);
+    assert.match(wrongContractResult.error ?? "", /contract address mismatch/i);
+
+    // Wrong expected public key.
+    const wrongKeyResult = verifySignedCallTxBeforeBroadcast(signed.rawTxHex, otherPublicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(wrongKeyResult.ok, false);
+    assert.equal(wrongKeyResult.signatureValid, false);
+    assert.match(wrongKeyResult.error ?? "", /signature/i);
+
+    // Wrong chainId (signature was computed for Chain 2, verified with Chain 1).
+    const wrongChainResult = verifySignedCallTxBeforeBroadcast(signed.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.MAINNET,
+    });
+    assert.equal(wrongChainResult.ok, false);
+    assert.equal(wrongChainResult.signatureValid, false);
+
+    // Corrupted / non-hex input.
+    const corruptedHexResult = verifySignedCallTxBeforeBroadcast("0xzzzz-not-hex", publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(corruptedHexResult.ok, false);
+    assert.equal(corruptedHexResult.signatureValid, false);
+    assert.equal(corruptedHexResult.decoded, undefined);
+    assert.match(corruptedHexResult.error ?? "", /invalid hex/i);
+
+    // Truncated bytes.
+    const truncatedResult = verifySignedCallTxBeforeBroadcast(
+      signed.rawTxHex.slice(0, 32),
+      publicKey,
+      { chainId: CHAIN_IDS.TESTNET },
+    );
+    assert.equal(truncatedResult.ok, false);
+    assert.equal(truncatedResult.signatureValid, false);
+    assert.equal(truncatedResult.decoded, undefined);
+  });
+
+  it("probes wallet RPC endpoint, validates Chain 2 X-Kovanica-Network-Tag header, and rejects mismatched canonical tag", async () => {
+    const makeBatchMockFetch = (networkTag: string, chainIdHex = "0x2"): typeof fetch => {
+      return async (_input, init) => {
+        const batch = JSON.parse(String(init?.body ?? "[]")) as Array<{
+          id: number;
+          method: string;
+        }>;
+        const responses = batch.map((req) => {
+          if (req.method === "kovanica_chainId") {
+            return { jsonrpc: "2.0", id: req.id, result: chainIdHex };
+          }
+          if (req.method === "kovanica_blockNumber") {
+            return { jsonrpc: "2.0", id: req.id, result: "0x100" };
+          }
+          if (req.method === "kovanica_estimateFee") {
+            return { jsonrpc: "2.0", id: req.id, result: "0x64" };
+          }
+          return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Not found" } };
+        });
+
+        return new Response(JSON.stringify(responses), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "X-Kovanica-Network-Tag": networkTag,
+            "X-Kovanica-Rpc-Version": "1.0.0",
+            "X-Kovanica-Chain-Id": "2",
+          },
+        });
+      };
+    };
+
+    const validProbe = await probeWalletRpcEndpoint(
+      "https://testnet-rpc.kovanica.test/rpc",
+      CHAIN_IDS.TESTNET,
+      makeBatchMockFetch(NETWORK_TAGS.TESTNET),
+    );
+    assert.equal(validProbe.ok, true);
+    assert.equal(validProbe.batchSupported, true);
+    assert.equal(validProbe.chainId, 2n);
+    assert.equal(validProbe.blockHeight, 256n);
+    assert.equal(validProbe.feeRate, 100n);
+    assert.equal(validProbe.networkTag, NETWORK_TAGS.TESTNET);
+    assert.equal(validProbe.canonicalTagMatch, true);
+    assert.equal(validProbe.error, undefined);
+
+    const mismatchedTagProbe = await probeWalletRpcEndpoint(
+      "https://testnet-rpc.kovanica.test/rpc",
+      CHAIN_IDS.TESTNET,
+      makeBatchMockFetch("2-deadbeefdeadbeef"),
+    );
+    assert.equal(mismatchedTagProbe.ok, false);
+    assert.equal(mismatchedTagProbe.batchSupported, true);
+    assert.equal(mismatchedTagProbe.chainId, 2n);
+    assert.equal(mismatchedTagProbe.networkTag, "2-deadbeefdeadbeef");
+    assert.equal(mismatchedTagProbe.canonicalTagMatch, false);
+    assert.match(mismatchedTagProbe.error ?? "", /canonical network tag mismatch/i);
+
+    const wrongChainProbe = await probeWalletRpcEndpoint(
+      "https://mainnet-rpc.kovanica.test/rpc",
+      CHAIN_IDS.TESTNET,
+      makeBatchMockFetch(NETWORK_TAGS.MAINNET, "0x1"),
+    );
+    assert.equal(wrongChainProbe.ok, false);
+    assert.equal(wrongChainProbe.chainId, 1n);
+    assert.match(wrongChainProbe.error ?? "", /expected chainId 2, got 1/i);
   });
 });
