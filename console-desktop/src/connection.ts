@@ -970,3 +970,185 @@ export function parseIndexerHealthSummary(healthJson: unknown): IndexerHealthSum
     alerts,
   };
 }
+
+export type ClusterOverallStatus = "healthy" | "degraded" | "critical";
+
+export interface ClusterServiceHealthInput {
+  status: string;
+  alerts?: string[];
+}
+
+export interface ClusterReadinessInput {
+  rpc?: NodeDoctorSummary;
+  indexer?: IndexerHealthSummary;
+  stratum?: ClusterServiceHealthInput;
+  faucet?: ClusterServiceHealthInput;
+}
+
+export interface ClusterReadinessSummary {
+  status: ClusterOverallStatus;
+  ready: boolean;
+  servicesChecked: number;
+  alerts: string[];
+  headline: string;
+}
+
+const CRITICAL_SERVICE_STATUSES = new Set([
+  "offline",
+  "critical",
+  "error",
+  "down",
+  "stopped",
+  "unreachable",
+]);
+
+const DEGRADED_SERVICE_STATUSES = new Set([
+  "degraded",
+  "draining",
+  "low_balance",
+  "warn",
+  "warning",
+  "lagging",
+  "unhealthy",
+]);
+
+const HEALTHY_SERVICE_STATUSES = new Set([
+  "healthy",
+  "ok",
+  "synced",
+  "ready",
+]);
+
+/**
+ * Aggregates provided service readiness summaries (RPC node doctor, indexer,
+ * Stratum gateway, and faucet) into a single cluster readiness verdict with
+ * ordered, deduplicated, credential-sanitized alerts.
+ */
+export function aggregateClusterReadiness(
+  input: ClusterReadinessInput,
+): ClusterReadinessSummary {
+  let servicesChecked = 0;
+  let hasCritical = false;
+  let hasDegraded = false;
+  const alerts: string[] = [];
+  const seenAlerts = new Set<string>();
+
+  const pushAlert = (raw: string): void => {
+    const sanitized = sanitizeRpcText(raw).trim();
+    if (!sanitized || seenAlerts.has(sanitized)) {
+      return;
+    }
+    seenAlerts.add(sanitized);
+    alerts.push(sanitized);
+  };
+
+  if (input.rpc !== undefined) {
+    servicesChecked += 1;
+    const rpcCritical = !input.rpc.ready || input.rpc.severity === "error";
+    const rpcDegraded = !rpcCritical && input.rpc.severity === "warn";
+    if (rpcCritical) {
+      hasCritical = true;
+    } else if (rpcDegraded) {
+      hasDegraded = true;
+    }
+
+    const beforeCount = alerts.length;
+    for (const warning of input.rpc.warnings) {
+      pushAlert(warning);
+    }
+    if (rpcCritical && alerts.length === beforeCount) {
+      pushAlert(input.rpc.headline || "RPC node is not ready.");
+    }
+  }
+
+  if (input.indexer !== undefined) {
+    servicesChecked += 1;
+    const indexerCritical =
+      input.indexer.syncState === "stalled" || input.indexer.syncState === "offline";
+    const indexerDegraded = input.indexer.syncState === "lagging";
+    if (indexerCritical) {
+      hasCritical = true;
+    } else if (indexerDegraded) {
+      hasDegraded = true;
+    }
+
+    const beforeCount = alerts.length;
+    for (const alert of input.indexer.alerts) {
+      pushAlert(alert);
+    }
+    if ((indexerCritical || indexerDegraded) && alerts.length === beforeCount) {
+      pushAlert(`Indexer is ${input.indexer.syncState}.`);
+    }
+  }
+
+  const evaluateGenericService = (
+    label: string,
+    service: ClusterServiceHealthInput | undefined,
+  ): void => {
+    if (service === undefined) {
+      return;
+    }
+    servicesChecked += 1;
+    const normalized = service.status.trim().toLowerCase();
+    const isCritical = CRITICAL_SERVICE_STATUSES.has(normalized);
+    const isDegraded =
+      !isCritical &&
+      (DEGRADED_SERVICE_STATUSES.has(normalized) ||
+        !HEALTHY_SERVICE_STATUSES.has(normalized));
+
+    if (isCritical) {
+      hasCritical = true;
+    } else if (isDegraded) {
+      hasDegraded = true;
+    }
+
+    const beforeCount = alerts.length;
+    for (const alert of service.alerts ?? []) {
+      pushAlert(alert);
+    }
+    if (isCritical && alerts.length === beforeCount) {
+      pushAlert(`${label} service is ${normalized || "offline"}.`);
+    } else if (isDegraded && alerts.length === beforeCount) {
+      pushAlert(`${label} service is ${normalized || "degraded"}.`);
+    }
+  };
+
+  evaluateGenericService("Stratum", input.stratum);
+  evaluateGenericService("Faucet", input.faucet);
+
+  if (servicesChecked === 0) {
+    return {
+      status: "critical",
+      ready: false,
+      servicesChecked: 0,
+      alerts: ["No cluster services provided for readiness check."],
+      headline: "Cluster not ready: no services checked.",
+    };
+  }
+
+  const status: ClusterOverallStatus = hasCritical
+    ? "critical"
+    : hasDegraded
+      ? "degraded"
+      : "healthy";
+  const ready = status !== "critical";
+  const serviceLabel = `${servicesChecked} service${servicesChecked === 1 ? "" : "s"} checked`;
+  const alertLabel = `${alerts.length} alert${alerts.length === 1 ? "" : "s"}`;
+
+  let headline: string;
+  if (status === "healthy") {
+    headline = `Cluster healthy (${serviceLabel})`;
+  } else if (status === "degraded") {
+    headline = `Cluster degraded (${serviceLabel} · ${alertLabel})`;
+  } else {
+    headline = `Cluster critical (${serviceLabel} · ${alertLabel})`;
+  }
+
+  return {
+    status,
+    ready,
+    servicesChecked,
+    alerts,
+    headline,
+  };
+}

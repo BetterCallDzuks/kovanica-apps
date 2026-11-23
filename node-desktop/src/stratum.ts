@@ -992,6 +992,56 @@ export function buildSnapshotVerifyCommand(
   return `kovanica snapshot verify ${trimmed} --json`;
 }
 
+/**
+ * Builds a shell-safe `kovanica rpc probe` CLI command string.
+ * Validates `http://` / `https://` URLs, rejects shell metacharacters,
+ * whitespace/control characters, embedded credentials, and invalid chain IDs.
+ */
+export function buildRpcProbeCommand(
+  rpcUrl: string,
+  expectedChainId?: 1 | 2 | 3,
+): string {
+  if (typeof rpcUrl !== "string") {
+    throw new Error("RPC URL must be a non-empty string.");
+  }
+  const trimmed = rpcUrl.trim();
+  if (trimmed === "") {
+    throw new Error("RPC URL must not be empty.");
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001F\u007F]/.test(trimmed)) {
+    throw new Error("RPC URL must not contain whitespace or control characters.");
+  }
+  if (/[;&|$`(){}[\]<>'"\\*?~!#%]/.test(trimmed)) {
+    throw new Error("RPC URL contains disallowed shell metacharacters.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("RPC URL must be a valid http:// or https:// URL.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("RPC URL must start with http:// or https://.");
+  }
+  if (!parsed.hostname) {
+    throw new Error("RPC URL must include a hostname.");
+  }
+  if (parsed.username !== "" || parsed.password !== "" || trimmed.includes("@")) {
+    throw new Error("RPC URL must not contain embedded credentials.");
+  }
+
+  if (expectedChainId !== undefined) {
+    if (expectedChainId !== 1 && expectedChainId !== 2 && expectedChainId !== 3) {
+      throw new Error("expectedChainId must be 1, 2, or 3.");
+    }
+    return `kovanica rpc probe ${trimmed} --expected-chain-id ${expectedChainId} --json`;
+  }
+
+  return `kovanica rpc probe ${trimmed} --json`;
+}
+
 function parseFailedChecksList(raw: unknown): string[] {
   if (!Array.isArray(raw)) {
     return [];

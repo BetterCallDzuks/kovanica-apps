@@ -19,9 +19,12 @@ import {
   DEFAULT_FEE_BUFFER_MULTIPLIER_BPS,
   computeBufferedTxFee,
   createWalletFailoverClient,
+  exportAirgapTxEnvelope,
   formatFinalityProgressBadge,
+  importAirgapTxEnvelope,
   probeWalletRpcEndpoint,
   validateAddressBookEntry,
+  verifyAnySignedTxBeforeBroadcast,
   verifySignedCallTxBeforeBroadcast,
   verifySignedTransferTxBeforeBroadcast,
   watchSubmittedTxFinality,
@@ -691,5 +694,203 @@ describe("wallet multi-RPC failover and finality helpers", () => {
     assert.equal(badChecksumResult.ok, false);
     assert.equal(badChecksumResult.inspection.valid, false);
     assert.equal(badChecksumResult.inspection.checksumValid, false);
+  });
+
+  it("auto-verifies valid Transfer and Call transactions before broadcast and rejects tampering or unsupported variants", () => {
+    const secretKey = new Uint8Array(32).fill(0x61);
+    const publicKey = getPublicKey(secretKey);
+    const otherPublicKey = getPublicKey(new Uint8Array(32).fill(0x62));
+    const recipientBytes = new Uint8Array(32).fill(0x7c);
+    const contractBytes = new Uint8Array(32).fill(0x8d);
+
+    const signedTransfer = signTransferTransaction({
+      privateKey: secretKey,
+      to: recipientBytes,
+      amount: 123_456n,
+      nonce: 5n,
+      fee: 1_000n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    const okTransfer = verifyAnySignedTxBeforeBroadcast(signedTransfer.rawTxHex, publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(okTransfer.ok, true);
+    assert.equal(okTransfer.signatureValid, true);
+    assert.equal(okTransfer.error, undefined);
+    assert.equal(okTransfer.decoded?.kind, "transfer");
+    assert.equal(okTransfer.decoded?.variant, 0);
+    if (okTransfer.decoded?.kind === "transfer") {
+      assert.equal(okTransfer.decoded.tx.amount, 123_456n);
+      assert.equal(okTransfer.decoded.tx.nonce, 5n);
+    }
+
+    const signedCall = signCallContractTransaction({
+      sender: publicKey,
+      secretKey,
+      call: {
+        contract: contractBytes,
+        method: "approve",
+        args: new Uint8Array([0x01, 0x02, 0x03]),
+        call_value: 0n,
+        gas_limit: 75_000n,
+      },
+      nonce: 9n,
+      fee: 2_500n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    const okCall = verifyAnySignedTxBeforeBroadcast(`0x${signedCall.rawTxHex}`, publicKey, {
+      chainId: BigInt(CHAIN_IDS.TESTNET),
+    });
+    assert.equal(okCall.ok, true);
+    assert.equal(okCall.signatureValid, true);
+    assert.equal(okCall.error, undefined);
+    assert.equal(okCall.decoded?.kind, "call");
+    assert.equal(okCall.decoded?.variant, 6);
+    if (okCall.decoded?.kind === "call") {
+      assert.equal(okCall.decoded.tx.method, "approve");
+      assert.equal(okCall.decoded.tx.nonce, 9n);
+    }
+
+    // Tampered Transfer signature byte fails closed.
+    const tamperedTransfer = hexToBytes(signedTransfer.rawTxHex);
+    const transferSigIdx = tamperedTransfer.length - 32 - 1;
+    tamperedTransfer[transferSigIdx] = tamperedTransfer[transferSigIdx]! ^ 0xff;
+    const tamperedTransferRes = verifyAnySignedTxBeforeBroadcast(
+      bytesToHex(tamperedTransfer),
+      publicKey,
+      { chainId: CHAIN_IDS.TESTNET },
+    );
+    assert.equal(tamperedTransferRes.ok, false);
+    assert.equal(tamperedTransferRes.signatureValid, false);
+    assert.match(tamperedTransferRes.error ?? "", /signature/i);
+
+    // Tampered Call signature byte fails closed.
+    const tamperedCall = hexToBytes(signedCall.rawTxHex);
+    const callSigIdx = tamperedCall.length - 32 - 1;
+    tamperedCall[callSigIdx] = tamperedCall[callSigIdx]! ^ 0xff;
+    const tamperedCallRes = verifyAnySignedTxBeforeBroadcast(bytesToHex(tamperedCall), publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(tamperedCallRes.ok, false);
+    assert.equal(tamperedCallRes.signatureValid, false);
+    assert.match(tamperedCallRes.error ?? "", /signature/i);
+
+    // Wrong expected public key fails closed.
+    const wrongKeyRes = verifyAnySignedTxBeforeBroadcast(signedTransfer.rawTxHex, otherPublicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(wrongKeyRes.ok, false);
+    assert.equal(wrongKeyRes.signatureValid, false);
+
+    // Unsupported TransactionKind variant (e.g. variant 99 at offset 40) fails closed.
+    const unsupportedVariantBytes = hexToBytes(signedTransfer.rawTxHex);
+    unsupportedVariantBytes[40] = 99;
+    unsupportedVariantBytes[41] = 0;
+    unsupportedVariantBytes[42] = 0;
+    unsupportedVariantBytes[43] = 0;
+    const unsupportedRes = verifyAnySignedTxBeforeBroadcast(
+      bytesToHex(unsupportedVariantBytes),
+      publicKey,
+      { chainId: CHAIN_IDS.TESTNET },
+    );
+    assert.equal(unsupportedRes.ok, false);
+    assert.equal(unsupportedRes.signatureValid, false);
+    assert.equal(unsupportedRes.decoded, undefined);
+    assert.match(unsupportedRes.error ?? "", /unsupported/i);
+
+    // Corrupted hex fails closed.
+    const badHexRes = verifyAnySignedTxBeforeBroadcast("0xnot-hex", publicKey, {
+      chainId: CHAIN_IDS.TESTNET,
+    });
+    assert.equal(badHexRes.ok, false);
+    assert.equal(badHexRes.signatureValid, false);
+    assert.equal(badHexRes.decoded, undefined);
+  });
+
+  it("round-trips air-gapped tx envelopes and rejects tampered checksums or chainId mismatches", () => {
+    const secretKey = new Uint8Array(32).fill(0x71);
+    const publicKey = getPublicKey(secretKey);
+    const recipientBytes = new Uint8Array(32).fill(0x72);
+
+    const signed = signTransferTransaction({
+      privateKey: secretKey,
+      to: recipientBytes,
+      amount: 99_000n,
+      nonce: 2n,
+      fee: 1_000n,
+      chainId: CHAIN_IDS.TESTNET,
+    });
+
+    const exported = exportAirgapTxEnvelope({
+      chainId: CHAIN_IDS.TESTNET,
+      kind: "transfer",
+      rawTxHex: signed.rawTxHex,
+    });
+    assert.equal(exported.ok, true);
+    if (!exported.ok) return;
+
+    assert.equal(exported.envelope.chainId, CHAIN_IDS.TESTNET);
+    assert.equal(exported.envelope.networkTag, NETWORK_TAGS.TESTNET);
+    assert.equal(exported.envelope.kind, "transfer");
+    assert.equal(exported.envelope.rawTxHex, `0x${signed.rawTxHex.toLowerCase()}`);
+    assert.match(exported.encoded, /^kvnc-tx:v1:/);
+
+    // Compact string round-trip.
+    const importedCompact = importAirgapTxEnvelope(exported.encoded, CHAIN_IDS.TESTNET);
+    assert.equal(importedCompact.ok, true);
+    if (importedCompact.ok) {
+      assert.deepEqual(importedCompact.envelope, exported.envelope);
+      const verified = verifyAnySignedTxBeforeBroadcast(
+        importedCompact.envelope.rawTxHex,
+        publicKey,
+        { chainId: importedCompact.envelope.chainId },
+      );
+      assert.equal(verified.ok, true);
+      assert.equal(verified.signatureValid, true);
+    }
+
+    // Raw JSON round-trip.
+    const importedJson = importAirgapTxEnvelope(
+      JSON.stringify(exported.envelope),
+      CHAIN_IDS.TESTNET,
+    );
+    assert.equal(importedJson.ok, true);
+    if (importedJson.ok) {
+      assert.deepEqual(importedJson.envelope, exported.envelope);
+    }
+
+    // Tampered checksum rejection (never throws).
+    const tamperedChecksumHex =
+      (exported.envelope.checksumHex[0] === "0" ? "1" : "0") +
+      exported.envelope.checksumHex.slice(1);
+    const tamperedJson = JSON.stringify({
+      ...exported.envelope,
+      checksumHex: tamperedChecksumHex,
+    });
+    const tamperedRes = importAirgapTxEnvelope(tamperedJson, CHAIN_IDS.TESTNET);
+    assert.equal(tamperedRes.ok, false);
+    if (!tamperedRes.ok) {
+      assert.match(tamperedRes.error, /checksum/i);
+    }
+
+    // Chain ID mismatch rejection (envelope is Chain 2, expected Chain 1).
+    const chainMismatchRes = importAirgapTxEnvelope(exported.encoded, CHAIN_IDS.MAINNET);
+    assert.equal(chainMismatchRes.ok, false);
+    if (!chainMismatchRes.ok) {
+      assert.match(chainMismatchRes.error, /chainId mismatch/i);
+    }
+
+    // Invalid export input returns structured { ok: false, error } without throwing.
+    const badExport = exportAirgapTxEnvelope({
+      chainId: CHAIN_IDS.TESTNET,
+      kind: "transfer",
+      rawTxHex: "not-valid-hex",
+    });
+    assert.equal(badExport.ok, false);
+    if (!badExport.ok) {
+      assert.ok(badExport.error.length > 0);
+    }
   });
 });
