@@ -37,6 +37,12 @@ Build the native FFI from L1 (`kovanica-light-ffi`) and point `node-desktop` at 
 
 `console-desktop` and `desktop` resolve L1 crates and packages from a sibling checkout of [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) (`../../../kovanica-l1/crates/...` and `../../kovanica-l1/packages/...`). Light-ffi stays in that repo. The local sibling folder must be named `kovanica-l1` (not `kovanica`) for those relative paths.
 
+## Recent Capabilities
+
+- **`wallet-web`**: `kovanica-sdk v0.5.0` RPC failover client, finality tracker, pre-broadcast Call/Transfer/Auto verification, air-gap transaction envelopes (`kvnc-tx:v1:<base64url>`), and mempool fee tiers.
+- **`console-desktop`**: Single-POST JSON-RPC 2.0 batch probe with Kovanica identity headers (`X-Kovanica-Network-Tag`, `X-Kovanica-Rpc-Version`, `X-Kovanica-Chain-Id`), node-doctor readiness summary, indexer & lightnode health parsers, and cluster readiness aggregator.
+- **`node-desktop`**: Stratum & faucet health parsers and shell-safe CLI command builders for `kovanica snapshot verify`, `kovanica rpc probe`, and `kovanica tx envelope decode`.
+
 ## Standing rules
 
 - Branch + PR; no force-push to `main`

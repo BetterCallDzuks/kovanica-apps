@@ -65,6 +65,15 @@ the password, and reviews a transfer before sending. The screen does not copy
 the phrase. A Rust timer
 clears the session after 5 minutes without activity.
 
+## Diagnostics & Health Parsers
+
+`src/connection.ts` also provides operator diagnostics helpers:
+
+- Single-POST JSON-RPC 2.0 batch health probe (`probeRpcBatchHealth`) with Kovanica identity header extraction (`X-Kovanica-Network-Tag`, `X-Kovanica-Rpc-Version`, `X-Kovanica-Chain-Id`).
+- Node-doctor readiness summary (`formatNodeDoctorSummary`) combining batch probe results with canonical network tag verification.
+- Fail-safe health parsers for `kovanica-indexer` (`parseIndexerHealthSummary`) and `kovanica-lightnode` (`parseLightnodeSyncSummary`).
+- Multi-service cluster readiness aggregator (`aggregateClusterReadiness`).
+
 ## Run
 
 ```sh

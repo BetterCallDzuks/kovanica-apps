@@ -13,6 +13,7 @@ import {
   normalizeRpcBearerToken,
   parseFallbackRpcUrls,
   parseIndexerHealthSummary,
+  parseLightnodeSyncSummary,
   peerLines,
   probeRpcBatchHealth,
   probeRpcEndpoints,
@@ -24,6 +25,7 @@ import {
   verifyNetworkTagForChain,
   type ClusterReadinessSummary,
   type IndexerHealthSummary,
+  type LightnodeHealthSummary,
   type NodeDoctorSummary,
   type NodeStatus,
 } from "./connection";
@@ -810,5 +812,87 @@ describe("aggregateClusterReadiness", () => {
       alerts: ["No cluster services provided for readiness check."],
       headline: "Cluster not ready: no services checked.",
     });
+  });
+});
+
+describe("parseLightnodeSyncSummary", () => {
+  it("parses synced snake_case kovanica-lightnode payloads with zero alerts", () => {
+    const summary: LightnodeHealthSummary = parseLightnodeSyncSummary({
+      sync_state: "synced",
+      header_height: 4500,
+      network_head_height: 4501,
+      lag_headers: 1,
+      verified_peers: 4,
+      network_tag: "2-24cdb5fadd98b207",
+    });
+
+    expect(summary).toEqual({
+      syncState: "synced",
+      headerHeight: 4500,
+      networkHeadHeight: 4501,
+      lagHeaders: 1,
+      verifiedPeers: 4,
+      networkTag: "2-24cdb5fadd98b207",
+      alerts: [],
+    });
+  });
+
+  it("parses camelCase payloads, derives lag/state, and raises alerts on catching_up, stalled, and zero verified peers", () => {
+    const catchingUp = parseLightnodeSyncSummary({
+      syncState: "catching_up",
+      headerHeight: 4980,
+      networkHeadHeight: 5000,
+      verifiedPeers: 3,
+      networkTag: "2-24cdb5fadd98b207",
+    });
+    expect(catchingUp.syncState).toBe("catching_up");
+    expect(catchingUp.lagHeaders).toBe(20);
+    expect(catchingUp.verifiedPeers).toBe(3);
+    expect(catchingUp.alerts).toHaveLength(1);
+    expect(catchingUp.alerts[0]).toMatch(/catching up.*20 headers/i);
+
+    const stalledNoPeers = parseLightnodeSyncSummary({
+      headerHeight: 100,
+      networkHeadHeight: 260,
+      verifiedPeers: 0,
+      networkTag: "1-f35df34c92001436",
+    });
+    expect(stalledNoPeers.syncState).toBe("stalled");
+    expect(stalledNoPeers.lagHeaders).toBe(160);
+    expect(stalledNoPeers.verifiedPeers).toBe(0);
+    expect(stalledNoPeers.alerts).toHaveLength(2);
+    expect(stalledNoPeers.alerts[0]).toMatch(/stalled.*160 headers/i);
+    expect(stalledNoPeers.alerts[1]).toMatch(/0 verified peers/i);
+
+    const syncedNoPeers = parseLightnodeSyncSummary({
+      sync_state: "synced",
+      header_height: 1000,
+      network_head_height: 1000,
+      verified_peers: 0,
+    });
+    expect(syncedNoPeers.syncState).toBe("synced");
+    expect(syncedNoPeers.alerts).toEqual(["Lightnode has 0 verified peers."]);
+  });
+
+  it("fails safe to syncState='offline' on null, primitive, malformed, or offline payloads", () => {
+    for (const malformed of [null, undefined, "synced", 42, [], {}]) {
+      const result = parseLightnodeSyncSummary(malformed);
+      expect(result.syncState).toBe("offline");
+      expect(result.headerHeight).toBe(0);
+      expect(result.networkHeadHeight).toBe(0);
+      expect(result.lagHeaders).toBe(0);
+      expect(result.verifiedPeers).toBe(0);
+      expect(result.networkTag).toBeNull();
+      expect(result.alerts.length).toBeGreaterThan(0);
+    }
+
+    const explicitOffline = parseLightnodeSyncSummary({
+      status: "error",
+      header_height: 10,
+      network_head_height: 10,
+      verified_peers: 0,
+    });
+    expect(explicitOffline.syncState).toBe("offline");
+    expect(explicitOffline.alerts).toEqual(["Lightnode is offline or unreachable."]);
   });
 });

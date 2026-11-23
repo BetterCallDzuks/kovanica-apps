@@ -3,6 +3,7 @@ import {
   DEFAULT_FINALITY_CONFIRMATIONS,
   applyFeeBuffer,
   bytesToHex,
+  computeFeeRecommendations,
   createFailoverClient,
   decodeAirgapTxEnvelope,
   decodeSignedCallTransaction,
@@ -27,9 +28,12 @@ import {
   type EncodeAirgapTxEnvelopeInput,
   type FailoverHttpTransportOptions,
   type FeeBufferEstimate,
+  type FeeRecommendationTier,
+  type FeeRecommendations,
   type FinalityProgress,
   type FinalityResult,
   type KovanicaClient,
+  type MempoolFeeStats,
   type RpcNodeProbeResult,
   type RpcRetryConfig,
   type TransactionReceipt,
@@ -45,6 +49,9 @@ export type {
   DecodedSignedTransactionAuto,
   DecodedSignedTransferTransaction,
   EncodeAirgapTxEnvelopeInput,
+  FeeRecommendationTier,
+  FeeRecommendations,
+  MempoolFeeStats,
   RpcNodeProbeResult,
 };
 
@@ -651,6 +658,60 @@ export function exportAirgapTxEnvelope(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+export type WalletFeeTierClient = {
+  getMempoolStats(): Promise<MempoolFeeStats>;
+  estimateFee(): Promise<bigint>;
+};
+
+export type FetchWalletFeeTiersOptions = {
+  safetyMultiplierBps?: number;
+};
+
+/**
+ * Fetches live mempool fee-tier recommendations (`economy`, `standard`, `priority`)
+ * via `client.getMempoolStats()` and `kovanica-sdk`'s `computeFeeRecommendations`.
+ *
+ * Gracefully falls back to `client.estimateFee()` whenever `getMempoolStats()` fails
+ * (e.g., legacy nodes returning `-32601 Method not found`) or the mempool is empty
+ * (`p50FeePerByte === null`), returning monotonic `economy <= standard <= priority`
+ * tiers with `source: "fallback"`.
+ */
+export async function fetchWalletFeeTiers(
+  client: WalletFeeTierClient,
+  options?: FetchWalletFeeTiersOptions,
+): Promise<FeeRecommendations> {
+  const safetyOption =
+    options?.safetyMultiplierBps !== undefined
+      ? { safetyMultiplierBps: options.safetyMultiplierBps }
+      : {};
+
+  let stats: MempoolFeeStats | null = null;
+  try {
+    stats = await client.getMempoolStats();
+  } catch {
+    stats = null;
+  }
+
+  if (stats !== null && stats.p50FeePerByte !== null) {
+    return computeFeeRecommendations(stats, safetyOption);
+  }
+
+  const fallbackBaseFeePerByte = await client.estimateFee();
+  const emptyStats: MempoolFeeStats = stats ?? {
+    pendingCount: 0,
+    totalBytes: 0,
+    minFeePerByte: null,
+    p50FeePerByte: null,
+    p90FeePerByte: null,
+    maxFeePerByte: null,
+  };
+
+  return computeFeeRecommendations(emptyStats, {
+    fallbackBaseFeePerByte,
+    ...safetyOption,
+  });
 }
 
 /**

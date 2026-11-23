@@ -10,6 +10,7 @@ import { storageBytes } from "@/core/contracts";
 import {
   createWalletFailoverClient,
   exportAirgapTxEnvelope,
+  fetchWalletFeeTiers,
   importAirgapTxEnvelope,
   probeWalletRpcEndpoint,
   validateAddressBookEntry,
@@ -26,7 +27,11 @@ import {
   type DecodedSignedTransferTransaction,
   type EncodeAirgapTxEnvelopeInput,
   type ExportAirgapTxEnvelopeResult,
+  type FeeRecommendationTier,
+  type FeeRecommendations,
+  type FetchWalletFeeTiersOptions,
   type ImportAirgapTxEnvelopeResult,
+  type MempoolFeeStats,
   type PreBroadcastAnyVerificationOptions,
   type PreBroadcastAnyVerificationResult,
   type PreBroadcastTransferVerificationOptions,
@@ -36,6 +41,7 @@ import {
   type RpcNodeProbeResult,
   type WalletFailoverClient,
   type WalletFailoverClientOptions,
+  type WalletFeeTierClient,
   type WatchSubmittedTxFinalityOptions,
 } from "@/core/finality";
 import { decodeReceipt } from "@/core/receipt";
@@ -532,6 +538,7 @@ export function createReceiptTrackingClient(rpcUrl: string): WaitForTransactionR
 export {
   createWalletFailoverClient,
   exportAirgapTxEnvelope,
+  fetchWalletFeeTiers,
   importAirgapTxEnvelope,
   probeWalletRpcEndpoint,
   validateAddressBookEntry,
@@ -548,7 +555,11 @@ export {
   type DecodedSignedTransferTransaction,
   type EncodeAirgapTxEnvelopeInput,
   type ExportAirgapTxEnvelopeResult,
+  type FeeRecommendationTier,
+  type FeeRecommendations,
+  type FetchWalletFeeTiersOptions,
   type ImportAirgapTxEnvelopeResult,
+  type MempoolFeeStats,
   type PreBroadcastAnyVerificationOptions,
   type PreBroadcastAnyVerificationResult,
   type PreBroadcastTransferVerificationOptions,
@@ -558,5 +569,6 @@ export {
   type RpcNodeProbeResult,
   type WalletFailoverClient,
   type WalletFailoverClientOptions,
+  type WalletFeeTierClient,
   type WatchSubmittedTxFinalityOptions,
 };
