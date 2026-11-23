@@ -62,7 +62,85 @@ export interface StratumWorkerEntry {
   sharesRejected: number;
   connectedSecs: number;
   extranonceSubscribed: boolean;
+  idleSecs?: number;
 }
+
+export type StratumAlertSeverity = "critical" | "warning" | "info";
+
+export interface StratumAlert {
+  id: string;
+  severity: StratumAlertSeverity;
+  message: string;
+}
+
+export interface StratumDiagnosticsInput {
+  status: StratumProcessStatus | null;
+  health: StratumHealthView | null;
+  workers?: StratumWorkersSnapshot | null;
+  logs?: string[];
+  config?: CheckedStratumConfig | null;
+  generatedAt?: string;
+}
+
+export interface SanitizedStratumDiagnostics {
+  schemaVersion: 1;
+  source: "node-desktop";
+  generatedAt: string;
+  alerts: StratumAlert[];
+  status: {
+    state: StratumProcessState;
+    pid: number | null;
+    exitCode: number | null;
+    lastError: string | null;
+    statusSeq: number;
+  } | null;
+  health: {
+    reach: "unknown" | "reachable" | "unreachable";
+    status: string;
+    uptimeSeconds: string;
+    activeConnections: string;
+    currentJobId: string | null;
+    tlsEnabled: string;
+    timestamp: string;
+    detail: string | null;
+  } | null;
+  workers: {
+    reach: "unknown" | "reachable" | "unreachable";
+    activeCount: number;
+    bannedIps: number;
+    detail: string | null;
+    workers: StratumWorkerEntry[];
+  } | null;
+  config?: {
+    listenAddr: string;
+    bindHost: string;
+    bindPort: number;
+    rpcUrl: string;
+    metricsAddr: string;
+    healthUrl: string;
+    chainId: number;
+    difficulty: number;
+    tlsEnabled: boolean;
+    tlsSelfSigned: boolean;
+    vardiffEnabled: boolean;
+    vardiffMinDifficulty: number | null;
+    vardiffMaxDifficulty: number | null;
+    vardiffTargetShareSecs: number | null;
+    banThresholdInvalidShares: number | null;
+    banDurationSecs: number | null;
+    binarySha256: string;
+  } | null;
+  logs: string[];
+}
+
+export interface MountStratumOptions {
+  copyText?: (text: string) => Promise<void>;
+  exportFile?: (filename: string, content: string) => void;
+}
+
+export const STRATUM_DIAGNOSTICS_MAX_LOGS = 200;
+export const STRATUM_BAN_ALERT_THRESHOLD = 5;
+export const STRATUM_IDLE_WORKER_SECS = 300;
 
 export interface StratumWorkersSnapshot {
   reach: "unknown" | "reachable" | "unreachable";
@@ -131,6 +209,231 @@ interface ReadoutEl {
   scrollTop: number;
   scrollHeight: number;
   textContent: string;
+}
+
+interface AlertBannerEl {
+  hidden: boolean;
+  dataset?: Record<string, string | undefined>;
+  replaceChildren(): void;
+  append(...nodes: Array<{ textContent: string }>): void;
+}
+
+function sanitizeDiagnosticText(input: string): string {
+  return input
+    .replace(
+      /-----BEGIN [A-Z0-9 ]+-----[\s\S]*?-----END [A-Z0-9 ]+-----/g,
+      "[REDACTED_PEM_BLOCK]",
+    )
+    .replace(
+      /(--tls-(?:cert|key)(?:=|\s+))(?:"[^"]*"|'[^']*'|\S+)/gi,
+      "$1[REDACTED_PEM_PATH]",
+    )
+    .replace(
+      /(?:[A-Za-z]:\\|\/)[^\s"'`]+\.(?:pem|key|crt|p12|pfx)\b/gi,
+      "[REDACTED_PEM_PATH]",
+    )
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[REDACTED]")
+    .replace(
+      /(\b(?:token|secret|password|passwd|api[_-]?key|auth[_-]?token|private[_-]?key|rpc[_-]?token|bearer|tls[_-]?cert[_-]?path|tls[_-]?key[_-]?path)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi,
+      "$1[REDACTED]",
+    )
+    .replace(/(https?:\/\/)([^:@\s/]+):([^@\s/]+)@/gi, "$1[REDACTED]@");
+}
+
+function sanitizeUrlForDiagnostics(raw: string): string {
+  try {
+    const parsed = new URL(raw);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return sanitizeDiagnosticText(raw);
+  }
+}
+
+function extractNullableFieldValue(field: Field | null | undefined): string | null {
+  if (!field || field.kind !== "value") return null;
+  if (field.value === undefined || field.value === null) return null;
+  const trimmed = field.value.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "none" || trimmed.toLowerCase() === "null") {
+    return null;
+  }
+  return trimmed;
+}
+
+/**
+ * Evaluates actionable operator alerts from the current Stratum process,
+ * health endpoint, and workers snapshot. Ordered by severity (critical -> warning -> info).
+ */
+export function evaluateStratumAlerts(
+  status: StratumProcessStatus | null | undefined,
+  health: StratumHealthView | null | undefined,
+  workers: StratumWorkersSnapshot | null | undefined,
+): StratumAlert[] {
+  const alerts: StratumAlert[] = [];
+
+  if (
+    status &&
+    (status.state === "exited" || status.state === "stopped") &&
+    status.exitCode !== null &&
+    status.exitCode !== 0
+  ) {
+    const suffix = status.lastError ? `: ${sanitizeDiagnosticText(status.lastError)}` : ".";
+    alerts.push({
+      id: "stratum-crashed",
+      severity: "critical",
+      message: `Stratum gateway exited with non-zero code ${status.exitCode}${suffix}`,
+    });
+  }
+
+  if (
+    workers &&
+    workers.reach !== "unreachable" &&
+    typeof workers.bannedIps === "number" &&
+    workers.bannedIps >= STRATUM_BAN_ALERT_THRESHOLD
+  ) {
+    alerts.push({
+      id: "high-ip-bans",
+      severity: "warning",
+      message: `High active IP bans: ${workers.bannedIps} IPs are currently banned.`,
+    });
+  }
+
+  const workersFromList =
+    workers && workers.reach !== "unreachable" ? workers.workers.length : 0;
+  const activeConnsFromHealth =
+    health &&
+    health.reach === "reachable" &&
+    health.activeConnections.kind === "value" &&
+    Number.isFinite(Number(health.activeConnections.value))
+      ? Number(health.activeConnections.value)
+      : 0;
+  const hasConnectedWorkers = workersFromList > 0 || activeConnsFromHealth > 0;
+  const currentJobId =
+    health && health.reach === "reachable"
+      ? extractNullableFieldValue(health.currentJobId)
+      : undefined;
+
+  if (hasConnectedWorkers && health && health.reach === "reachable" && currentJobId === null) {
+    alerts.push({
+      id: "no-current-job",
+      severity: "warning",
+      message:
+        "Workers are connected but no active mining job is assigned (currentJobId is null).",
+    });
+  }
+
+  if (workers && workers.reach !== "unreachable") {
+    const idleWorkers = workers.workers.filter(
+      (entry) =>
+        typeof entry.idleSecs === "number" &&
+        Number.isFinite(entry.idleSecs) &&
+        entry.idleSecs >= STRATUM_IDLE_WORKER_SECS,
+    );
+    if (idleWorkers.length > 0) {
+      const names = idleWorkers.map((entry) => entry.workerName).join(", ");
+      alerts.push({
+        id: "idle-workers",
+        severity: "info",
+        message: `${idleWorkers.length} idle worker${idleWorkers.length === 1 ? "" : "s"} (>= ${STRATUM_IDLE_WORKER_SECS}s): ${names}.`,
+      });
+    }
+  }
+
+  return alerts;
+}
+
+/**
+ * Builds a sanitized, JSON-serializable Stratum diagnostics bundle.
+ * Explicitly omits PEM file paths, redacts tokens/secrets, and retains
+ * at most the last 200 log lines.
+ */
+export function buildSanitizedStratumDiagnostics(
+  input: StratumDiagnosticsInput,
+): SanitizedStratumDiagnostics {
+  const rawLogs = input.logs ?? input.status?.logs ?? [];
+  const logs = rawLogs.slice(-STRATUM_DIAGNOSTICS_MAX_LOGS).map(sanitizeDiagnosticText);
+  const alerts = evaluateStratumAlerts(input.status, input.health, input.workers);
+
+  const sanitizedStatus = input.status
+    ? {
+        state: input.status.state,
+        pid: input.status.pid,
+        exitCode: input.status.exitCode,
+        lastError: input.status.lastError ? sanitizeDiagnosticText(input.status.lastError) : null,
+        statusSeq: input.status.statusSeq,
+      }
+    : null;
+
+  const sanitizedHealth = input.health
+    ? {
+        reach: input.health.reach,
+        status: fieldText(input.health.status),
+        uptimeSeconds: fieldText(input.health.uptimeSeconds),
+        activeConnections: fieldText(input.health.activeConnections),
+        currentJobId: extractNullableFieldValue(input.health.currentJobId),
+        tlsEnabled: fieldText(input.health.tlsEnabled),
+        timestamp: fieldText(input.health.timestamp),
+        detail: input.health.detail ? sanitizeDiagnosticText(input.health.detail) : null,
+      }
+    : null;
+
+  const sanitizedWorkers = input.workers
+    ? {
+        reach: input.workers.reach,
+        activeCount: input.workers.workers.length,
+        bannedIps: input.workers.bannedIps,
+        detail: input.workers.detail ? sanitizeDiagnosticText(input.workers.detail) : null,
+        workers: input.workers.workers.map((entry) => ({
+          workerName: entry.workerName,
+          difficulty: entry.difficulty,
+          sharesAccepted: entry.sharesAccepted,
+          sharesRejected: entry.sharesRejected,
+          connectedSecs: entry.connectedSecs,
+          extranonceSubscribed: entry.extranonceSubscribed,
+          ...(entry.idleSecs !== undefined ? { idleSecs: entry.idleSecs } : {}),
+        })),
+      }
+    : null;
+
+  const bundle: SanitizedStratumDiagnostics = {
+    schemaVersion: 1,
+    source: "node-desktop",
+    generatedAt: input.generatedAt ?? new Date().toISOString(),
+    alerts,
+    status: sanitizedStatus,
+    health: sanitizedHealth,
+    workers: sanitizedWorkers,
+    logs,
+  };
+
+  if (input.config !== undefined) {
+    bundle.config = input.config
+      ? {
+          listenAddr: input.config.listenAddr,
+          bindHost: input.config.bindHost,
+          bindPort: input.config.bindPort,
+          rpcUrl: sanitizeUrlForDiagnostics(input.config.rpcUrl),
+          metricsAddr: input.config.metricsAddr,
+          healthUrl: sanitizeUrlForDiagnostics(input.config.healthUrl),
+          chainId: input.config.chainId,
+          difficulty: input.config.difficulty,
+          tlsEnabled: input.config.tlsEnabled,
+          tlsSelfSigned: input.config.tlsSelfSigned,
+          vardiffEnabled: input.config.vardiffEnabled,
+          vardiffMinDifficulty: input.config.vardiffMinDifficulty,
+          vardiffMaxDifficulty: input.config.vardiffMaxDifficulty,
+          vardiffTargetShareSecs: input.config.vardiffTargetShareSecs,
+          banThresholdInvalidShares: input.config.banThresholdInvalidShares,
+          banDurationSecs: input.config.banDurationSecs,
+          binarySha256: input.config.binarySha256,
+        }
+      : null;
+  }
+
+  return bundle;
 }
 
 export function validateStratumForm(input: StratumFormInput): string | null {
@@ -292,7 +595,10 @@ function errorText(error: unknown): string {
  * Mount the Stratum Gateway supervisor panel. Returns a dispose function that
  * clears its poll timer and listeners.
  */
-export function mountStratumApp(host: AppHost): () => void {
+export function mountStratumApp(
+  host: AppHost,
+  options?: MountStratumOptions,
+): () => void {
   const binaryInput = control<InputEl>("#stratum-binary-path");
   const bindHostInput = control<InputEl>("#stratum-bind-host");
   const bindPortInput = control<InputEl>("#stratum-bind-port");
@@ -314,6 +620,11 @@ export function mountStratumApp(host: AppHost): () => void {
   const startButton = control<ButtonEl>("#stratum-start-button");
   const restartButton = control<ButtonEl>("#stratum-restart-button");
   const stopButton = control<ButtonEl>("#stratum-stop-button");
+  const exportDiagnosticsButton = optionalControl<ButtonEl>(
+    "#stratum-export-diagnostics-button",
+  );
+  const alertsBanner = optionalControl<AlertBannerEl>("#stratum-alerts");
+  const diagnosticsStatus = optionalControl<TextEl>("#stratum-diagnostics-status");
   const statusBadge = control<TextEl>("#stratum-status-badge");
   const errorBanner = control<TextEl>("#stratum-error");
   const summaryBanner = control<TextEl>("#stratum-summary");
@@ -330,6 +641,7 @@ export function mountStratumApp(host: AppHost): () => void {
   let appliedProcessSeq = 0;
   let appliedHealthSeq = 0;
   let lastState: StratumProcessState | null = null;
+  let latestSnapshot: StratumSnapshot | null = null;
   let actionBusy = false;
   let refreshInFlight = false;
   let pollTimer = 0;
@@ -338,6 +650,11 @@ export function mountStratumApp(host: AppHost): () => void {
     const found = host.document.querySelector(selector);
     if (!found) throw new Error(`Stratum UI is missing ${selector}.`);
     return found as T;
+  }
+
+  function optionalControl<T>(selector: string): T | null {
+    const found = host.document.querySelector(selector);
+    return found ? (found as T) : null;
   }
 
   function currentForm(): StratumFormInput {
@@ -542,21 +859,109 @@ export function mountStratumApp(host: AppHost): () => void {
     fill(workersReadout, rows);
   }
 
+  function renderAlerts(snapshot: StratumSnapshot): void {
+    if (!alertsBanner) return;
+    const alerts = evaluateStratumAlerts(
+      snapshot.process,
+      snapshot.health,
+      snapshot.workers,
+    );
+    alertsBanner.replaceChildren();
+    if (alerts.length === 0) {
+      alertsBanner.hidden = true;
+      if (alertsBanner.dataset) {
+        delete alertsBanner.dataset.severity;
+      }
+      return;
+    }
+    alertsBanner.hidden = false;
+    if (alertsBanner.dataset) {
+      alertsBanner.dataset.severity = alerts[0].severity;
+    }
+    for (const alert of alerts) {
+      const row = host.document.createElement("p");
+      row.textContent = `[${alert.severity.toUpperCase()}] ${alert.message}`;
+      alertsBanner.append(row);
+    }
+  }
+
+  function showDiagnosticsStatus(message: string): void {
+    if (!diagnosticsStatus) return;
+    diagnosticsStatus.hidden = false;
+    diagnosticsStatus.textContent = message;
+  }
+
+  async function onExportDiagnostics(): Promise<void> {
+    const bundle = buildSanitizedStratumDiagnostics({
+      status: latestSnapshot?.process ?? null,
+      health: latestSnapshot?.health ?? null,
+      workers: latestSnapshot?.workers ?? null,
+      logs: latestSnapshot?.process.logs ?? [],
+      config: latestSnapshot?.config ?? null,
+    });
+    const json = JSON.stringify(bundle, null, 2);
+    const filename = "kovanica-stratum-diagnostics.json";
+    try {
+      let copied = false;
+      if (options?.copyText) {
+        await options.copyText(json);
+        copied = true;
+      } else if (
+        typeof globalThis.navigator !== "undefined" &&
+        globalThis.navigator.clipboard &&
+        typeof globalThis.navigator.clipboard.writeText === "function"
+      ) {
+        await globalThis.navigator.clipboard.writeText(json);
+        copied = true;
+      }
+
+      if (options?.exportFile) {
+        options.exportFile(filename, json);
+      } else if (
+        !copied &&
+        typeof Blob !== "undefined" &&
+        typeof URL !== "undefined" &&
+        typeof URL.createObjectURL === "function" &&
+        typeof document !== "undefined"
+      ) {
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      showDiagnosticsStatus(
+        copied
+          ? `Copied sanitized diagnostics JSON (${bundle.logs.length} log lines, ${bundle.alerts.length} alerts).`
+          : `Exported sanitized diagnostics JSON (${bundle.logs.length} log lines, ${bundle.alerts.length} alerts).`,
+      );
+    } catch (error) {
+      showError(`Diagnostics export failed: ${errorText(error)}`);
+    }
+  }
+
   function applySnapshot(snapshot: StratumSnapshot): boolean {
     let applied = false;
     if (snapshot.process.statusSeq > appliedProcessSeq) {
       appliedProcessSeq = snapshot.process.statusSeq;
+      latestSnapshot = snapshot;
       renderProcess(snapshot);
       renderHealth(snapshot);
+      renderAlerts(snapshot);
       if (snapshot.healthSeq > appliedHealthSeq) {
         appliedHealthSeq = snapshot.healthSeq;
       }
       applied = true;
     } else if (snapshot.process.statusSeq === appliedProcessSeq) {
+      latestSnapshot = snapshot;
       renderLogs(snapshot);
       if (snapshot.healthSeq > appliedHealthSeq) {
         appliedHealthSeq = snapshot.healthSeq;
         renderHealth(snapshot);
+        renderAlerts(snapshot);
         applied = true;
       }
     }
@@ -742,6 +1147,9 @@ export function mountStratumApp(host: AppHost): () => void {
   });
   stopButton.addEventListener("click", () => {
     void onStop();
+  });
+  exportDiagnosticsButton?.addEventListener("click", () => {
+    void onExportDiagnostics();
   });
   host.window.addEventListener("beforeunload", onUnload);
 

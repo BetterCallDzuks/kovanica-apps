@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildConsoleStratumDiagnostics,
   DEFAULT_STRATUM_HEALTH_URL,
   deriveStratumWorkersUrl,
+  evaluateConsoleStratumAlerts,
   fetchStratumHealth,
   fetchStratumWorkers,
   formatUptime,
@@ -57,12 +59,18 @@ function sampleWorkersPayload(overrides: Record<string, unknown> = {}): Record<s
 function mountFixture(): void {
   document.body.innerHTML = `
     <section id="stratum-panel" class="panel">
-      <h2 id="stratum-heading">Stratum Gateway Health &amp; Telemetry</h2>
+      <div class="stratum-header">
+        <h2 id="stratum-heading">Stratum Gateway Health &amp; Telemetry</h2>
+        <span id="stratum-alert-badge" class="stratum-alert-badge" role="status" hidden></span>
+      </div>
       <input id="stratum-url" type="text" value="http://127.0.0.1:9100/health" />
       <button id="stratum-save" type="button">Save</button>
       <button id="stratum-reset" type="button">Use default</button>
       <button id="stratum-refresh" type="button">Refresh</button>
+      <button id="stratum-copy-diagnostics" type="button">Copy Diagnostics JSON</button>
       <p id="stratum-state" class="muted"></p>
+      <div id="stratum-alerts" class="stratum-alerts" role="status" hidden></div>
+      <p id="stratum-diagnostics-status" class="muted" hidden></p>
       <p id="stratum-error" class="error" role="alert" hidden></p>
       <dl id="stratum-rows" class="readout"></dl>
       <div id="stratum-workers-section" hidden>
@@ -377,5 +385,127 @@ describe("Stratum Gateway Health & Telemetry DOM panel", () => {
     });
     expect(input.value).toBe(DEFAULT_STRATUM_HEALTH_URL);
     expect(document.querySelector<HTMLParagraphElement>("#stratum-error")?.hidden).toBe(true);
+  });
+
+  it("evaluates console Stratum alerts and builds sanitized loopback-only diagnostics JSON", () => {
+    const healthy = parseStratumHealth(sampleHealthPayload());
+    const workers = parseStratumWorkers(sampleWorkersPayload());
+    expect(evaluateConsoleStratumAlerts(healthy, workers)).toEqual([]);
+
+    const degraded = parseStratumHealth(
+      sampleHealthPayload({ status: "degraded", current_job_id: null, active_connections: 2 }),
+    );
+    const workersWithBansAndIdle = parseStratumWorkers(
+      sampleWorkersPayload({
+        banned_ips: 7,
+        workers: [
+          {
+            session_id: 1,
+            worker_name: "rig-idle",
+            authorized: true,
+            difficulty: 4,
+            shares_accepted: 5,
+            shares_rejected: 1,
+            connected_secs: 1200,
+            idle_secs: 420,
+          },
+        ],
+      }),
+    );
+
+    const alerts = evaluateConsoleStratumAlerts(degraded, workersWithBansAndIdle);
+    expect(alerts.map((a) => [a.id, a.severity])).toEqual([
+      ["gateway-unhealthy", "critical"],
+      ["high-ip-bans", "warning"],
+      ["no-current-job", "warning"],
+      ["idle-workers", "info"],
+    ]);
+
+    const bundle = buildConsoleStratumDiagnostics({
+      healthUrl: "http://user:pass@127.0.0.1:9100/health?token=secret#frag",
+      health: degraded,
+      workers: workersWithBansAndIdle,
+      generatedAt: "2026-11-23T09:00:00.000Z",
+    });
+    expect(bundle.source).toBe("console-desktop");
+    expect(bundle.healthUrl).toBe("http://127.0.0.1:9100/health");
+    expect(bundle.alerts).toHaveLength(4);
+    expect(bundle.workers.bannedIps).toBe(7);
+    expect(JSON.stringify(bundle)).not.toContain("secret");
+    expect(JSON.stringify(bundle)).not.toContain("pass");
+
+    expect(() =>
+      buildConsoleStratumDiagnostics({
+        healthUrl: "https://remote.example.com/health",
+        health: healthy,
+        workers: [],
+      }),
+    ).toThrow(/loopback/i);
+  });
+
+  it("displays alert badge and copies sanitized diagnostics JSON from the Stratum panel", async () => {
+    let copied = "";
+    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workers")) {
+        return new Response(
+          JSON.stringify(
+            sampleWorkersPayload({
+              banned_ips: 5,
+              workers: [
+                {
+                  session_id: 1,
+                  worker_name: "rig-idle",
+                  authorized: true,
+                  difficulty: 4,
+                  shares_accepted: 10,
+                  shares_rejected: 0,
+                  connected_secs: 900,
+                  idle_secs: 360,
+                },
+              ],
+            }),
+          ),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify(sampleHealthPayload({ current_job_id: null, active_connections: 1 })),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const panel = mountStratumPanel({
+      fetchImpl: mockFetch,
+      copyText: async (text) => {
+        copied = text;
+      },
+    });
+    await panel!.refresh();
+
+    const badge = document.querySelector<HTMLElement>("#stratum-alert-badge")!;
+    const alertsBox = document.querySelector<HTMLElement>("#stratum-alerts")!;
+    expect(badge.hidden).toBe(false);
+    expect(badge.dataset.severity).toBe("warning");
+    expect(badge.textContent).toContain("3 alerts (warning)");
+    expect(alertsBox.hidden).toBe(false);
+    expect(alertsBox.querySelectorAll("p")).toHaveLength(3);
+
+    const copyBtn = document.querySelector<HTMLButtonElement>("#stratum-copy-diagnostics")!;
+    copyBtn.click();
+    await vi.waitFor(() => {
+      expect(copied).not.toBe("");
+    });
+    const parsed = JSON.parse(copied) as {
+      source: string;
+      healthUrl: string;
+      alerts: Array<{ id: string }>;
+    };
+    expect(parsed.source).toBe("console-desktop");
+    expect(parsed.healthUrl).toBe(DEFAULT_STRATUM_HEALTH_URL);
+    expect(parsed.alerts).toHaveLength(3);
+    expect(document.querySelector<HTMLParagraphElement>("#stratum-diagnostics-status")?.textContent).toContain(
+      "Copied sanitized diagnostics JSON",
+    );
   });
 });

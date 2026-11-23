@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: BetterCallDzuks/kovanica-sdk
-          ref: d0f18afece87a4c782e337eb73563f0e918635a5
+          ref: 40f0e1db7292c30978faad706892bd2f093bbe2d
           path: kovanica-sdk
 
       - uses: actions/setup-node@v4

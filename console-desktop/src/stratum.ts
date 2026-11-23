@@ -24,15 +24,57 @@ export interface StratumWorkerItem {
   shares_accepted: number;
   shares_rejected: number;
   connected_secs: number;
+  idle_secs?: number;
 }
 
 /** Sanitized `/workers` payload returned by `kovanica-stratum`. */
 export interface StratumWorkersReport {
   active_workers: number;
   vardiff_enabled: boolean;
+  banned_ips?: number;
   workers: StratumWorkerItem[];
   timestamp?: number | string;
 }
+
+export type ConsoleStratumAlertSeverity = "critical" | "warning" | "info";
+
+export interface ConsoleStratumAlert {
+  id: string;
+  severity: ConsoleStratumAlertSeverity;
+  message: string;
+}
+
+export interface ConsoleStratumDiagnosticsInput {
+  healthUrl: string;
+  health: StratumHealthSnapshot | null;
+  workers?: StratumWorkerItem[] | StratumWorkersReport | null;
+  generatedAt?: string;
+}
+
+export interface ConsoleStratumDiagnosticsBundle {
+  schemaVersion: 1;
+  source: "console-desktop";
+  generatedAt: string;
+  healthUrl: string;
+  alerts: ConsoleStratumAlert[];
+  health: StratumHealthSnapshot | null;
+  workers: {
+    activeCount: number;
+    bannedIps: number | null;
+    workers: Array<{
+      worker_name: string;
+      difficulty: number;
+      shares_accepted: number;
+      shares_rejected: number;
+      connected_secs: number;
+      idle_secs?: number;
+      authorized?: boolean;
+    }>;
+  };
+}
+
+export const CONSOLE_STRATUM_BAN_ALERT_THRESHOLD = 5;
+export const CONSOLE_STRATUM_IDLE_WORKER_SECS = 300;
 
 export type StratumTelemetryState =
   | { kind: "idle"; endpoint: string }
@@ -170,6 +212,13 @@ export function parseStratumWorkers(raw: unknown): StratumWorkersReport {
       parsedItem.authorized = item.authorized;
     }
 
+    if (item.idle_secs !== undefined) {
+      if (typeof item.idle_secs !== "number" || !Number.isFinite(item.idle_secs) || item.idle_secs < 0) {
+        throw new Error(`Stratum /workers item at index ${idx} has an invalid idle_secs.`);
+      }
+      parsedItem.idle_secs = Math.floor(item.idle_secs);
+    }
+
     return parsedItem;
   });
 
@@ -198,6 +247,13 @@ export function parseStratumWorkers(raw: unknown): StratumWorkersReport {
     vardiff_enabled: vardiffEnabled,
     workers,
   };
+
+  if (obj.banned_ips !== undefined) {
+    if (typeof obj.banned_ips !== "number" || !Number.isFinite(obj.banned_ips) || obj.banned_ips < 0) {
+      throw new Error("Stratum /workers payload has an invalid banned_ips count.");
+    }
+    report.banned_ips = Math.floor(obj.banned_ips);
+  }
 
   if (obj.timestamp !== undefined) {
     if (
@@ -281,6 +337,127 @@ export function stratumHealthRows(health: StratumHealthSnapshot): StatusRow[] {
     { label: "TLS", value: health.tlsEnabled ? "Enabled" : "Disabled" },
     { label: "Timestamp", value: health.timestamp },
   ];
+}
+
+function unwrapWorkers(
+  workers: StratumWorkerItem[] | StratumWorkersReport | null | undefined,
+): { list: StratumWorkerItem[]; bannedIps: number | null } {
+  if (!workers) return { list: [], bannedIps: null };
+  if (Array.isArray(workers)) return { list: workers, bannedIps: null };
+  return {
+    list: workers.workers,
+    bannedIps: typeof workers.banned_ips === "number" ? workers.banned_ips : null,
+  };
+}
+
+/**
+ * Evaluates actionable operator alerts for the console-desktop Stratum telemetry panel.
+ * Ordered by severity (critical -> warning -> info).
+ */
+export function evaluateConsoleStratumAlerts(
+  health: StratumHealthSnapshot | null | undefined,
+  workers?: StratumWorkerItem[] | StratumWorkersReport | null,
+): ConsoleStratumAlert[] {
+  const alerts: ConsoleStratumAlert[] = [];
+  const { list, bannedIps } = unwrapWorkers(workers);
+
+  if (health) {
+    const normalizedStatus = health.status.trim().toLowerCase();
+    if (normalizedStatus !== "healthy" && normalizedStatus !== "ok") {
+      alerts.push({
+        id: "gateway-unhealthy",
+        severity: "critical",
+        message: `Stratum gateway reported non-healthy status: ${health.status}.`,
+      });
+    }
+  }
+
+  if (bannedIps !== null && bannedIps >= CONSOLE_STRATUM_BAN_ALERT_THRESHOLD) {
+    alerts.push({
+      id: "high-ip-bans",
+      severity: "warning",
+      message: `High active IP bans: ${bannedIps} IPs are currently banned.`,
+    });
+  }
+
+  const hasConnectedWorkers =
+    list.length > 0 || (health !== null && health !== undefined && health.activeConnections > 0);
+  if (health && hasConnectedWorkers && health.currentJobId === null) {
+    alerts.push({
+      id: "no-current-job",
+      severity: "warning",
+      message:
+        "Workers are connected but no active mining job is assigned (currentJobId is null).",
+    });
+  }
+
+  const idleWorkers = list.filter(
+    (w) =>
+      typeof w.idle_secs === "number" &&
+      Number.isFinite(w.idle_secs) &&
+      w.idle_secs >= CONSOLE_STRATUM_IDLE_WORKER_SECS,
+  );
+  if (idleWorkers.length > 0) {
+    const names = idleWorkers.map((w) => w.worker_name).join(", ");
+    alerts.push({
+      id: "idle-workers",
+      severity: "info",
+      message: `${idleWorkers.length} idle worker${idleWorkers.length === 1 ? "" : "s"} (>= ${CONSOLE_STRATUM_IDLE_WORKER_SECS}s): ${names}.`,
+    });
+  }
+
+  return alerts;
+}
+
+/**
+ * Builds a sanitized, loopback-only JSON-serializable diagnostics bundle
+ * for console-desktop Stratum telemetry. Rejects non-loopback URLs and strips
+ * any URL credentials, query parameters, or fragments.
+ */
+export function buildConsoleStratumDiagnostics(
+  input: ConsoleStratumDiagnosticsInput,
+): ConsoleStratumDiagnosticsBundle {
+  const normalizedUrl = normalizeStratumHealthUrl(input.healthUrl);
+  const parsed = new URL(normalizedUrl);
+  parsed.username = "";
+  parsed.password = "";
+  parsed.search = "";
+  parsed.hash = "";
+  const sanitizedHealthUrl = parsed.toString();
+
+  const { list, bannedIps } = unwrapWorkers(input.workers);
+  const alerts = evaluateConsoleStratumAlerts(input.health, input.workers);
+
+  return {
+    schemaVersion: 1,
+    source: "console-desktop",
+    generatedAt: input.generatedAt ?? new Date().toISOString(),
+    healthUrl: sanitizedHealthUrl,
+    alerts,
+    health: input.health
+      ? {
+          status: input.health.status,
+          uptimeSeconds: input.health.uptimeSeconds,
+          activeConnections: input.health.activeConnections,
+          currentJobId: input.health.currentJobId,
+          tlsEnabled: input.health.tlsEnabled,
+          timestamp: input.health.timestamp,
+        }
+      : null,
+    workers: {
+      activeCount: list.length,
+      bannedIps,
+      workers: list.map((w) => ({
+        worker_name: w.worker_name,
+        difficulty: w.difficulty,
+        shares_accepted: w.shares_accepted,
+        shares_rejected: w.shares_rejected,
+        connected_secs: w.connected_secs,
+        ...(w.idle_secs !== undefined ? { idle_secs: w.idle_secs } : {}),
+        ...(w.authorized !== undefined ? { authorized: w.authorized } : {}),
+      })),
+    },
+  };
 }
 
 export interface FetchStratumHealthOptions {

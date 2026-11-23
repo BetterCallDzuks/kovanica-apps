@@ -130,7 +130,10 @@
           <button type="button" id="stratum-start-button" disabled>Start gateway</button>
           <button type="button" id="stratum-restart-button" disabled>Restart gateway</button>
           <button type="button" id="stratum-stop-button" disabled>Stop gateway</button>
+          <button type="button" id="stratum-export-diagnostics-button">Copy / Export Diagnostics JSON</button>
         </div>
+        <div id="stratum-alerts" class="stratum-alerts" role="status" aria-live="polite" hidden></div>
+        <p id="stratum-diagnostics-status" class="note" aria-live="polite" hidden></p>
         <p id="stratum-error" class="error" role="alert" hidden></p>
         <p id="stratum-summary" class="summary" aria-live="polite"></p>
         <h3>Gateway process</h3>

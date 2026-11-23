@@ -1,4 +1,9 @@
-import type { EstimateAndBuildCallClient } from "kovanica-sdk";
+import type {
+  DryRunCallClient,
+  EstimateAndBuildCallClient,
+  TransactionReceipt,
+  WaitForTransactionReceiptClient,
+} from "kovanica-sdk";
 import { storageBytes } from "@/core/contracts";
 import { decodeReceipt } from "@/core/receipt";
 import { parseNetworkTagChainId } from "@/lib/networks";
@@ -391,5 +396,81 @@ export function createCallEstimateClient(rpcUrl: string): EstimateAndBuildCallCl
   return {
     estimateFee: () => estimateFeeRate(rpcUrl),
     getNonce: (address: string) => getAccountNonce(rpcUrl, address),
+  };
+}
+
+export function createDryRunCallClient(rpcUrl: string): DryRunCallClient {
+  return {
+    async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+      const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
+      let last = "dry-run simulation failed";
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          return (await post(candidate, method, normalizedParams)) as TResult;
+        } catch (error) {
+          last = error instanceof Error ? error.message : last;
+        }
+      }
+      throw new Error(last);
+    },
+  };
+}
+
+function normalizeSdkReceipt(raw: unknown): TransactionReceipt | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const txHash = rec.transactionHash ?? rec.txHash ?? rec.hash;
+  if (typeof txHash !== "string" || !txHash.trim()) return null;
+  const blockHashRaw = rec.blockHash ?? rec.block_hash ?? "";
+  const blockNumber = quantity(rec.blockNumber ?? rec.block_number ?? rec.height ?? rec.blockHeight) ?? 0n;
+  const txIndexRaw = quantity(rec.transactionIndex ?? rec.transaction_index);
+  const gasUsed = quantity(rec.gasUsed ?? rec.gas_used);
+  const statusVal = rec.status;
+  const reverted =
+    rec.success === false ||
+    statusVal === 0 ||
+    statusVal === "0x0" ||
+    statusVal === "0" ||
+    (typeof statusVal === "string" && /fail|revert/i.test(statusVal));
+  const rawLogs = Array.isArray(rec.logs) ? rec.logs : Array.isArray(rec.events) ? rec.events : [];
+  const logs = rawLogs.flatMap((entry) => {
+    const item = asRecord(entry);
+    if (!item || typeof item.data !== "string") return [];
+    const topics = Array.isArray(item.topics) ? item.topics.map((t) => String(t)) : undefined;
+    return [
+      {
+        ...(typeof item.address === "string" ? { address: item.address } : {}),
+        ...(topics ? { topics } : {}),
+        data: item.data,
+      },
+    ];
+  });
+
+  return {
+    transactionHash: txHash,
+    blockHash: typeof blockHashRaw === "string" ? blockHashRaw : "",
+    blockNumber,
+    transactionIndex: txIndexRaw,
+    status: reverted ? 0 : 1,
+    success: !reverted,
+    ...(gasUsed != null ? { gasUsed } : {}),
+    logs,
+  };
+}
+
+export function createReceiptTrackingClient(rpcUrl: string): WaitForTransactionReceiptClient {
+  return {
+    async getTransactionReceipt(hash: string): Promise<TransactionReceipt | null> {
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          const result = await post(candidate, "kovanica_getTransactionReceipt", [hash]);
+          const normalized = normalizeSdkReceipt(result);
+          if (normalized) return normalized;
+        } catch {
+          continue;
+        }
+      }
+      return null;
+    },
   };
 }

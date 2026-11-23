@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  buildSanitizedStratumDiagnostics,
+  evaluateStratumAlerts,
   mountStratumApp,
   stratumStatusLabel,
   toStratumPayload,
@@ -95,12 +97,16 @@ function sampleSnapshot(opts: {
   statusSeq: number;
   healthSeq: number;
   pid?: number | null;
+  exitCode?: number | null;
+  lastError?: string | null;
   reach?: "unknown" | "reachable" | "unreachable";
   activeConnections?: string;
-  currentJobId?: string;
+  currentJobId?: string | null;
   uptimeSeconds?: string;
   logs?: string[];
   tlsEnabled?: boolean;
+  tlsCertPath?: string | null;
+  tlsKeyPath?: string | null;
   workersReach?: "unknown" | "reachable" | "unreachable";
   workers?: Array<{
     workerName: string;
@@ -109,6 +115,7 @@ function sampleSnapshot(opts: {
     sharesRejected: number;
     connectedSecs: number;
     extranonceSubscribed?: boolean;
+    idleSecs?: number;
   }>;
   bannedIps?: number;
 }): StratumSnapshot {
@@ -118,8 +125,13 @@ function sampleSnapshot(opts: {
     process: {
       state: opts.state ?? "stopped",
       pid: opts.pid ?? null,
-      exitCode: opts.state === "exited" ? 0 : null,
-      lastError: null,
+      exitCode:
+        opts.exitCode !== undefined
+          ? opts.exitCode
+          : opts.state === "exited"
+            ? 0
+            : null,
+      lastError: opts.lastError ?? null,
       logs: opts.logs ?? [],
       statusSeq: opts.statusSeq,
     },
@@ -133,7 +145,11 @@ function sampleSnapshot(opts: {
           ? field("value", opts.activeConnections)
           : field(kind),
       currentJobId:
-        opts.currentJobId !== undefined ? field("value", opts.currentJobId) : field(kind),
+        opts.currentJobId !== undefined
+          ? opts.currentJobId === null
+            ? field("value", undefined)
+            : field("value", opts.currentJobId)
+          : field(kind),
       tlsEnabled:
         opts.tlsEnabled !== undefined
           ? field("value", opts.tlsEnabled ? "true" : "false")
@@ -166,8 +182,8 @@ function sampleSnapshot(opts: {
             chainId: 2,
             difficulty: 1,
             tlsEnabled: opts.tlsEnabled ?? false,
-            tlsCertPath: null,
-            tlsKeyPath: null,
+            tlsCertPath: opts.tlsCertPath ?? null,
+            tlsKeyPath: opts.tlsKeyPath ?? null,
             tlsSelfSigned: false,
             vardiffEnabled: false,
             vardiffMinDifficulty: null,
@@ -181,7 +197,7 @@ function sampleSnapshot(opts: {
   };
 }
 
-function harness() {
+function harness(opts?: { copyText?: (text: string) => Promise<void> }) {
   const defs: Array<[string, string]> = [
     ["stratum-binary-path", "input"],
     ["stratum-bind-host", "input"],
@@ -204,6 +220,9 @@ function harness() {
     ["stratum-start-button", "button"],
     ["stratum-restart-button", "button"],
     ["stratum-stop-button", "button"],
+    ["stratum-export-diagnostics-button", "button"],
+    ["stratum-alerts", "div"],
+    ["stratum-diagnostics-status", "p"],
     ["stratum-status-badge", "span"],
     ["stratum-error", "p"],
     ["stratum-summary", "p"],
@@ -225,6 +244,8 @@ function harness() {
   nodes.get("stratum-start-button")!.disabled = true;
   nodes.get("stratum-restart-button")!.disabled = true;
   nodes.get("stratum-stop-button")!.disabled = true;
+  nodes.get("stratum-alerts")!.hidden = true;
+  nodes.get("stratum-diagnostics-status")!.hidden = true;
   nodes.get("stratum-error")!.hidden = true;
 
   const listeners: Record<string, Array<() => void>> = {};
@@ -271,7 +292,7 @@ function harness() {
       pending.push({ command, args, resolve, reject });
     });
 
-  const dispose = mountStratumApp({ invoke, document, window });
+  const dispose = mountStratumApp({ invoke, document, window }, opts);
 
   function take(command: string): Pending {
     const idx = pending.findIndex((p) => p.command === command);
@@ -386,7 +407,10 @@ test("HTML and CSS contain Stratum Gateway supervisor controls and status badge 
   assert.match(html, /id="stratum-ban-threshold"/);
   assert.match(html, /id="stratum-workers-readout"/);
   assert.match(html, /id="stratum-log-viewer"/);
+  assert.match(html, /id="stratum-alerts"/);
+  assert.match(html, /id="stratum-export-diagnostics-button"/);
   assert.match(css, /\.status-badge\[data-state="running"\]/);
+  assert.match(css, /\.stratum-alerts\[data-severity="critical"\]/);
 });
 
 test("TLS toggle enables cert/key fields and editing invalidates approval", async () => {
@@ -581,5 +605,172 @@ test("start, live health polling, restart, stop, and stale snapshot rejection wo
 
   world.window.dispatch("beforeunload");
   assert.equal(world.timers.size, 0);
+  world.dispose();
+});
+
+test("evaluateStratumAlerts detects crash, high IP bans, missing job, and idle workers in severity order", () => {
+  const healthySnap = sampleSnapshot({
+    state: "running",
+    statusSeq: 1,
+    healthSeq: 1,
+    reach: "reachable",
+    activeConnections: "1",
+    currentJobId: "job-100",
+    bannedIps: 4,
+    workers: [
+      {
+        workerName: "rig-1",
+        difficulty: 2,
+        sharesAccepted: 10,
+        sharesRejected: 0,
+        connectedSecs: 400,
+        idleSecs: 299,
+      },
+    ],
+  });
+  assert.deepEqual(
+    evaluateStratumAlerts(healthySnap.process, healthySnap.health, healthySnap.workers),
+    [],
+  );
+
+  const alertedSnap = sampleSnapshot({
+    state: "exited",
+    exitCode: 137,
+    lastError: "killed with token=supersecret",
+    statusSeq: 2,
+    healthSeq: 2,
+    reach: "reachable",
+    activeConnections: "2",
+    currentJobId: null,
+    bannedIps: 5,
+    workers: [
+      {
+        workerName: "rig-stale",
+        difficulty: 2,
+        sharesAccepted: 1,
+        sharesRejected: 0,
+        connectedSecs: 900,
+        idleSecs: 300,
+      },
+    ],
+  });
+  const alerts = evaluateStratumAlerts(
+    alertedSnap.process,
+    alertedSnap.health,
+    alertedSnap.workers,
+  );
+  assert.equal(alerts.length, 4);
+  assert.deepEqual(
+    alerts.map((a) => [a.id, a.severity]),
+    [
+      ["stratum-crashed", "critical"],
+      ["high-ip-bans", "warning"],
+      ["no-current-job", "warning"],
+      ["idle-workers", "info"],
+    ],
+  );
+  assert.doesNotMatch(alerts[0].message, /supersecret/);
+  assert.match(alerts[0].message, /\[REDACTED\]/);
+  assert.match(alerts[3].message, /rig-stale/);
+});
+
+test("buildSanitizedStratumDiagnostics redacts PEM paths and secrets and keeps last 200 log lines", () => {
+  const logs = Array.from({ length: 250 }, (_, idx) => {
+    if (idx === 248) {
+      return "launch --tls-cert /etc/kovanica/secret_cert.pem --tls-key /etc/kovanica/private.key Bearer eyJhbGciOiJIUzI1NiJ9";
+    }
+    if (idx === 249) {
+      return "rpc=http://admin:hunter2@127.0.0.1:8545 api_key=sk_live_999999";
+    }
+    return `line-${idx}`;
+  });
+
+  const snap = sampleSnapshot({
+    state: "running",
+    statusSeq: 3,
+    healthSeq: 3,
+    reach: "reachable",
+    activeConnections: "1",
+    currentJobId: "job-7",
+    tlsEnabled: true,
+    tlsCertPath: "/etc/kovanica/tls_cert.pem",
+    tlsKeyPath: "/etc/kovanica/tls_key.pem",
+    logs,
+  });
+
+  const bundle = buildSanitizedStratumDiagnostics({
+    status: snap.process,
+    health: snap.health,
+    workers: snap.workers,
+    logs,
+    config: snap.config,
+    generatedAt: "2026-11-23T09:00:00.000Z",
+  });
+
+  const serialized = JSON.stringify(bundle);
+  assert.equal(bundle.schemaVersion, 1);
+  assert.equal(bundle.source, "node-desktop");
+  assert.equal(bundle.logs.length, 200);
+  assert.equal(bundle.logs[0], "line-50");
+  assert.doesNotMatch(serialized, /tls_cert\.pem/);
+  assert.doesNotMatch(serialized, /tls_key\.pem/);
+  assert.doesNotMatch(serialized, /secret_cert\.pem/);
+  assert.doesNotMatch(serialized, /private\.key/);
+  assert.doesNotMatch(serialized, /eyJhbGciOiJIUzI1NiJ9/);
+  assert.doesNotMatch(serialized, /hunter2/);
+  assert.doesNotMatch(serialized, /sk_live_999999/);
+  assert.equal("tlsCertPath" in (bundle.config ?? {}), false);
+  assert.equal("tlsKeyPath" in (bundle.config ?? {}), false);
+});
+
+test("Stratum UI renders alert banner and exports sanitized diagnostics JSON on button click", async () => {
+  let copiedJson = "";
+  const world = harness({
+    copyText: async (text) => {
+      copiedJson = text;
+    },
+  });
+
+  world.take("stratum_status").resolve(
+    sampleSnapshot({
+      state: "exited",
+      exitCode: 2,
+      lastError: "failed to load /etc/stratum/key.pem",
+      statusSeq: 1,
+      healthSeq: 1,
+      reach: "reachable",
+      activeConnections: "1",
+      currentJobId: null,
+      bannedIps: 6,
+      logs: ["boot --tls-key /etc/stratum/key.pem", "exited with code 2"],
+    }),
+  );
+  await world.flush();
+
+  const alertsEl = world.nodes.get("stratum-alerts")!;
+  assert.equal(alertsEl.hidden, false);
+  assert.equal(alertsEl.dataset.severity, "critical");
+  assert.equal(alertsEl.children.length, 3);
+  assert.match(alertsEl.children[0].textContent, /^\[CRITICAL\]/);
+  assert.doesNotMatch(alertsEl.children[0].textContent, /key\.pem/);
+
+  world.nodes.get("stratum-export-diagnostics-button")!.dispatch("click");
+  await world.flush();
+
+  assert.notEqual(copiedJson, "");
+  assert.doesNotMatch(copiedJson, /key\.pem/);
+  const parsed = JSON.parse(copiedJson) as {
+    source: string;
+    alerts: Array<{ id: string }>;
+    logs: string[];
+  };
+  assert.equal(parsed.source, "node-desktop");
+  assert.equal(parsed.alerts.length, 3);
+  assert.equal(parsed.logs.length, 2);
+  assert.match(
+    world.nodes.get("stratum-diagnostics-status")!.textContent,
+    /Copied sanitized diagnostics JSON/,
+  );
+
   world.dispose();
 });

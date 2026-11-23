@@ -1,10 +1,19 @@
 import {
   DEFAULT_FEE_SAFETY_MARGIN_BPS,
+  decodeTransactionReceiptLogs,
+  dryRunCall,
   estimateAndBuildCall,
   estimateBatchCalls,
   estimateCallTxSize,
+  waitForTransactionReceipt,
+  type ContractLogKind,
+  type ContractLogKindResolver,
+  type DecodedTransactionReceiptLogByKind,
+  type DryRunCallClient,
   type EstimateAndBuildCallClient,
   type RequestOptions,
+  type TransactionReceipt,
+  type WaitForTransactionReceiptClient,
 } from "kovanica-sdk";
 import { decodeRecipient } from "./address.ts";
 import { formatAtoms, formatKvnc } from "./format.ts";
@@ -251,4 +260,175 @@ export function formatBatchCallEstimateSummary(preview: CallBatchEstimatePreview
     { label: "Total gas limit", value: formatAtoms(preview.totalGasLimit) },
     { label: "Nonce range", value: nonceRange },
   ];
+}
+
+export type SimulateContractCallInput = {
+  contract: string | Uint8Array;
+  method: string;
+  args: Uint8Array;
+  valueAtoms?: bigint;
+  value?: bigint;
+  gasLimit?: bigint;
+  chainId?: number | null;
+};
+
+export type SimulateContractCallOptions<TDecoded = undefined> = {
+  from?: string | Uint8Array;
+  value?: bigint | number;
+  gasLimit?: bigint | number;
+  decoder?: (bytes: Uint8Array) => TDecoded;
+  formatDecoded?: (decoded: TDecoded) => string;
+  requestOptions?: RequestOptions;
+};
+
+export type SimulateContractCallResult<TDecoded = undefined> =
+  | {
+      ok: true;
+      reverted: false;
+      rawHex: string;
+      rawBytes: Uint8Array;
+      decodedSummary: string;
+      decoded?: TDecoded;
+    }
+  | {
+      ok: false;
+      reverted: true;
+      reason: string;
+    };
+
+function summarizeSimulationReturn<TDecoded>(
+  rawHex: string,
+  rawBytes: Uint8Array,
+  decoded: TDecoded | undefined,
+  formatDecoded?: (value: TDecoded) => string,
+): string {
+  if (decoded !== undefined) {
+    if (formatDecoded) return formatDecoded(decoded);
+    if (typeof decoded === "string") return decoded;
+    if (typeof decoded === "bigint" || typeof decoded === "number" || typeof decoded === "boolean") {
+      return String(decoded);
+    }
+    try {
+      return JSON.stringify(decoded, (_key, val) => (typeof val === "bigint" ? val.toString() : val));
+    } catch {
+      return `Decoded return (${rawBytes.length} bytes)`;
+    }
+  }
+  if (rawBytes.length === 0) {
+    return "Succeeded (0 bytes returned)";
+  }
+  const previewHex = rawHex.length > 66 ? `${rawHex.slice(0, 66)}…` : rawHex;
+  return `Returned ${rawBytes.length} ${rawBytes.length === 1 ? "byte" : "bytes"} (${previewHex})`;
+}
+
+/**
+ * Simulates a contract call via `kovanica-sdk`'s `dryRunCall` (`kovanica_call`) before signing.
+ * Returns `{ ok: true, reverted: false, rawHex, rawBytes, decodedSummary, decoded? }` on success,
+ * or `{ ok: false, reverted: true, reason }` so the UI can warn the user before signing if the call would revert.
+ */
+export async function simulateContractCallBeforeSign<TDecoded = undefined>(
+  client: DryRunCallClient,
+  call: SimulateContractCallInput,
+  options: SimulateContractCallOptions<TDecoded> = {},
+): Promise<SimulateContractCallResult<TDecoded>> {
+  try {
+    const chainId = call.chainId ?? null;
+    const contractBytes =
+      typeof call.contract === "string"
+        ? decodeRecipient(call.contract, chainId)
+        : call.contract;
+    const fromArg =
+      typeof options.from === "string"
+        ? options.from.trim()
+          ? decodeRecipient(options.from, chainId)
+          : undefined
+        : options.from;
+
+    const dryRunOptions = {
+      ...(fromArg !== undefined ? { from: fromArg } : {}),
+      ...(options.value !== undefined ? { value: options.value } : {}),
+      ...(options.gasLimit !== undefined ? { gasLimit: options.gasLimit } : {}),
+      ...(options.decoder !== undefined ? { decoder: options.decoder } : {}),
+      ...(options.requestOptions !== undefined ? { requestOptions: options.requestOptions } : {}),
+    };
+
+    const result = await dryRunCall<TDecoded>(
+      client,
+      {
+        contract: contractBytes,
+        method: call.method,
+        args: call.args,
+        value: call.valueAtoms ?? call.value ?? 0n,
+        ...(call.gasLimit !== undefined ? { gasLimit: call.gasLimit } : {}),
+      },
+      dryRunOptions,
+    );
+
+    const decodedSummary = summarizeSimulationReturn(
+      result.rawHex,
+      result.rawBytes,
+      result.decoded,
+      options.formatDecoded,
+    );
+
+    return {
+      ok: true,
+      reverted: false,
+      rawHex: result.rawHex,
+      rawBytes: result.rawBytes,
+      decodedSummary,
+      ...(result.decoded !== undefined ? { decoded: result.decoded } : {}),
+    };
+  } catch (error) {
+    const rawReason = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+    return {
+      ok: false,
+      reverted: true,
+      reason: rawReason || "Contract call reverted during dry-run simulation.",
+    };
+  }
+}
+
+export type TrackContractReceiptOptions<K extends ContractLogKind = ContractLogKind> = {
+  logKind?: K | ContractLogKindResolver<K>;
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  throwOnRevert?: boolean;
+};
+
+export type TrackedContractReceipt<K extends ContractLogKind = ContractLogKind> = {
+  receipt: TransactionReceipt;
+  status: "success" | "reverted";
+  gasUsed: bigint | null;
+  decodedLogs: Array<DecodedTransactionReceiptLogByKind<K>>;
+};
+
+/**
+ * Waits for a submitted contract call transaction receipt via `kovanica-sdk`'s `waitForTransactionReceipt`
+ * and optionally decodes contract logs with `decodeTransactionReceiptLogs`.
+ */
+export async function trackSubmittedContractReceipt<K extends ContractLogKind = ContractLogKind>(
+  client: WaitForTransactionReceiptClient,
+  txHash: string,
+  options: TrackContractReceiptOptions<K> = {},
+): Promise<TrackedContractReceipt<K>> {
+  const receipt = await waitForTransactionReceipt(client, txHash, {
+    ...(options.pollIntervalMs !== undefined ? { pollIntervalMs: options.pollIntervalMs } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    ...(options.throwOnRevert !== undefined ? { throwOnRevert: options.throwOnRevert } : {}),
+  });
+
+  const isSuccess = receipt.success && receipt.status !== 0;
+  const decodedLogs = options.logKind
+    ? decodeTransactionReceiptLogs(receipt, options.logKind)
+    : [];
+
+  return {
+    receipt,
+    status: isSuccess ? "success" : "reverted",
+    gasUsed: receipt.gasUsed ?? null,
+    decodedLogs,
+  };
 }

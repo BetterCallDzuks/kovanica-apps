@@ -51,15 +51,21 @@
       </section>
 
       <section id="stratum-panel" class="panel" aria-labelledby="stratum-heading">
-        <h2 id="stratum-heading">Stratum Gateway Health &amp; Telemetry</h2>
+        <div class="stratum-header">
+          <h2 id="stratum-heading">Stratum Gateway Health &amp; Telemetry</h2>
+          <span id="stratum-alert-badge" class="stratum-alert-badge" role="status" aria-live="polite" hidden></span>
+        </div>
         <label for="stratum-url">Loopback Stratum observability /health endpoint</label>
         <div class="row">
           <input id="stratum-url" name="stratum-url" type="text" value="http://127.0.0.1:9100/health" spellcheck="false" autocomplete="off" />
           <button id="stratum-save" type="button">Save</button>
           <button id="stratum-reset" type="button">Use default</button>
           <button id="stratum-refresh" type="button">Refresh</button>
+          <button id="stratum-copy-diagnostics" type="button">Copy Diagnostics JSON</button>
         </div>
         <p id="stratum-state" class="muted"></p>
+        <div id="stratum-alerts" class="stratum-alerts" role="status" aria-live="polite" hidden></div>
+        <p id="stratum-diagnostics-status" class="muted" aria-live="polite" hidden></p>
         <p id="stratum-error" class="error" role="alert" hidden></p>
         <dl id="stratum-rows" class="readout"></dl>
         <div id="stratum-workers-section" hidden>

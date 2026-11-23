@@ -1,5 +1,7 @@
 import {
+  buildConsoleStratumDiagnostics,
   DEFAULT_STRATUM_HEALTH_URL,
+  evaluateConsoleStratumAlerts,
   fetchStratumHealth,
   fetchStratumWorkers,
   formatUptime,
@@ -7,6 +9,7 @@ import {
   STRATUM_STORAGE_KEY,
   stratumHealthRows,
   type StratumTelemetryState,
+  type StratumWorkersReport,
 } from "./stratum";
 
 export interface StratumPanelController {
@@ -41,11 +44,16 @@ function persistUrl(storage: Storage | null, url: string): void {
 export function mountStratumPanel(options: {
   fetchImpl?: typeof fetch;
   storage?: Storage | null;
+  copyText?: (text: string) => Promise<void>;
 } = {}): StratumPanelController | null {
   const urlInput = document.querySelector<HTMLInputElement>("#stratum-url");
   const saveBtn = document.querySelector<HTMLButtonElement>("#stratum-save");
   const resetBtn = document.querySelector<HTMLButtonElement>("#stratum-reset");
   const refreshBtn = document.querySelector<HTMLButtonElement>("#stratum-refresh");
+  const copyDiagBtn = document.querySelector<HTMLButtonElement>("#stratum-copy-diagnostics");
+  const alertBadge = document.querySelector<HTMLElement>("#stratum-alert-badge");
+  const alertsBox = document.querySelector<HTMLElement>("#stratum-alerts");
+  const diagnosticsStatus = document.querySelector<HTMLParagraphElement>("#stratum-diagnostics-status");
   const stateText = document.querySelector<HTMLParagraphElement>("#stratum-state");
   const errorText = document.querySelector<HTMLParagraphElement>("#stratum-error");
   const rowsList = document.querySelector<HTMLDListElement>("#stratum-rows");
@@ -67,8 +75,53 @@ export function mountStratumPanel(options: {
 
   let currentEndpoint = loadSavedUrl(storage);
   let state: StratumTelemetryState = { kind: "idle", endpoint: currentEndpoint };
+  let latestWorkersReport: StratumWorkersReport | null = null;
 
   urlInput.value = currentEndpoint;
+
+  function clearAlerts(): void {
+    if (alertBadge) {
+      alertBadge.hidden = true;
+      alertBadge.textContent = "";
+      delete alertBadge.dataset.severity;
+    }
+    if (alertsBox) {
+      alertsBox.hidden = true;
+      alertsBox.replaceChildren();
+      delete alertsBox.dataset.severity;
+    }
+  }
+
+  function renderAlerts(): void {
+    if (state.kind !== "online") {
+      clearAlerts();
+      return;
+    }
+    const alerts = evaluateConsoleStratumAlerts(
+      state.health,
+      latestWorkersReport ?? state.workers,
+    );
+    if (alerts.length === 0) {
+      clearAlerts();
+      return;
+    }
+    const highestSeverity = alerts[0].severity;
+    if (alertBadge) {
+      alertBadge.hidden = false;
+      alertBadge.dataset.severity = highestSeverity;
+      alertBadge.textContent = `${alerts.length} alert${alerts.length === 1 ? "" : "s"} (${highestSeverity})`;
+    }
+    if (alertsBox) {
+      alertsBox.hidden = false;
+      alertsBox.dataset.severity = highestSeverity;
+      alertsBox.replaceChildren();
+      for (const alert of alerts) {
+        const p = document.createElement("p");
+        p.textContent = `[${alert.severity.toUpperCase()}] ${alert.message}`;
+        alertsBox.append(p);
+      }
+    }
+  }
 
   function clearWorkers(): void {
     workersBody?.replaceChildren();
@@ -84,6 +137,7 @@ export function mountStratumPanel(options: {
       stateText!.dataset.state = "idle";
       errorText!.hidden = true;
       errorText!.textContent = "";
+      clearAlerts();
       clearWorkers();
       return;
     }
@@ -92,6 +146,7 @@ export function mountStratumPanel(options: {
       stateText!.dataset.state = "loading";
       errorText!.hidden = true;
       errorText!.textContent = "";
+      clearAlerts();
       clearWorkers();
       return;
     }
@@ -100,6 +155,7 @@ export function mountStratumPanel(options: {
       stateText!.dataset.state = "offline";
       errorText!.hidden = false;
       errorText!.textContent = state.error;
+      clearAlerts();
       clearWorkers();
       return;
     }
@@ -107,6 +163,7 @@ export function mountStratumPanel(options: {
     stateText!.dataset.state = "online";
     errorText!.hidden = true;
     errorText!.textContent = "";
+    renderAlerts();
     for (const row of stratumHealthRows(state.health)) {
       const dt = document.createElement("dt");
       dt.textContent = row.label;
@@ -154,6 +211,7 @@ export function mountStratumPanel(options: {
   async function refresh(): Promise<void> {
     refreshBtn!.disabled = true;
     state = { kind: "loading", endpoint: currentEndpoint };
+    latestWorkersReport = null;
     render();
     try {
       const [health, workersReport] = await Promise.all([
@@ -162,6 +220,7 @@ export function mountStratumPanel(options: {
         }),
         fetchStratumWorkers(currentEndpoint, options.fetchImpl).catch(() => null),
       ]);
+      latestWorkersReport = workersReport;
       state = {
         kind: "online",
         endpoint: currentEndpoint,
@@ -177,6 +236,41 @@ export function mountStratumPanel(options: {
     } finally {
       refreshBtn!.disabled = false;
       render();
+    }
+  }
+
+  async function copyDiagnostics(): Promise<void> {
+    try {
+      const bundle = buildConsoleStratumDiagnostics({
+        healthUrl: currentEndpoint,
+        health: state.kind === "online" ? state.health : null,
+        workers: state.kind === "online" ? (latestWorkersReport ?? state.workers) : [],
+      });
+      const json = JSON.stringify(bundle, null, 2);
+      if (options.copyText) {
+        await options.copyText(json);
+      } else if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+      ) {
+        await navigator.clipboard.writeText(json);
+      } else {
+        throw new Error("Clipboard API is unavailable in this environment.");
+      }
+      if (diagnosticsStatus) {
+        diagnosticsStatus.hidden = false;
+        diagnosticsStatus.textContent = `Copied sanitized diagnostics JSON (${bundle.alerts.length} alerts).`;
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim() !== ""
+          ? error.message
+          : "Failed to copy Stratum diagnostics JSON.";
+      if (diagnosticsStatus) {
+        diagnosticsStatus.hidden = false;
+        diagnosticsStatus.textContent = message;
+      }
     }
   }
 
@@ -205,6 +299,10 @@ export function mountStratumPanel(options: {
 
   refreshBtn.addEventListener("click", () => {
     void refresh();
+  });
+
+  copyDiagBtn?.addEventListener("click", () => {
+    void copyDiagnostics();
   });
 
   render();

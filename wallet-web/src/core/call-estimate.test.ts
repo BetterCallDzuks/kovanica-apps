@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { EstimateAndBuildCallClient } from "kovanica-sdk";
+import type {
+  DryRunCallClient,
+  EstimateAndBuildCallClient,
+  TransactionReceipt,
+  WaitForTransactionReceiptClient,
+} from "kovanica-sdk";
 import { encodeAddress } from "./address.ts";
 import { bytesToHex, hexToBytes } from "./bytes.ts";
 import {
@@ -11,6 +16,8 @@ import {
   formatBatchCallEstimateSummary,
   formatCallEstimateSummary,
   formatSafetyMarginPercent,
+  simulateContractCallBeforeSign,
+  trackSubmittedContractReceipt,
 } from "./call-estimate.ts";
 import { buildContractCall } from "./contracts.ts";
 import { encodeRawTransaction, publicKeyFromSeed, signTransaction } from "./tx.ts";
@@ -551,5 +558,185 @@ describe("contract call fee/gas & wire-size preview", () => {
         ),
       /maxTotalFee/i,
     );
+  });
+
+  function encodeBincodeNameRecord(owner: Uint8Array, pubkey: Uint8Array, endpoints: string[]): Uint8Array {
+    const encoder = new TextEncoder();
+    const encodedStrings = endpoints.map((ep) => encoder.encode(ep));
+    const totalLen =
+      32 +
+      32 +
+      8 +
+      encodedStrings.reduce((acc, s) => acc + 8 + s.length, 0);
+    const buf = new Uint8Array(totalLen);
+    const view = new DataView(buf.buffer);
+    let offset = 0;
+    buf.set(owner, offset);
+    offset += 32;
+    buf.set(pubkey, offset);
+    offset += 32;
+    view.setBigUint64(offset, BigInt(encodedStrings.length), true);
+    offset += 8;
+    for (const s of encodedStrings) {
+      view.setBigUint64(offset, BigInt(s.length), true);
+      offset += 8;
+      buf.set(s, offset);
+      offset += s.length;
+    }
+    return buf;
+  }
+
+  it("simulates contract calls before sign via dryRunCall (success with raw bytes and custom decoder)", async () => {
+    let seenMethod = "";
+    let seenParams: unknown = null;
+    const mockDryRunClient: DryRunCallClient = {
+      async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+        seenMethod = method;
+        seenParams = params;
+        return "0x01020304" as TResult;
+      },
+    };
+
+    const result = await simulateContractCallBeforeSign(
+      mockDryRunClient,
+      {
+        contract: contractAddr,
+        method: "token_transfer",
+        args: new Uint8Array([0xaa, 0xbb]),
+        valueAtoms: 0n,
+        gasLimit: 100_000n,
+        chainId: 2,
+      },
+      {
+        from: senderAddr,
+      },
+    );
+
+    assert.equal(seenMethod, "kovanica_call");
+    assert.ok(Array.isArray(seenParams) && seenParams.length === 1);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.reverted, false);
+      assert.equal(result.rawHex, "0x01020304");
+      assert.deepEqual(result.rawBytes, new Uint8Array([1, 2, 3, 4]));
+      assert.match(result.decodedSummary, /4 bytes/);
+      assert.match(result.decodedSummary, /0x01020304/);
+    }
+
+    const decodedResult = await simulateContractCallBeforeSign(
+      mockDryRunClient,
+      {
+        contract: contractAddr,
+        method: "balance_of",
+        args: new Uint8Array([0x01]),
+        chainId: 2,
+      },
+      {
+        decoder: (bytes) => bytes.length * 100,
+        formatDecoded: (val) => `Balance units: ${val}`,
+      },
+    );
+    assert.equal(decodedResult.ok, true);
+    if (decodedResult.ok) {
+      assert.equal(decodedResult.decoded, 400);
+      assert.equal(decodedResult.decodedSummary, "Balance units: 400");
+    }
+  });
+
+  it("returns a structured pre-sign revert warning when dryRunCall fails or reverts", async () => {
+    const revertingClient: DryRunCallClient = {
+      async call() {
+        throw new Error("execution reverted: insufficient token balance");
+      },
+    };
+
+    const result = await simulateContractCallBeforeSign(
+      revertingClient,
+      {
+        contract: contractAddr,
+        method: "token_transfer",
+        args: new Uint8Array([1, 2, 3]),
+        valueAtoms: 0n,
+        gasLimit: 100_000n,
+        chainId: 2,
+      },
+      { from: senderAddr },
+    );
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reverted, true);
+      assert.match(result.reason, /insufficient token balance/i);
+    }
+  });
+
+  it("tracks submitted contract receipts, decodes matching logs, and reports reverted receipts", async () => {
+    const txHash = `0x${"ab".repeat(32)}`;
+    const namePayload = encodeBincodeNameRecord(senderKey, bobBytes, ["127.0.0.1:8000"]);
+    const nameLogHex = `0x${bytesToHex(namePayload)}`;
+
+    let pollAttempts = 0;
+    const successClient: WaitForTransactionReceiptClient = {
+      async getTransactionReceipt(hash: string): Promise<TransactionReceipt | null> {
+        assert.equal(hash.replace(/^0x/, ""), "ab".repeat(32));
+        pollAttempts += 1;
+        if (pollAttempts < 2) return null;
+        return {
+          transactionHash: txHash,
+          blockHash: `0x${"cd".repeat(32)}`,
+          blockNumber: 128n,
+          transactionIndex: 0n,
+          status: 1,
+          success: true,
+          gasUsed: 48_210n,
+          logs: [
+            {
+              address: contractAddr,
+              topics: ["name_registered"],
+              data: nameLogHex,
+            },
+          ],
+        };
+      },
+    };
+
+    const tracked = await trackSubmittedContractReceipt(successClient, txHash, {
+      logKind: "name",
+      pollIntervalMs: 10,
+      timeoutMs: 2_000,
+    });
+
+    assert.equal(pollAttempts, 2);
+    assert.equal(tracked.status, "success");
+    assert.equal(tracked.gasUsed, 48_210n);
+    assert.equal(tracked.receipt.blockNumber, 128n);
+    assert.equal(tracked.decodedLogs.length, 1);
+    assert.equal(tracked.decodedLogs[0]?.kind, "name");
+    assert.deepEqual(tracked.decodedLogs[0]?.record.relayEndpoints, ["127.0.0.1:8000"]);
+
+    const revertedTxHash = `0x${"ef".repeat(32)}`;
+    const revertedClient: WaitForTransactionReceiptClient = {
+      async getTransactionReceipt(): Promise<TransactionReceipt | null> {
+        return {
+          transactionHash: revertedTxHash,
+          blockHash: `0x${"12".repeat(32)}`,
+          blockNumber: 129n,
+          transactionIndex: 1n,
+          status: 0,
+          success: false,
+          gasUsed: 21_500n,
+          logs: [],
+        };
+      },
+    };
+
+    const revertedTracked = await trackSubmittedContractReceipt(revertedClient, revertedTxHash, {
+      pollIntervalMs: 10,
+      timeoutMs: 2_000,
+    });
+
+    assert.equal(revertedTracked.status, "reverted");
+    assert.equal(revertedTracked.gasUsed, 21_500n);
+    assert.deepEqual(revertedTracked.decodedLogs, []);
   });
 });

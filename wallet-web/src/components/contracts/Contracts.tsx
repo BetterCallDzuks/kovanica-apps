@@ -19,8 +19,10 @@ import {
   estimateContractCallPreview,
   formatBatchCallEstimateSummary,
   formatCallEstimateSummary,
+  simulateContractCallBeforeSign,
   type CallBatchEstimatePreview,
   type CallEstimatePreview,
+  type SimulateContractCallResult,
 } from "@/core/call-estimate";
 import { parseAtoms } from "@/core/format";
 import { callNeed, shortfall } from "@/core/history-row";
@@ -29,7 +31,7 @@ import { ContactSelect } from "@/components/contacts/ContactSelect";
 import { FaucetButton } from "@/components/home/FaucetButton";
 import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
-import { createCallEstimateClient, readStorageAt } from "@/services/rpc";
+import { createCallEstimateClient, createDryRunCallClient, readStorageAt } from "@/services/rpc";
 import { signingLock, useNetwork } from "@/stores/network";
 import { useActivity } from "@/stores/activity";
 
@@ -121,6 +123,8 @@ export function Contracts({
   const [reading, setReading] = useState(false);
   const [estimate, setEstimate] = useState<CallEstimatePreview | null>(null);
   const [estimating, setEstimating] = useState(false);
+  const [simulation, setSimulation] = useState<SimulateContractCallResult | null>(null);
+  const [simulating, setSimulating] = useState(false);
   const [batchQueue, setBatchQueue] = useState<QueuedBatchCall[]>([]);
   const [batchEstimate, setBatchEstimate] = useState<CallBatchEstimatePreview | null>(null);
   const [estimatingBatch, setEstimatingBatch] = useState(false);
@@ -146,6 +150,7 @@ export function Contracts({
     setError(null);
     setReadout(null);
     setEstimate(null);
+    setSimulation(null);
   }
 
   function needs(name: string): boolean {
@@ -254,6 +259,53 @@ export function Contracts({
       return null;
     } finally {
       setEstimating(false);
+    }
+  }
+
+  async function simulateCurrentCall() {
+    setError(null);
+    setReadout(null);
+    if (!current.sign) return;
+    if (lock.locked || net.probedChainId == null) {
+      setError(lock.locked ? lock.reason : "Node chain id is not available yet.");
+      return;
+    }
+    if (!address.ok) {
+      setError(address.message);
+      return;
+    }
+    const valueAtoms = parseAtoms(value);
+    const parsedGas = gas.trim() === "" ? undefined : parseAtoms(gas);
+    if (valueAtoms == null || (gas.trim() !== "" && parsedGas == null)) {
+      setError("Attached value and gas limit must be whole numbers of atoms.");
+      return;
+    }
+    setSimulating(true);
+    try {
+      if (needs("hash")) hex32(hash, "Hash");
+      if (needs("secret") && !secret.trim()) throw new Error("Enter the secret as hex or text.");
+      const built = draft();
+      const dryRunClient = createDryRunCallClient(net.rpcUrl);
+      const result = await simulateContractCallBeforeSign(
+        dryRunClient,
+        {
+          contract,
+          method: built.method,
+          args: built.args,
+          valueAtoms,
+          gasLimit: parsedGas ?? undefined,
+          chainId: net.probedChainId,
+        },
+        {
+          from: ownerAddress || undefined,
+        },
+      );
+      setSimulation(result);
+    } catch (err) {
+      setSimulation(null);
+      setError(err instanceof Error ? err.message : "Could not simulate this contract call");
+    } finally {
+      setSimulating(false);
     }
   }
 
@@ -440,7 +492,7 @@ export function Contracts({
       </div>
       <div className="flex flex-wrap gap-2">
         {selected.map((item) => (
-          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); setEstimate(null); }}>
+          <button key={item.id} type="button" className={`min-h-11 rounded-full border px-4 text-sm ${action === item.id ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => { setAction(item.id); setError(null); setReadout(null); setEstimate(null); setSimulation(null); }}>
             {item.label}
           </button>
         ))}
@@ -483,17 +535,45 @@ export function Contracts({
           <Field label="Attached value (atoms)" value={value} onChange={setValue} />
           <Field label="Gas limit" value={gas} onChange={setGas} />
           <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-medium text-paper">Fee &amp; Gas Preview</span>
-              <button
-                type="button"
-                className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
-                disabled={lock.locked || estimating}
-                onClick={() => void estimateCall()}
-              >
-                {estimating ? "Estimating…" : "Estimate fee & gas"}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={lock.locked || simulating}
+                  onClick={() => void simulateCurrentCall()}
+                >
+                  {simulating ? "Simulating…" : "Simulate call (dry-run)"}
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={lock.locked || estimating}
+                  onClick={() => void estimateCall()}
+                >
+                  {estimating ? "Estimating…" : "Estimate fee & gas"}
+                </button>
+              </div>
             </div>
+            {simulation ? (
+              simulation.ok ? (
+                <div className="mt-3 rounded-2xl border border-sage/60 bg-sage/10 px-3 py-2 text-xs text-sage">
+                  <p className="font-medium">Dry-run simulation succeeded</p>
+                  <p className="mt-1 break-all text-paper/90">{simulation.decodedSummary}</p>
+                </div>
+              ) : (
+                <div
+                  role="alert"
+                  className="mt-3 rounded-2xl border border-clay bg-clay/10 px-3 py-2 text-xs text-clay"
+                >
+                  <p className="font-medium">
+                    Dry-run simulation reverted — signing this call is likely to fail
+                  </p>
+                  <p className="mt-1 break-words">{simulation.reason}</p>
+                </div>
+              )
+            ) : null}
             {estimate ? (
               <dl className="mt-3 grid gap-2">
                 {formatCallEstimateSummary(estimate).map((row) => (

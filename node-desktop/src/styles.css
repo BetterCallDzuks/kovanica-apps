@@ -175,6 +175,37 @@ input[type="checkbox"] {
   margin-top: 0.75rem;
 }
 
+.stratum-alerts {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #3a3a44;
+  background: #1a1d26;
+  line-height: 1.4;
+}
+
+.stratum-alerts[data-severity="critical"] {
+  background: #3d1d22;
+  border-color: #b84a5a;
+  color: #ffb4b4;
+}
+
+.stratum-alerts[data-severity="warning"] {
+  background: #3a2a12;
+  border-color: #e0b15a;
+  color: #f5d38c;
+}
+
+.stratum-alerts[data-severity="info"] {
+  background: #172838;
+  border-color: #4f86b8;
+  color: #b8dcff;
+}
+
+.stratum-alerts p + p {
+  margin-top: 0.35rem;
+}
+
 .summary { margin-top: 0.75rem; line-height: 1.45; }
 
 .log-viewer {
