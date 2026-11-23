@@ -50,11 +50,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # L1 checkout of KovanicaProtokol/kovanica-l1. light-ffi stays in that repo.
+      # L1 checkout of BetterCallDzuks/kovanica-l1. light-ffi stays in that repo.
       - uses: actions/checkout@v4
         if: matrix.native
         with:
-          repository: KovanicaProtokol/kovanica-l1
+          repository: BetterCallDzuks/kovanica-l1
           path: kovanica-core
 
       - uses: actions/setup-java@v4
@@ -121,11 +121,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # L1 checkout of KovanicaProtokol/kovanica-l1. light-ffi stays in that repo.
+      # L1 checkout of BetterCallDzuks/kovanica-l1. light-ffi stays in that repo.
       - uses: actions/checkout@v4
         if: matrix.native
         with:
-          repository: KovanicaProtokol/kovanica-l1
+          repository: BetterCallDzuks/kovanica-l1
           path: kovanica-core
 
       - uses: actions/setup-java@v4
