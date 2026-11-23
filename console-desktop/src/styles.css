@@ -235,3 +235,33 @@ input[type="password"],
 #stratum-state[data-state="offline"] {
   color: var(--error);
 }
+
+#stratum-workers-section {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+#stratum-workers-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.workers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.workers-table th,
+.workers-table td {
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.workers-table th {
+  color: var(--muted);
+  font-weight: 600;
+}

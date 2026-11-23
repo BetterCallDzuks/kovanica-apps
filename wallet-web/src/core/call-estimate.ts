@@ -1,8 +1,10 @@
 import {
   DEFAULT_FEE_SAFETY_MARGIN_BPS,
   estimateAndBuildCall,
+  estimateBatchCalls,
   estimateCallTxSize,
   type EstimateAndBuildCallClient,
+  type RequestOptions,
 } from "kovanica-sdk";
 import { decodeRecipient } from "./address.ts";
 import { formatAtoms, formatKvnc } from "./format.ts";
@@ -32,6 +34,38 @@ export type EstimateContractCallInput = {
   gasMarginBps?: number;
   minFee?: bigint;
   maxFee?: bigint;
+  chainId: number;
+};
+
+export type BatchContractCallItemInput = {
+  contract: string | Uint8Array;
+  method: string;
+  args: Uint8Array;
+  valueAtoms?: bigint;
+  value?: bigint;
+  gasLimit?: bigint;
+  chainId?: number;
+};
+
+export type EstimateContractCallBatchOptions = {
+  sender?: string;
+  startNonce?: bigint;
+  feeRatePerByte?: bigint;
+  feeMarginBps?: number;
+  gasMarginBps?: number;
+  minFeePerCall?: bigint;
+  maxTotalFee?: bigint;
+  chainId?: number;
+  requestOptions?: RequestOptions;
+};
+
+export type CallBatchEstimatePreview = {
+  calls: CallEstimatePreview[];
+  totalEstimatedTxSize: number;
+  totalMarginedFee: bigint;
+  totalGasLimit: bigint;
+  feeRatePerByte: bigint;
+  startNonce: bigint | null;
   chainId: number;
 };
 
@@ -94,6 +128,70 @@ export async function estimateContractCallPreview(
     gasLimit: prepared.gasLimit,
     nonce: prepared.nonce ?? null,
     chainId: prepared.chainId,
+  };
+}
+
+/**
+ * Estimates wire sizes, +20% margined fees, gas limits, and sequential nonces (`startNonce + BigInt(i)`)
+ * for a batch of contract calls in a single parallel `estimateFee` + `getNonce` RPC lookup.
+ */
+export async function estimateContractCallBatchPreview(
+  client: EstimateAndBuildCallClient,
+  calls: ReadonlyArray<BatchContractCallItemInput>,
+  options: EstimateContractCallBatchOptions = {},
+): Promise<CallBatchEstimatePreview> {
+  if (!Array.isArray(calls) || calls.length === 0) {
+    throw new RangeError("estimateContractCallBatchPreview requires a non-empty array of calls");
+  }
+
+  const resolvedChainId = options.chainId ?? calls[0]?.chainId ?? 1;
+  const feeMarginBps = options.feeMarginBps ?? DEFAULT_FEE_SAFETY_MARGIN_BPS;
+
+  const normalizedCalls = calls.map((item) => {
+    const contractBytes =
+      typeof item.contract === "string"
+        ? decodeRecipient(item.contract, item.chainId ?? resolvedChainId)
+        : item.contract;
+    const value = item.valueAtoms ?? item.value ?? 0n;
+    return {
+      contract: contractBytes,
+      method: item.method,
+      args: item.args,
+      value,
+      ...(item.gasLimit !== undefined ? { gasLimit: item.gasLimit } : {}),
+    };
+  });
+
+  const preparedBatch = await estimateBatchCalls(client, normalizedCalls, {
+    sender: options.sender,
+    startNonce: options.startNonce,
+    feeRatePerByte: options.feeRatePerByte,
+    feeMarginBps,
+    gasMarginBps: options.gasMarginBps,
+    minFeePerCall: options.minFeePerCall,
+    maxTotalFee: options.maxTotalFee,
+    chainId: resolvedChainId,
+    requestOptions: options.requestOptions,
+  });
+
+  const previewCalls: CallEstimatePreview[] = preparedBatch.calls.map((prepared) => ({
+    estimatedTxSize: prepared.estimatedTxSize,
+    feeRatePerByte: prepared.feeRatePerByte ?? preparedBatch.feeRatePerByte,
+    marginedFee: prepared.fee,
+    feeMarginBps,
+    gasLimit: prepared.gasLimit,
+    nonce: prepared.nonce ?? null,
+    chainId: prepared.chainId,
+  }));
+
+  return {
+    calls: previewCalls,
+    totalEstimatedTxSize: preparedBatch.totalEstimatedTxSize,
+    totalMarginedFee: preparedBatch.totalFee,
+    totalGasLimit: preparedBatch.totalGasLimit,
+    feeRatePerByte: preparedBatch.feeRatePerByte,
+    startNonce: preparedBatch.startNonce ?? null,
+    chainId: preparedBatch.chainId,
   };
 }
 

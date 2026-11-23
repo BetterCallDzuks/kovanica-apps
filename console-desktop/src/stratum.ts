@@ -15,10 +15,34 @@ export interface StratumHealthSnapshot {
   timestamp: string;
 }
 
+/** Per-worker session item returned by `kovanica-stratum`'s `/workers` endpoint. */
+export interface StratumWorkerItem {
+  session_id?: number;
+  worker_name: string;
+  authorized?: boolean;
+  difficulty: number;
+  shares_accepted: number;
+  shares_rejected: number;
+  connected_secs: number;
+}
+
+/** Sanitized `/workers` payload returned by `kovanica-stratum`. */
+export interface StratumWorkersReport {
+  active_workers: number;
+  vardiff_enabled: boolean;
+  workers: StratumWorkerItem[];
+  timestamp?: number | string;
+}
+
 export type StratumTelemetryState =
   | { kind: "idle"; endpoint: string }
   | { kind: "loading"; endpoint: string }
-  | { kind: "online"; endpoint: string; health: StratumHealthSnapshot }
+  | {
+      kind: "online";
+      endpoint: string;
+      health: StratumHealthSnapshot;
+      workers: StratumWorkerItem[];
+    }
   | { kind: "offline"; endpoint: string; error: string };
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
@@ -53,6 +77,140 @@ export function normalizeStratumHealthUrl(raw: string): string {
   }
 
   return parsed.toString();
+}
+
+/**
+ * Derives the loopback Stratum `/workers` endpoint URL from a configured `/health` URL.
+ * Validates the loopback address first and replaces `/health` with `/workers`.
+ */
+export function deriveStratumWorkersUrl(healthUrl: string): string {
+  const normalized = normalizeStratumHealthUrl(healthUrl);
+  const parsed = new URL(normalized);
+  if (parsed.pathname.endsWith("/health")) {
+    parsed.pathname = `${parsed.pathname.slice(0, -"/health".length)}/workers` || "/workers";
+  } else {
+    parsed.pathname = "/workers";
+  }
+  return parsed.toString();
+}
+
+/** Validates and parses the JSON body returned by `kovanica-stratum`'s `/workers` endpoint. */
+export function parseStratumWorkers(raw: unknown): StratumWorkersReport {
+  let payload: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      throw new Error("Stratum /workers returned invalid JSON.");
+    }
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Stratum /workers returned an invalid JSON object.");
+  }
+  const obj = payload as Record<string, unknown>;
+
+  if (!Array.isArray(obj.workers)) {
+    throw new Error("Stratum /workers payload is missing a valid workers array.");
+  }
+
+  const workers: StratumWorkerItem[] = obj.workers.map((entry, idx) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Stratum /workers item at index ${idx} is not an object.`);
+    }
+    const item = entry as Record<string, unknown>;
+
+    if (typeof item.worker_name !== "string" || item.worker_name.trim() === "") {
+      throw new Error(`Stratum /workers item at index ${idx} is missing a valid worker_name.`);
+    }
+    if (typeof item.difficulty !== "number" || !Number.isFinite(item.difficulty) || item.difficulty < 0) {
+      throw new Error(`Stratum /workers item at index ${idx} is missing a valid difficulty.`);
+    }
+    if (
+      typeof item.shares_accepted !== "number" ||
+      !Number.isFinite(item.shares_accepted) ||
+      item.shares_accepted < 0
+    ) {
+      throw new Error(`Stratum /workers item at index ${idx} is missing a valid shares_accepted.`);
+    }
+    if (
+      typeof item.shares_rejected !== "number" ||
+      !Number.isFinite(item.shares_rejected) ||
+      item.shares_rejected < 0
+    ) {
+      throw new Error(`Stratum /workers item at index ${idx} is missing a valid shares_rejected.`);
+    }
+    if (
+      typeof item.connected_secs !== "number" ||
+      !Number.isFinite(item.connected_secs) ||
+      item.connected_secs < 0
+    ) {
+      throw new Error(`Stratum /workers item at index ${idx} is missing a valid connected_secs.`);
+    }
+
+    const parsedItem: StratumWorkerItem = {
+      worker_name: item.worker_name.trim(),
+      difficulty: item.difficulty,
+      shares_accepted: Math.floor(item.shares_accepted),
+      shares_rejected: Math.floor(item.shares_rejected),
+      connected_secs: Math.floor(item.connected_secs),
+    };
+
+    if (item.session_id !== undefined) {
+      if (typeof item.session_id !== "number" || !Number.isFinite(item.session_id) || item.session_id < 0) {
+        throw new Error(`Stratum /workers item at index ${idx} has an invalid session_id.`);
+      }
+      parsedItem.session_id = Math.floor(item.session_id);
+    }
+
+    if (item.authorized !== undefined) {
+      if (typeof item.authorized !== "boolean") {
+        throw new Error(`Stratum /workers item at index ${idx} has an invalid authorized flag.`);
+      }
+      parsedItem.authorized = item.authorized;
+    }
+
+    return parsedItem;
+  });
+
+  let activeWorkers = workers.length;
+  if (obj.active_workers !== undefined) {
+    if (
+      typeof obj.active_workers !== "number" ||
+      !Number.isFinite(obj.active_workers) ||
+      obj.active_workers < 0
+    ) {
+      throw new Error("Stratum /workers payload has an invalid active_workers count.");
+    }
+    activeWorkers = Math.floor(obj.active_workers);
+  }
+
+  let vardiffEnabled = false;
+  if (obj.vardiff_enabled !== undefined) {
+    if (typeof obj.vardiff_enabled !== "boolean") {
+      throw new Error("Stratum /workers payload has an invalid vardiff_enabled boolean.");
+    }
+    vardiffEnabled = obj.vardiff_enabled;
+  }
+
+  const report: StratumWorkersReport = {
+    active_workers: activeWorkers,
+    vardiff_enabled: vardiffEnabled,
+    workers,
+  };
+
+  if (obj.timestamp !== undefined) {
+    if (
+      (typeof obj.timestamp === "number" && Number.isFinite(obj.timestamp) && obj.timestamp >= 0) ||
+      (typeof obj.timestamp === "string" && obj.timestamp.trim() !== "")
+    ) {
+      report.timestamp = typeof obj.timestamp === "string" ? obj.timestamp.trim() : Math.floor(obj.timestamp);
+    } else {
+      throw new Error("Stratum /workers payload has an invalid timestamp.");
+    }
+  }
+
+  return report;
 }
 
 /** Validates and parses the JSON body returned by `kovanica-stratum`'s `/health` endpoint. */
@@ -173,6 +331,60 @@ export async function fetchStratumHealth(
     throw error instanceof Error
       ? error
       : new Error("Stratum gateway is offline or unreachable.");
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
+/**
+ * Queries the loopback Stratum `/workers` endpoint derived from `healthUrl`
+ * and validates the returned worker session report.
+ */
+export async function fetchStratumWorkers(
+  healthUrl: string,
+  fetchImplOrOptions?: typeof fetch | FetchStratumHealthOptions,
+): Promise<StratumWorkersReport> {
+  const url = deriveStratumWorkersUrl(healthUrl);
+  const options: FetchStratumHealthOptions =
+    typeof fetchImplOrOptions === "function"
+      ? { fetchImpl: fetchImplOrOptions }
+      : (fetchImplOrOptions ?? {});
+  const fetchFn = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+
+  let controller: AbortController | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let signal = options.signal;
+
+  if (!signal && typeof AbortController !== "undefined" && timeoutMs > 0) {
+    controller = new AbortController();
+    signal = controller.signal;
+    timer = setTimeout(() => controller?.abort(), timeoutMs);
+  }
+
+  try {
+    const response = await fetchFn(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Stratum gateway /workers returned HTTP ${response.status}.`);
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error("Stratum gateway /workers did not return valid JSON.");
+    }
+    return parseStratumWorkers(body);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Stratum gateway /workers request timed out.");
+    }
+    throw error instanceof Error
+      ? error
+      : new Error("Stratum gateway /workers endpoint is offline or unreachable.");
   } finally {
     if (timer !== null) clearTimeout(timer);
   }

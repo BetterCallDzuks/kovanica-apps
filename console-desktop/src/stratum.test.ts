@@ -2,10 +2,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_STRATUM_HEALTH_URL,
+  deriveStratumWorkersUrl,
   fetchStratumHealth,
+  fetchStratumWorkers,
   formatUptime,
   normalizeStratumHealthUrl,
   parseStratumHealth,
+  parseStratumWorkers,
   stratumHealthRows,
 } from "./stratum";
 import { mountStratumPanel } from "./stratum-panel";
@@ -22,6 +25,35 @@ function sampleHealthPayload(overrides: Record<string, unknown> = {}): Record<st
   };
 }
 
+function sampleWorkersPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    active_workers: 2,
+    vardiff_enabled: true,
+    workers: [
+      {
+        session_id: 1,
+        worker_name: "rig-alpha",
+        authorized: true,
+        difficulty: 4.5,
+        shares_accepted: 128,
+        shares_rejected: 2,
+        connected_secs: 3661,
+      },
+      {
+        session_id: 2,
+        worker_name: "rig-beta",
+        authorized: true,
+        difficulty: 2,
+        shares_accepted: 64,
+        shares_rejected: 0,
+        connected_secs: 185,
+      },
+    ],
+    timestamp: 1700000000,
+    ...overrides,
+  };
+}
+
 function mountFixture(): void {
   document.body.innerHTML = `
     <section id="stratum-panel" class="panel">
@@ -33,6 +65,22 @@ function mountFixture(): void {
       <p id="stratum-state" class="muted"></p>
       <p id="stratum-error" class="error" role="alert" hidden></p>
       <dl id="stratum-rows" class="readout"></dl>
+      <div id="stratum-workers-section" hidden>
+        <h3>Active Workers</h3>
+        <p id="stratum-workers-empty" class="muted">No active workers connected.</p>
+        <table id="stratum-workers-table" class="workers-table" hidden>
+          <thead>
+            <tr>
+              <th scope="col">Worker</th>
+              <th scope="col">Difficulty</th>
+              <th scope="col">Accepted</th>
+              <th scope="col">Rejected</th>
+              <th scope="col">Connected</th>
+            </tr>
+          </thead>
+          <tbody id="stratum-workers-body"></tbody>
+        </table>
+      </div>
     </section>
   `;
 }
@@ -119,6 +167,85 @@ describe("stratum health URL & schema helpers", () => {
       fetchStratumHealth("http://127.0.0.1:9100/health", { fetchImpl: offlineFetch }),
     ).rejects.toThrow(/Failed to fetch/);
   });
+
+  it("derives loopback /workers URL from /health URL and rejects non-loopback hosts", () => {
+    expect(deriveStratumWorkersUrl("")).toBe("http://127.0.0.1:9100/workers");
+    expect(deriveStratumWorkersUrl("http://127.0.0.1:9100/health")).toBe("http://127.0.0.1:9100/workers");
+    expect(deriveStratumWorkersUrl("http://localhost:9200")).toBe("http://localhost:9200/workers");
+    expect(deriveStratumWorkersUrl("http://[::1]:9100/health")).toBe("http://[::1]:9100/workers");
+    expect(() => deriveStratumWorkersUrl("http://192.168.1.5:9100/health")).toThrow(/loopback/i);
+  });
+
+  it("parses valid kovanica-stratum /workers JSON and rejects malformed items", () => {
+    const parsed = parseStratumWorkers(sampleWorkersPayload());
+    expect(parsed.active_workers).toBe(2);
+    expect(parsed.vardiff_enabled).toBe(true);
+    expect(parsed.workers).toEqual([
+      {
+        session_id: 1,
+        worker_name: "rig-alpha",
+        authorized: true,
+        difficulty: 4.5,
+        shares_accepted: 128,
+        shares_rejected: 2,
+        connected_secs: 3661,
+      },
+      {
+        session_id: 2,
+        worker_name: "rig-beta",
+        authorized: true,
+        difficulty: 2,
+        shares_accepted: 64,
+        shares_rejected: 0,
+        connected_secs: 185,
+      },
+    ]);
+
+    const fromString = parseStratumWorkers(JSON.stringify(sampleWorkersPayload({ workers: [] })));
+    expect(fromString.workers).toEqual([]);
+
+    expect(() => parseStratumWorkers(null)).toThrow(/JSON object/i);
+    expect(() => parseStratumWorkers({ workers: "nope" })).toThrow(/workers array/i);
+    expect(() =>
+      parseStratumWorkers({
+        workers: [{ worker_name: "", difficulty: 1, shares_accepted: 0, shares_rejected: 0, connected_secs: 10 }],
+      }),
+    ).toThrow(/worker_name/i);
+    expect(() =>
+      parseStratumWorkers({
+        workers: [{ worker_name: "rig1", difficulty: -1, shares_accepted: 0, shares_rejected: 0, connected_secs: 10 }],
+      }),
+    ).toThrow(/difficulty/i);
+    expect(() =>
+      parseStratumWorkers({
+        workers: [{ worker_name: "rig1", difficulty: 1, shares_accepted: -2, shares_rejected: 0, connected_secs: 10 }],
+      }),
+    ).toThrow(/shares_accepted/i);
+    expect(() =>
+      parseStratumWorkers({
+        workers: [{ worker_name: "rig1", difficulty: 1, shares_accepted: 0, shares_rejected: -1, connected_secs: 10 }],
+      }),
+    ).toThrow(/shares_rejected/i);
+    expect(() =>
+      parseStratumWorkers({
+        workers: [{ worker_name: "rig1", difficulty: 1, shares_accepted: 0, shares_rejected: 0, connected_secs: -5 }],
+      }),
+    ).toThrow(/connected_secs/i);
+  });
+
+  it("fetches /workers via derived loopback URL", async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("http://127.0.0.1:9100/workers");
+      return new Response(JSON.stringify(sampleWorkersPayload()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const report = await fetchStratumWorkers("http://127.0.0.1:9100/health", mockFetch);
+    expect(report.workers).toHaveLength(2);
+    expect(report.workers[0]?.worker_name).toBe("rig-alpha");
+  });
 });
 
 describe("Stratum Gateway Health & Telemetry DOM panel", () => {
@@ -127,10 +254,17 @@ describe("Stratum Gateway Health & Telemetry DOM panel", () => {
     mountFixture();
   });
 
-  it("renders telemetry rows on manual refresh and transitions to offline state on error", async () => {
+  it("renders telemetry rows and active workers table on manual refresh, and transitions to offline state on error", async () => {
     let online = true;
-    const mockFetch = vi.fn(async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
       if (!online) throw new Error("Connection refused");
+      const url = String(input);
+      if (url.endsWith("/workers")) {
+        return new Response(JSON.stringify(sampleWorkersPayload()), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify(sampleHealthPayload()), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -157,6 +291,17 @@ describe("Stratum Gateway Health & Telemetry DOM panel", () => {
       "2026-11-22T23:30:00Z",
     ]);
 
+    expect(document.querySelector<HTMLElement>("#stratum-workers-section")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("#stratum-workers-empty")?.hidden).toBe(true);
+    expect(document.querySelector<HTMLTableElement>("#stratum-workers-table")?.hidden).toBe(false);
+    const workerRows = Array.from(document.querySelectorAll("#stratum-workers-body tr")).map((tr) =>
+      Array.from(tr.querySelectorAll("td")).map((td) => td.textContent),
+    );
+    expect(workerRows).toEqual([
+      ["rig-alpha", "4.5", "128", "2", "1h 1m 1s (3661s)"],
+      ["rig-beta", "2", "64", "0", "3m 5s (185s)"],
+    ]);
+
     // Simulate gateway going offline
     online = false;
     await panel!.refresh();
@@ -165,15 +310,54 @@ describe("Stratum Gateway Health & Telemetry DOM panel", () => {
     expect(document.querySelector<HTMLParagraphElement>("#stratum-error")?.hidden).toBe(false);
     expect(document.querySelector("#stratum-error")?.textContent).toContain("Connection refused");
     expect(document.querySelectorAll("#stratum-rows dt")).toHaveLength(0);
+    expect(document.querySelectorAll("#stratum-workers-body tr")).toHaveLength(0);
+    expect(document.querySelector<HTMLElement>("#stratum-workers-section")?.hidden).toBe(true);
+  });
+
+  it("gracefully degrades to an empty worker list when /workers returns 404 or error while /health succeeds", async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workers")) {
+        return new Response("Not Found", { status: 404 });
+      }
+      return new Response(JSON.stringify(sampleHealthPayload()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const panel = mountStratumPanel({ fetchImpl: mockFetch });
+    await panel!.refresh();
+
+    const state = panel!.getState();
+    expect(state.kind).toBe("online");
+    if (state.kind === "online") {
+      expect(state.health.status).toBe("healthy");
+      expect(state.workers).toEqual([]);
+    }
+    expect(document.querySelector("#stratum-state")?.textContent).toContain("Online (healthy)");
+    expect(document.querySelector<HTMLParagraphElement>("#stratum-error")?.hidden).toBe(true);
+    expect(document.querySelectorAll("#stratum-rows dt")).toHaveLength(6);
+    expect(document.querySelector<HTMLElement>("#stratum-workers-section")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("#stratum-workers-empty")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLTableElement>("#stratum-workers-table")?.hidden).toBe(true);
+    expect(document.querySelectorAll("#stratum-workers-body tr")).toHaveLength(0);
   });
 
   it("rejects non-loopback URL on Save without calling fetch, and resets to default", async () => {
-    const mockFetch = vi.fn(async () =>
-      new Response(JSON.stringify(sampleHealthPayload({ current_job_id: null })), {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/workers")) {
+        return new Response(JSON.stringify(sampleWorkersPayload({ workers: [], active_workers: 0 })), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify(sampleHealthPayload({ current_job_id: null })), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
-    ) as unknown as typeof fetch;
+      });
+    }) as unknown as typeof fetch;
 
     mountStratumPanel({ fetchImpl: mockFetch });
     const input = document.querySelector<HTMLInputElement>("#stratum-url")!;
@@ -188,7 +372,7 @@ describe("Stratum Gateway Health & Telemetry DOM panel", () => {
 
     reset.click();
     await vi.waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(document.querySelector("#stratum-rows")?.textContent).toContain("None");
     });
     expect(input.value).toBe(DEFAULT_STRATUM_HEALTH_URL);

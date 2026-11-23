@@ -62,6 +62,22 @@
         <p id="stratum-state" class="muted"></p>
         <p id="stratum-error" class="error" role="alert" hidden></p>
         <dl id="stratum-rows" class="readout"></dl>
+        <div id="stratum-workers-section" hidden>
+          <h3>Active Workers</h3>
+          <p id="stratum-workers-empty" class="muted">No active workers connected.</p>
+          <table id="stratum-workers-table" class="workers-table" hidden>
+            <thead>
+              <tr>
+                <th scope="col">Worker</th>
+                <th scope="col">Difficulty</th>
+                <th scope="col">Accepted</th>
+                <th scope="col">Rejected</th>
+                <th scope="col">Connected</th>
+              </tr>
+            </thead>
+            <tbody id="stratum-workers-body"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="wallet-heading">

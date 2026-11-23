@@ -6,6 +6,7 @@ import { bytesToHex, hexToBytes } from "./bytes.ts";
 import {
   computeCallWireSize,
   DEFAULT_FEE_SAFETY_MARGIN_BPS,
+  estimateContractCallBatchPreview,
   estimateContractCallPreview,
   formatCallEstimateSummary,
   formatSafetyMarginPercent,
@@ -260,6 +261,238 @@ describe("contract call fee/gas & wire-size preview", () => {
           chainId: 2,
         }),
       /non-negative/i,
+    );
+  });
+
+  it("estimates a multi-call batch with sequential nonces, single parallel RPC round-trip, and aggregate totals", async () => {
+    const nameCall = buildContractCall({
+      contract: "name",
+      method: "name_register",
+      chainId: 2,
+      claimer: "",
+      beneficiary: "",
+      recipient: senderAddr,
+      account: "",
+      hash: "",
+      secret: "",
+      id: "",
+      timelockMs: null,
+      lockUntilMs: null,
+      amountAtoms: null,
+      tokenUnits: null,
+      txId: null,
+      callDataHex: "",
+      name: "batch.kvnc",
+      relayEndpoints: ["127.0.0.1:9000"],
+    });
+    const nftCall = buildContractCall({
+      contract: "nft",
+      method: "nft_mint",
+      chainId: 2,
+      claimer: "",
+      beneficiary: "",
+      recipient: bobAddr,
+      account: "",
+      hash: "",
+      secret: "",
+      id: "",
+      timelockMs: null,
+      lockUntilMs: null,
+      amountAtoms: null,
+      tokenUnits: null,
+      txId: null,
+      callDataHex: "",
+      collection: bytesToHex(contractBytes),
+      tokenId: 7n,
+      tokenUri: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    });
+    const escrowCall = buildContractCall({
+      contract: "escrow",
+      method: "escrow_create",
+      chainId: 2,
+      claimer: "",
+      beneficiary: "",
+      recipient: "",
+      account: "",
+      hash: "",
+      secret: "",
+      id: "",
+      timelockMs: null,
+      lockUntilMs: null,
+      amountAtoms: 5_000_000n,
+      tokenUnits: null,
+      txId: null,
+      callDataHex: "",
+      owners: `${senderAddr} ${bobAddr}`,
+      threshold: 2,
+      deadline: 1800000000n,
+    });
+
+    let estimateFeeCalls = 0;
+    let getNonceCalls = 0;
+    const feeRate = 80n;
+    const baseNonce = 42n;
+
+    const trackingClient: EstimateAndBuildCallClient = {
+      async estimateFee() {
+        estimateFeeCalls += 1;
+        return feeRate;
+      },
+      async getNonce(address: string) {
+        getNonceCalls += 1;
+        assert.equal(address, senderAddr);
+        return baseNonce;
+      },
+    };
+
+    const batchInputs = [
+      {
+        contract: contractAddr,
+        method: nameCall.method,
+        args: nameCall.args,
+        valueAtoms: 0n,
+        gasLimit: 100_000n,
+      },
+      {
+        contract: contractAddr,
+        method: nftCall.method,
+        args: nftCall.args,
+        valueAtoms: 0n,
+        gasLimit: 150_000n,
+      },
+      {
+        contract: contractAddr,
+        method: escrowCall.method,
+        args: escrowCall.args,
+        valueAtoms: 0n,
+        // omit gasLimit to test +20% default gas safety margin (100_000n -> 120_000n)
+      },
+    ];
+
+    const batchPreview = await estimateContractCallBatchPreview(trackingClient, batchInputs, {
+      sender: senderAddr,
+      chainId: 2,
+    });
+
+    assert.equal(estimateFeeCalls, 1, "estimateFee should be called once for the entire batch");
+    assert.equal(getNonceCalls, 1, "getNonce should be called once for the entire batch");
+
+    assert.equal(batchPreview.calls.length, 3);
+    assert.equal(batchPreview.feeRatePerByte, feeRate);
+    assert.equal(batchPreview.startNonce, baseNonce);
+    assert.equal(batchPreview.chainId, 2);
+
+    const expectedGasLimits = [100_000n, 150_000n, 120_000n];
+    let expectedTotalSize = 0;
+    let expectedTotalFee = 0n;
+    let expectedTotalGas = 0n;
+
+    for (let i = 0; i < batchInputs.length; i++) {
+      const item = batchInputs[i]!;
+      const resolvedGas = expectedGasLimits[i]!;
+      const expectedSize = computeCallWireSize({
+        contract: contractAddr,
+        method: item.method,
+        args: item.args,
+        valueAtoms: 0n,
+        gasLimit: resolvedGas,
+        chainId: 2,
+      });
+      const expectedBaseFee = feeRate * BigInt(expectedSize);
+      const expectedMarginedFee = (expectedBaseFee * 12_000n + 9_999n) / 10_000n;
+
+      const callPreview = batchPreview.calls[i]!;
+      assert.equal(callPreview.estimatedTxSize, expectedSize);
+      assert.equal(callPreview.feeRatePerByte, feeRate);
+      assert.equal(callPreview.feeMarginBps, DEFAULT_FEE_SAFETY_MARGIN_BPS);
+      assert.equal(callPreview.marginedFee, expectedMarginedFee);
+      assert.equal(callPreview.gasLimit, resolvedGas);
+      assert.equal(callPreview.nonce, baseNonce + BigInt(i));
+      assert.equal(callPreview.chainId, 2);
+
+      expectedTotalSize += expectedSize;
+      expectedTotalFee += expectedMarginedFee;
+      expectedTotalGas += resolvedGas;
+    }
+
+    assert.equal(batchPreview.totalEstimatedTxSize, expectedTotalSize);
+    assert.equal(batchPreview.totalMarginedFee, expectedTotalFee);
+    assert.equal(batchPreview.totalGasLimit, expectedTotalGas);
+  });
+
+  it("supports explicit startNonce and feeRatePerByte overrides without RPC calls and enforces maxTotalFee", async () => {
+    let rpcCalled = false;
+    const failIfCalledClient: EstimateAndBuildCallClient = {
+      async estimateFee() {
+        rpcCalled = true;
+        return 100n;
+      },
+      async getNonce() {
+        rpcCalled = true;
+        return 0n;
+      },
+    };
+
+    const batch = await estimateContractCallBatchPreview(
+      failIfCalledClient,
+      [
+        {
+          contract: contractAddr,
+          method: "token_transfer",
+          args: new Uint8Array([1, 2, 3, 4]),
+          valueAtoms: 0n,
+          gasLimit: 100_000n,
+        },
+        {
+          contract: contractAddr,
+          method: "token_transfer",
+          args: new Uint8Array([5, 6, 7, 8]),
+          valueAtoms: 0n,
+          gasLimit: 100_000n,
+        },
+      ],
+      {
+        startNonce: 10n,
+        feeRatePerByte: 50n,
+        chainId: 2,
+      },
+    );
+
+    assert.equal(rpcCalled, false);
+    assert.equal(batch.startNonce, 10n);
+    assert.equal(batch.calls[0]?.nonce, 10n);
+    assert.equal(batch.calls[1]?.nonce, 11n);
+    assert.equal(batch.totalMarginedFee, batch.calls[0]!.marginedFee + batch.calls[1]!.marginedFee);
+
+    await assert.rejects(
+      () =>
+        estimateContractCallBatchPreview(failIfCalledClient, [], {
+          chainId: 2,
+        }),
+      /non-empty/i,
+    );
+
+    await assert.rejects(
+      () =>
+        estimateContractCallBatchPreview(
+          failIfCalledClient,
+          [
+            {
+              contract: contractAddr,
+              method: "token_transfer",
+              args: new Uint8Array([1, 2]),
+              valueAtoms: 0n,
+              gasLimit: 100_000n,
+            },
+          ],
+          {
+            startNonce: 1n,
+            feeRatePerByte: 100n,
+            maxTotalFee: 100n,
+            chainId: 2,
+          },
+        ),
+      /maxTotalFee/i,
     );
   });
 });
