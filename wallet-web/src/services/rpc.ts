@@ -7,6 +7,13 @@ import type {
 } from "kovanica-sdk";
 import { bytesToHex } from "@/core/bytes";
 import { storageBytes } from "@/core/contracts";
+import {
+  createWalletFailoverClient,
+  watchSubmittedTxFinality,
+  type WalletFailoverClient,
+  type WalletFailoverClientOptions,
+  type WatchSubmittedTxFinalityOptions,
+} from "@/core/finality";
 import { decodeReceipt } from "@/core/receipt";
 import { parseNetworkTagChainId } from "@/lib/networks";
 import { useNetwork } from "@/stores/network";
@@ -497,3 +504,11 @@ export function createReceiptTrackingClient(rpcUrl: string): WaitForTransactionR
     },
   };
 }
+
+export {
+  createWalletFailoverClient,
+  watchSubmittedTxFinality,
+  type WalletFailoverClient,
+  type WalletFailoverClientOptions,
+  type WatchSubmittedTxFinalityOptions,
+};

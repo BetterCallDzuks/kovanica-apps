@@ -436,6 +436,228 @@ export function buildSanitizedStratumDiagnostics(
   return bundle;
 }
 
+export const STRATUM_HIGH_REJECTION_RATIO = 0.1;
+
+export type StratumHealthStatus = "healthy" | "draining" | "degraded" | "offline";
+
+export interface StratumHealthSummary {
+  status: StratumHealthStatus;
+  draining: boolean;
+  activeWorkers: number;
+  acceptedShares: number;
+  rejectedShares: number;
+  rejectionRatio: number;
+  alerts: string[];
+}
+
+function readNonNegativeNumber(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): number | null {
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+      return raw;
+    }
+    if (typeof raw === "string" && raw.trim() !== "") {
+      const parsed = Number(raw.trim());
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function readBooleanFlag(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): boolean | null {
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "boolean") {
+      return raw;
+    }
+    if (typeof raw === "string") {
+      const normalized = raw.trim().toLowerCase();
+      if (normalized === "true") return true;
+      if (normalized === "false") return false;
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses `/health` and `/workers` style Stratum JSON payloads into a normalized
+ * operator health summary with share rejection ratio and actionable alerts.
+ * Fail-safe: returns `status: "offline"` on null, primitive, or malformed inputs.
+ */
+export function parseStratumHealthSummary(healthJson: unknown): StratumHealthSummary {
+  if (!healthJson || typeof healthJson !== "object" || Array.isArray(healthJson)) {
+    return {
+      status: "offline",
+      draining: false,
+      activeWorkers: 0,
+      acceptedShares: 0,
+      rejectedShares: 0,
+      rejectionRatio: 0,
+      alerts: ["Stratum health payload is unavailable or malformed."],
+    };
+  }
+
+  const record = healthJson as Record<string, unknown>;
+  const rawStatus =
+    typeof record.status === "string" ? record.status.trim().toLowerCase() : null;
+  const rawReach =
+    typeof record.reach === "string" ? record.reach.trim().toLowerCase() : null;
+  const okFlag = readBooleanFlag(record, ["ok", "healthy"]);
+  const drainingFlag = readBooleanFlag(record, ["draining", "isDraining", "is_draining"]);
+  const hasWorkersArray = Array.isArray(record.workers);
+
+  const explicitActiveWorkers = readNonNegativeNumber(record, [
+    "activeWorkers",
+    "active_workers",
+    "activeConnections",
+    "active_connections",
+    "activeCount",
+    "active_count",
+    "workerCount",
+    "worker_count",
+  ]);
+  const explicitAccepted = readNonNegativeNumber(record, [
+    "acceptedShares",
+    "accepted_shares",
+    "sharesAccepted",
+    "shares_accepted",
+    "totalAcceptedShares",
+    "total_accepted_shares",
+  ]);
+  const explicitRejected = readNonNegativeNumber(record, [
+    "rejectedShares",
+    "rejected_shares",
+    "sharesRejected",
+    "shares_rejected",
+    "totalRejectedShares",
+    "total_rejected_shares",
+  ]);
+
+  const hasRecognizedField =
+    rawStatus !== null ||
+    rawReach !== null ||
+    okFlag !== null ||
+    drainingFlag !== null ||
+    hasWorkersArray ||
+    explicitActiveWorkers !== null ||
+    explicitAccepted !== null ||
+    explicitRejected !== null ||
+    readNonNegativeNumber(record, ["uptimeSeconds", "uptime_seconds"]) !== null;
+
+  if (!hasRecognizedField) {
+    return {
+      status: "offline",
+      draining: false,
+      activeWorkers: 0,
+      acceptedShares: 0,
+      rejectedShares: 0,
+      rejectionRatio: 0,
+      alerts: ["Stratum health payload is unavailable or malformed."],
+    };
+  }
+
+  let workerCountFromList = 0;
+  let workerAcceptedSum = 0;
+  let workerRejectedSum = 0;
+  if (hasWorkersArray) {
+    for (const item of record.workers as unknown[]) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        continue;
+      }
+      workerCountFromList += 1;
+      const entry = item as Record<string, unknown>;
+      workerAcceptedSum +=
+        readNonNegativeNumber(entry, [
+          "sharesAccepted",
+          "shares_accepted",
+          "acceptedShares",
+          "accepted_shares",
+          "accepted",
+        ]) ?? 0;
+      workerRejectedSum +=
+        readNonNegativeNumber(entry, [
+          "sharesRejected",
+          "shares_rejected",
+          "rejectedShares",
+          "rejected_shares",
+          "rejected",
+        ]) ?? 0;
+    }
+  }
+
+  const draining = drainingFlag === true || rawStatus === "draining";
+  const activeWorkers = Math.floor(
+    explicitActiveWorkers !== null ? explicitActiveWorkers : workerCountFromList,
+  );
+  const acceptedShares = Math.floor(
+    explicitAccepted !== null ? explicitAccepted : workerAcceptedSum,
+  );
+  const rejectedShares = Math.floor(
+    explicitRejected !== null ? explicitRejected : workerRejectedSum,
+  );
+  const totalShares = acceptedShares + rejectedShares;
+  const rejectionRatio = totalShares > 0 ? rejectedShares / totalShares : 0;
+
+  const isOffline =
+    rawReach === "unreachable" ||
+    rawStatus === "offline" ||
+    rawStatus === "down" ||
+    rawStatus === "stopped" ||
+    rawStatus === "unreachable";
+
+  const alerts: string[] = [];
+  if (isOffline) {
+    alerts.push("Stratum gateway is offline.");
+  }
+  if (draining) {
+    alerts.push("Stratum gateway is draining and not accepting new work.");
+  }
+  if (activeWorkers === 0) {
+    alerts.push("No active Stratum workers connected.");
+  }
+  if (totalShares > 0 && rejectionRatio > STRATUM_HIGH_REJECTION_RATIO) {
+    alerts.push(
+      `High share rejection ratio (${(rejectionRatio * 100).toFixed(1)}%: ${rejectedShares}/${totalShares} rejected).`,
+    );
+  }
+
+  let status: StratumHealthStatus;
+  if (isOffline) {
+    status = "offline";
+  } else if (draining) {
+    status = "draining";
+  } else if (
+    rawStatus === "degraded" ||
+    rawStatus === "unhealthy" ||
+    rawStatus === "warning" ||
+    okFlag === false ||
+    activeWorkers === 0 ||
+    (totalShares > 0 && rejectionRatio > STRATUM_HIGH_REJECTION_RATIO)
+  ) {
+    status = "degraded";
+  } else {
+    status = "healthy";
+  }
+
+  return {
+    status,
+    draining,
+    activeWorkers,
+    acceptedShares,
+    rejectedShares,
+    rejectionRatio,
+    alerts,
+  };
+}
+
 export const CANONICAL_NETWORK_TAGS: Readonly<Record<number, string>> = {
   1: "1-f35df34c92001436",
   2: "2-24cdb5fadd98b207",

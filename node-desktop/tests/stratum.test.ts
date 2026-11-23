@@ -9,6 +9,7 @@ import {
   evaluateStratumAlerts,
   formatRpcProbeResult,
   mountStratumApp,
+  parseStratumHealthSummary,
   probeStratumUpstreamBatch,
   probeStratumUpstreamRpc,
   stratumStatusLabel,
@@ -993,4 +994,79 @@ test("probeStratumUpstreamBatch sends single-POST JSON-RPC 2.0 batch, correlates
   assert.equal(invalid.ok, false);
   assert.equal(invalid.batchSupported, false);
   assert.match(invalid.error ?? "", /http/i);
+});
+
+test("parseStratumHealthSummary parses /health and /workers payloads, computes rejection ratio, raises alerts, and fails safe on malformed input", () => {
+  // Healthy /health style payload (below 10% rejection threshold)
+  const healthy = parseStratumHealthSummary({
+    status: "healthy",
+    draining: false,
+    active_workers: 3,
+    accepted_shares: 90,
+    rejected_shares: 10,
+  });
+  assert.equal(healthy.status, "healthy");
+  assert.equal(healthy.draining, false);
+  assert.equal(healthy.activeWorkers, 3);
+  assert.equal(healthy.acceptedShares, 90);
+  assert.equal(healthy.rejectedShares, 10);
+  assert.equal(healthy.rejectionRatio, 0.1);
+  assert.deepEqual(healthy.alerts, []);
+
+  // /workers style payload aggregating per-worker shares and detecting high rejection ratio (> 0.10)
+  const highReject = parseStratumHealthSummary({
+    status: "ok",
+    workers: [
+      { workerName: "rig-a", sharesAccepted: 70, sharesRejected: 15 },
+      { workerName: "rig-b", shares_accepted: 10, shares_rejected: 5 },
+    ],
+  });
+  assert.equal(highReject.status, "degraded");
+  assert.equal(highReject.draining, false);
+  assert.equal(highReject.activeWorkers, 2);
+  assert.equal(highReject.acceptedShares, 80);
+  assert.equal(highReject.rejectedShares, 20);
+  assert.equal(highReject.rejectionRatio, 0.2);
+  assert.equal(highReject.alerts.length, 1);
+  assert.match(highReject.alerts[0], /rejection ratio/i);
+
+  // Draining gateway with zero active workers raises both alerts and reports status="draining"
+  const drainingEmpty = parseStratumHealthSummary({
+    status: "draining",
+    draining: true,
+    activeConnections: "0",
+    acceptedShares: 0,
+    rejectedShares: 0,
+  });
+  assert.equal(drainingEmpty.status, "draining");
+  assert.equal(drainingEmpty.draining, true);
+  assert.equal(drainingEmpty.activeWorkers, 0);
+  assert.equal(drainingEmpty.rejectionRatio, 0);
+  assert.equal(drainingEmpty.alerts.length, 2);
+  assert.match(drainingEmpty.alerts[0], /draining/i);
+  assert.match(drainingEmpty.alerts[1], /No active Stratum workers/i);
+
+  // Zero active workers without draining -> degraded with alert (and no rejection alert when total shares == 0)
+  const noWorkers = parseStratumHealthSummary({
+    status: "healthy",
+    activeWorkers: 0,
+    acceptedShares: 0,
+    rejectedShares: 0,
+  });
+  assert.equal(noWorkers.status, "degraded");
+  assert.equal(noWorkers.rejectionRatio, 0);
+  assert.equal(noWorkers.alerts.length, 1);
+  assert.match(noWorkers.alerts[0], /No active Stratum workers/i);
+
+  // Fail-safe on null, undefined, primitives, arrays, and unrecognized objects
+  for (const malformed of [null, undefined, "not-json", 42, [], {}]) {
+    const offline = parseStratumHealthSummary(malformed);
+    assert.equal(offline.status, "offline");
+    assert.equal(offline.draining, false);
+    assert.equal(offline.activeWorkers, 0);
+    assert.equal(offline.acceptedShares, 0);
+    assert.equal(offline.rejectedShares, 0);
+    assert.equal(offline.rejectionRatio, 0);
+    assert.ok(offline.alerts.length > 0);
+  }
 });
