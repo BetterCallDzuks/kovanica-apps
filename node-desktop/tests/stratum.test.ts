@@ -10,6 +10,7 @@ import {
   evaluateStratumAlerts,
   formatRpcProbeResult,
   mountStratumApp,
+  parseFaucetHealthSummary,
   parseSnapshotVerifyReport,
   parseStratumHealthSummary,
   probeStratumUpstreamBatch,
@@ -18,6 +19,7 @@ import {
   toStratumPayload,
   validateStratumForm,
   verifyCanonicalNetworkTag,
+  type FaucetHealthSummary,
   type SnapshotVerifyReport,
   type StratumFormInput,
   type StratumSnapshot,
@@ -1180,5 +1182,89 @@ test("parseSnapshotVerifyReport parses valid JSON output and fails closed on mal
     assert.equal(report.verifiedFiles, 0);
     assert.ok(report.failedChecks.length > 0);
     assert.match(report.summary, /failed/i);
+  }
+});
+
+test("parseFaucetHealthSummary validates canonical Chain 2 tag, enforces minBalanceAtoms floor, and fails safe on malformed input", () => {
+  // Healthy testnet faucet above balance floor
+  const healthy: FaucetHealthSummary = parseFaucetHealthSummary(
+    {
+      status: "ok",
+      chain_id: 2,
+      network_tag: "2-24cdb5fadd98b207",
+      balance_atoms: "5000000000000",
+      drips_succeeded: 42,
+      rate_limited: 3,
+    },
+    1_000_000_000_000n,
+  );
+  assert.deepEqual(healthy, {
+    status: "healthy",
+    chainId: 2,
+    networkTag: "2-24cdb5fadd98b207",
+    canonicalTestnetTagValid: true,
+    balanceAtoms: 5_000_000_000_000n,
+    dripsSucceeded: 42,
+    rateLimited: 3,
+    alerts: [],
+  });
+
+  // Below minBalanceAtoms floor -> low_balance with alert
+  const lowBalance = parseFaucetHealthSummary(
+    {
+      status: "healthy",
+      chainId: "0x2",
+      networkTag: "2-24cdb5fadd98b207",
+      balanceAtoms: "250000000000",
+      dripsSucceeded: 10,
+      rateLimited: 1,
+    },
+    1_000_000_000_000n,
+  );
+  assert.equal(lowBalance.status, "low_balance");
+  assert.equal(lowBalance.canonicalTestnetTagValid, true);
+  assert.equal(lowBalance.balanceAtoms, 250_000_000_000n);
+  assert.equal(lowBalance.alerts.length, 1);
+  assert.match(lowBalance.alerts[0], /below minimum threshold/i);
+
+  // Wrong network tag -> degraded with canonicalTestnetTagValid=false
+  const badTag = parseFaucetHealthSummary(
+    {
+      status: "ok",
+      chain_id: 2,
+      network_tag: "2-deadbeefdeadbeef",
+      balance_atoms: "5000000000000",
+      drips_succeeded: 5,
+      rate_limited: 0,
+    },
+    1_000_000_000_000n,
+  );
+  assert.equal(badTag.status, "degraded");
+  assert.equal(badTag.canonicalTestnetTagValid, false);
+  assert.ok(badTag.alerts.some((a) => /mismatch/i.test(a)));
+
+  // Wrong chainId (e.g. mainnet chain 1) -> degraded with canonicalTestnetTagValid=false
+  const wrongChain = parseFaucetHealthSummary({
+    status: "ok",
+    chain_id: 1,
+    network_tag: "1-f35df34c92001436",
+    balance_atoms: "5000000000000",
+  });
+  assert.equal(wrongChain.status, "degraded");
+  assert.equal(wrongChain.chainId, 1);
+  assert.equal(wrongChain.canonicalTestnetTagValid, false);
+  assert.ok(wrongChain.alerts.some((a) => /testnet chainId 2/i.test(a)));
+
+  // Fail-safe to status='offline' on null, primitive, array, or unrecognized objects
+  for (const malformed of [null, undefined, "OK", 42, [], {}]) {
+    const offline = parseFaucetHealthSummary(malformed, 1_000n);
+    assert.equal(offline.status, "offline");
+    assert.equal(offline.chainId, null);
+    assert.equal(offline.networkTag, null);
+    assert.equal(offline.canonicalTestnetTagValid, false);
+    assert.equal(offline.balanceAtoms, null);
+    assert.equal(offline.dripsSucceeded, 0);
+    assert.equal(offline.rateLimited, 0);
+    assert.ok(offline.alerts.length > 0);
   }
 });

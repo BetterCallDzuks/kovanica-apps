@@ -11,6 +11,7 @@ import {
   MAX_FALLBACK_RPC_URLS,
   normalizeRpcBearerToken,
   parseFallbackRpcUrls,
+  parseIndexerHealthSummary,
   peerLines,
   probeRpcBatchHealth,
   probeRpcEndpoints,
@@ -20,6 +21,7 @@ import {
   setSessionRpcBearerToken,
   statusRows,
   verifyNetworkTagForChain,
+  type IndexerHealthSummary,
   type NodeStatus,
 } from "./connection";
 
@@ -600,5 +602,73 @@ describe("single-POST JSON-RPC 2.0 batch health probe and network tag verificati
     expect(doctorOverride.ready).toBe(true);
     expect(doctorOverride.severity).toBe("ok");
     expect(doctorOverride.canonicalTagValid).toBe(true);
+  });
+});
+
+describe("parseIndexerHealthSummary", () => {
+  it("parses synced kovanica-indexer /health payloads with zero alerts", () => {
+    const summary: IndexerHealthSummary = parseIndexerHealthSummary({
+      status: "ok",
+      indexed_height: 1200,
+      node_head_height: 1201,
+      lag_blocks: 1,
+      sync_state: "synced",
+      event_count: 842,
+    });
+    expect(summary).toEqual({
+      syncState: "synced",
+      indexedHeight: 1200,
+      nodeHeadHeight: 1201,
+      lagBlocks: 1,
+      eventCount: 842,
+      alerts: [],
+    });
+  });
+
+  it("raises alerts on lagging and stalled payloads and derives lag/state when omitted", () => {
+    const lagging = parseIndexerHealthSummary({
+      status: "ok",
+      indexed_height: 980,
+      node_head_height: 1000,
+      lag_blocks: 20,
+      sync_state: "lagging",
+      event_count: 500,
+    });
+    expect(lagging.syncState).toBe("lagging");
+    expect(lagging.lagBlocks).toBe(20);
+    expect(lagging.alerts).toHaveLength(1);
+    expect(lagging.alerts[0]).toMatch(/lagging.*20 blocks/i);
+
+    const stalledDerived = parseIndexerHealthSummary({
+      status: "ok",
+      indexedHeight: 100,
+      nodeHeadHeight: 250,
+      eventCount: 42,
+    });
+    expect(stalledDerived.syncState).toBe("stalled");
+    expect(stalledDerived.lagBlocks).toBe(150);
+    expect(stalledDerived.eventCount).toBe(42);
+    expect(stalledDerived.alerts).toHaveLength(1);
+    expect(stalledDerived.alerts[0]).toMatch(/stalled.*150 blocks/i);
+  });
+
+  it("fails safe to syncState='offline' on null, primitive, malformed, or offline payloads", () => {
+    for (const malformed of [null, undefined, "ok", 123, [], {}]) {
+      const result = parseIndexerHealthSummary(malformed);
+      expect(result.syncState).toBe("offline");
+      expect(result.indexedHeight).toBe(0);
+      expect(result.nodeHeadHeight).toBe(0);
+      expect(result.lagBlocks).toBe(0);
+      expect(result.eventCount).toBe(0);
+      expect(result.alerts.length).toBeGreaterThan(0);
+    }
+
+    const explicitOffline = parseIndexerHealthSummary({
+      status: "error",
+      indexed_height: 50,
+      node_head_height: 50,
+    });
+    expect(explicitOffline.syncState).toBe("offline");
+    expect(explicitOffline.alerts).toContain("Indexer is offline or unreachable.");
   });
 });

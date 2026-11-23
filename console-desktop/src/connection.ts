@@ -810,3 +810,163 @@ export function formatNodeDoctorSummary(
     warnings,
   };
 }
+
+export type IndexerSyncState = "synced" | "lagging" | "stalled" | "offline";
+
+export interface IndexerHealthSummary {
+  syncState: IndexerSyncState;
+  indexedHeight: number;
+  nodeHeadHeight: number;
+  lagBlocks: number;
+  eventCount: number;
+  alerts: string[];
+}
+
+export const INDEXER_SYNCED_MAX_LAG_BLOCKS = 2;
+export const INDEXER_LAGGING_MAX_LAG_BLOCKS = 50;
+
+function readNonNegativeInt(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): number | null {
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+      return Math.floor(raw);
+    }
+    if (typeof raw === "string" && /^\d+$/.test(raw.trim())) {
+      const parsed = Number.parseInt(raw.trim(), 10);
+      if (Number.isSafeInteger(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function classifyIndexerLag(lagBlocks: number): Exclude<IndexerSyncState, "offline"> {
+  if (lagBlocks <= INDEXER_SYNCED_MAX_LAG_BLOCKS) {
+    return "synced";
+  }
+  if (lagBlocks <= INDEXER_LAGGING_MAX_LAG_BLOCKS) {
+    return "lagging";
+  }
+  return "stalled";
+}
+
+/**
+ * Parses `kovanica-indexer` `/health` JSON payloads into a normalized sync-lag
+ * summary. Fails safe to `syncState: "offline"` on null, primitive, or malformed
+ * inputs, and raises actionable alerts when `lagging`, `stalled`, or `offline`.
+ */
+export function parseIndexerHealthSummary(healthJson: unknown): IndexerHealthSummary {
+  if (!healthJson || typeof healthJson !== "object" || Array.isArray(healthJson)) {
+    return {
+      syncState: "offline",
+      indexedHeight: 0,
+      nodeHeadHeight: 0,
+      lagBlocks: 0,
+      eventCount: 0,
+      alerts: ["Indexer health payload is unavailable or malformed."],
+    };
+  }
+
+  const record = healthJson as Record<string, unknown>;
+  const rawStatus =
+    typeof record.status === "string" ? record.status.trim().toLowerCase() : null;
+  const rawSyncState =
+    typeof record.sync_state === "string"
+      ? record.sync_state.trim().toLowerCase()
+      : typeof record.syncState === "string"
+        ? record.syncState.trim().toLowerCase()
+        : null;
+
+  const indexedHeightVal = readNonNegativeInt(record, [
+    "indexed_height",
+    "indexedHeight",
+    "latest_indexed_height",
+    "latestIndexedHeight",
+  ]);
+  const nodeHeadHeightVal = readNonNegativeInt(record, [
+    "node_head_height",
+    "nodeHeadHeight",
+    "latest_node_height",
+    "latestNodeHeight",
+  ]);
+  const lagBlocksVal = readNonNegativeInt(record, ["lag_blocks", "lagBlocks"]);
+  const eventCountVal = readNonNegativeInt(record, ["event_count", "eventCount"]);
+
+  const hasRecognizedField =
+    rawStatus !== null ||
+    rawSyncState !== null ||
+    indexedHeightVal !== null ||
+    nodeHeadHeightVal !== null ||
+    lagBlocksVal !== null ||
+    eventCountVal !== null;
+
+  if (!hasRecognizedField) {
+    return {
+      syncState: "offline",
+      indexedHeight: 0,
+      nodeHeadHeight: 0,
+      lagBlocks: 0,
+      eventCount: 0,
+      alerts: ["Indexer health payload is unavailable or malformed."],
+    };
+  }
+
+  const indexedHeight = indexedHeightVal ?? 0;
+  const nodeHeadHeight = nodeHeadHeightVal ?? 0;
+  const lagBlocks =
+    lagBlocksVal !== null ? lagBlocksVal : Math.max(0, nodeHeadHeight - indexedHeight);
+  const eventCount = eventCountVal ?? 0;
+
+  const isOffline =
+    rawSyncState === "offline" ||
+    rawStatus === "offline" ||
+    rawStatus === "down" ||
+    rawStatus === "stopped" ||
+    rawStatus === "unreachable" ||
+    rawStatus === "error";
+
+  let syncState: IndexerSyncState;
+  if (isOffline) {
+    syncState = "offline";
+  } else if (
+    rawSyncState === "synced" ||
+    rawSyncState === "lagging" ||
+    rawSyncState === "stalled"
+  ) {
+    syncState = rawSyncState;
+  } else if (
+    indexedHeightVal !== null ||
+    nodeHeadHeightVal !== null ||
+    lagBlocksVal !== null
+  ) {
+    syncState = classifyIndexerLag(lagBlocks);
+  } else {
+    syncState = "offline";
+  }
+
+  const alerts: string[] = [];
+  if (syncState === "offline") {
+    alerts.push("Indexer is offline or unreachable.");
+  } else if (syncState === "lagging") {
+    alerts.push(
+      `Indexer is lagging behind node head by ${lagBlocks} block${lagBlocks === 1 ? "" : "s"} (indexed=${indexedHeight}, head=${nodeHeadHeight}).`,
+    );
+  } else if (syncState === "stalled") {
+    alerts.push(
+      `Indexer is stalled behind node head by ${lagBlocks} block${lagBlocks === 1 ? "" : "s"} (indexed=${indexedHeight}, head=${nodeHeadHeight}).`,
+    );
+  }
+
+  return {
+    syncState,
+    indexedHeight,
+    nodeHeadHeight,
+    lagBlocks,
+    eventCount,
+    alerts,
+  };
+}
