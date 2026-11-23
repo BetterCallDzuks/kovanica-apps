@@ -666,3 +666,110 @@ export async function probeRpcBatchHealth(
     };
   }
 }
+
+export type NodeDoctorSeverity = "ok" | "warn" | "error";
+
+export interface NodeDoctorSummary {
+  ready: boolean;
+  severity: NodeDoctorSeverity;
+  canonicalTagValid: boolean;
+  batchSupported: boolean;
+  latencyMs: number;
+  headline: string;
+  warnings: string[];
+}
+
+/**
+ * Combines `probeRpcBatchHealth` output with `verifyNetworkTagForChain` into a
+ * concise operator readiness summary. Sanitizes credentials from URLs and errors.
+ */
+export function formatNodeDoctorSummary(
+  batchProbeResult: RpcBatchHealthProbeResult,
+  networkTag?: string,
+): NodeDoctorSummary {
+  const safeUrl = sanitizeRpcUrlForDisplay(batchProbeResult.url);
+  const latencyMs =
+    Number.isFinite(batchProbeResult.latencyMs) && batchProbeResult.latencyMs >= 0
+      ? Math.round(batchProbeResult.latencyMs)
+      : 0;
+  const batchSupported = Boolean(batchProbeResult.batchSupported);
+  const warnings: string[] = [];
+
+  let canonicalTagValid = false;
+  let tagMismatch = false;
+
+  if (batchProbeResult.chainId !== undefined && batchProbeResult.chainId.trim() !== "") {
+    const tagCheck = verifyNetworkTagForChain(batchProbeResult.chainId, networkTag);
+    canonicalTagValid = tagCheck.valid;
+    if (!tagCheck.valid) {
+      if (tagCheck.reason) {
+        warnings.push(tagCheck.reason);
+      }
+      if (
+        tagCheck.actualTag !== null &&
+        tagCheck.expectedTag !== null &&
+        tagCheck.actualTag !== tagCheck.expectedTag
+      ) {
+        tagMismatch = true;
+      }
+    }
+  } else if (batchProbeResult.ok) {
+    warnings.push("Missing chainId in batch probe result; cannot verify canonical network tag.");
+  }
+
+  if (!batchSupported) {
+    warnings.push("Endpoint does not support JSON-RPC 2.0 batch requests.");
+  }
+
+  if (!batchProbeResult.ok) {
+    const safeError = batchProbeResult.error
+      ? sanitizeRpcText(batchProbeResult.error)
+      : "RPC batch health probe failed.";
+    if (!warnings.includes(safeError)) {
+      warnings.push(safeError);
+    }
+    return {
+      ready: false,
+      severity: "error",
+      canonicalTagValid,
+      batchSupported,
+      latencyMs,
+      headline: `Node not ready (${safeUrl}) · ${latencyMs}ms · ${safeError}`,
+      warnings,
+    };
+  }
+
+  if (tagMismatch) {
+    return {
+      ready: false,
+      severity: "error",
+      canonicalTagValid: false,
+      batchSupported,
+      latencyMs,
+      headline: `Node network tag mismatch (${safeUrl}) · chainId=${batchProbeResult.chainId ?? "unknown"} · ${latencyMs}ms`,
+      warnings,
+    };
+  }
+
+  if (!canonicalTagValid || !batchSupported) {
+    return {
+      ready: true,
+      severity: "warn",
+      canonicalTagValid,
+      batchSupported,
+      latencyMs,
+      headline: `Node reachable with warnings (${safeUrl}) · chainId=${batchProbeResult.chainId ?? "unknown"} · height=${batchProbeResult.blockHeight ?? "unknown"} · ${latencyMs}ms`,
+      warnings,
+    };
+  }
+
+  return {
+    ready: true,
+    severity: "ok",
+    canonicalTagValid: true,
+    batchSupported: true,
+    latencyMs,
+    headline: `Node ready (${safeUrl}) · chainId=${batchProbeResult.chainId ?? "unknown"} · height=${batchProbeResult.blockHeight ?? "unknown"} · ${latencyMs}ms`,
+    warnings,
+  };
+}

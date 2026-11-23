@@ -5,6 +5,7 @@ import {
   CANONICAL_NETWORK_TAGS,
   clearSessionRpcBearerToken,
   endpointLine,
+  formatNodeDoctorSummary,
   getSessionRpcBearerToken,
   hasSessionRpcBearerToken,
   MAX_FALLBACK_RPC_URLS,
@@ -449,5 +450,103 @@ describe("single-POST JSON-RPC 2.0 batch health probe and network tag verificati
     expect(invalid.ok).toBe(false);
     expect(invalid.batchSupported).toBe(false);
     expect(invalid.error).toMatch(/http/i);
+  });
+
+  it("formats NodeDoctorSummary for healthy mainnet/testnet nodes, missing tags, tag mismatches, and failed probes", () => {
+    const mainnetOk = formatNodeDoctorSummary(
+      {
+        url: "https://rpc-mainnet.kovanica.online:8545",
+        ok: true,
+        chainId: "1",
+        blockHeight: "1024",
+        feeRate: "500",
+        batchSupported: true,
+        latencyMs: 42,
+      },
+      "1-f35df34c92001436",
+    );
+    expect(mainnetOk).toEqual({
+      ready: true,
+      severity: "ok",
+      canonicalTagValid: true,
+      batchSupported: true,
+      latencyMs: 42,
+      headline: "Node ready (https://rpc-mainnet.kovanica.online:8545) · chainId=1 · height=1024 · 42ms",
+      warnings: [],
+    });
+
+    const testnetHexOk = formatNodeDoctorSummary(
+      {
+        url: "https://rpc-testnet.kovanica.online:8545",
+        ok: true,
+        chainId: "0x2",
+        blockHeight: "0x4b0",
+        feeRate: "1250",
+        batchSupported: true,
+        latencyMs: 18,
+      },
+      "2-24cdb5fadd98b207",
+    );
+    expect(testnetHexOk.ready).toBe(true);
+    expect(testnetHexOk.severity).toBe("ok");
+    expect(testnetHexOk.canonicalTagValid).toBe(true);
+    expect(testnetHexOk.warnings).toEqual([]);
+
+    // Omitted network tag -> reachable with warning
+    const missingTag = formatNodeDoctorSummary({
+      url: "https://rpc-testnet.kovanica.online:8545",
+      ok: true,
+      chainId: "2",
+      blockHeight: "9901",
+      feeRate: "1000",
+      batchSupported: true,
+      latencyMs: 25,
+    });
+    expect(missingTag.ready).toBe(true);
+    expect(missingTag.severity).toBe("warn");
+    expect(missingTag.canonicalTagValid).toBe(false);
+    expect(missingTag.batchSupported).toBe(true);
+    expect(missingTag.warnings.some((w) => /missing network tag/i.test(w))).toBe(true);
+
+    // Explicit canonical tag mismatch -> not ready (error)
+    const mismatch = formatNodeDoctorSummary(
+      {
+        url: "https://rpc-testnet.kovanica.online:8545",
+        ok: true,
+        chainId: "2",
+        blockHeight: "9901",
+        feeRate: "1000",
+        batchSupported: true,
+        latencyMs: 30,
+      },
+      "2-deadbeefdeadbeef",
+    );
+    expect(mismatch.ready).toBe(false);
+    expect(mismatch.severity).toBe("error");
+    expect(mismatch.canonicalTagValid).toBe(false);
+    expect(mismatch.headline).toMatch(/mismatch/i);
+    expect(mismatch.warnings.some((w) => /mismatch/i.test(w))).toBe(true);
+
+    // Failed legacy / unreachable probe -> error with credential sanitization
+    const failed = formatNodeDoctorSummary(
+      {
+        url: "https://ops:supersecret@legacy.example:8545",
+        ok: false,
+        batchSupported: false,
+        latencyMs: 120,
+        error: "ECONNREFUSED https://ops:supersecret@legacy.example:8545 Bearer tok_999",
+      },
+      "2-24cdb5fadd98b207",
+    );
+    expect(failed.ready).toBe(false);
+    expect(failed.severity).toBe("error");
+    expect(failed.canonicalTagValid).toBe(false);
+    expect(failed.batchSupported).toBe(false);
+    expect(failed.latencyMs).toBe(120);
+    expect(failed.headline).not.toContain("supersecret");
+    expect(failed.headline).not.toContain("tok_999");
+    expect(failed.warnings.join(" ")).not.toContain("supersecret");
+    expect(failed.warnings.join(" ")).not.toContain("tok_999");
+    expect(failed.warnings.some((w) => /batch/i.test(w))).toBe(true);
   });
 });

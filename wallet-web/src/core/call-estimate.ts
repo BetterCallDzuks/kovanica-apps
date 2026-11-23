@@ -29,6 +29,12 @@ import { formatAtoms, formatKvnc } from "./format.ts";
 import type { PreviewDetail } from "./session.ts";
 
 export { DEFAULT_FEE_SAFETY_MARGIN_BPS };
+export {
+  computeBufferedTxFee,
+  formatFinalityProgressBadge,
+  type FinalityBadgeTone,
+  type FinalityProgressBadge,
+} from "./finality.ts";
 
 export type CallEstimatePreview = {
   estimatedTxSize: number;
