@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   buildAirgapEnvelopeDecodeCommand,
+  buildKeyInspectCommand,
   buildRpcProbeCommand,
   buildSanitizedStratumDiagnostics,
   buildSnapshotVerifyCommand,
@@ -22,6 +23,7 @@ import {
   validateStratumForm,
   verifyCanonicalNetworkTag,
   type FaucetHealthSummary,
+  type KeyInspectCommand,
   type SnapshotVerifyReport,
   type StratumFormInput,
   type StratumSnapshot,
@@ -1380,5 +1382,81 @@ test("buildAirgapEnvelopeDecodeCommand validates kvnc-tx:v1:<base64url>, emits s
   assert.throws(
     () => buildAirgapEnvelopeDecodeCommand(sampleEnvelope, 99 as unknown as 1),
     /expectedChainId/i,
+  );
+});
+
+test("buildKeyInspectCommand builds shell-safe kovanica key inspect argv and display command and rejects unsafe inputs", () => {
+  const defaultCmd: KeyInspectCommand = buildKeyInspectCommand({
+    keyfilePath: "/var/lib/kovanica/keys/operator-v2.json",
+  });
+  assert.deepEqual(defaultCmd, {
+    binary: "kovanica",
+    args: ["key", "inspect", "/var/lib/kovanica/keys/operator-v2.json"],
+    argv: ["kovanica", "key", "inspect", "/var/lib/kovanica/keys/operator-v2.json"],
+    display: "kovanica key inspect /var/lib/kovanica/keys/operator-v2.json",
+  });
+
+  const jsonCmd = buildKeyInspectCommand({
+    keyfilePath: "  /home/node/.kovanica/wallet_v2.json  ",
+    json: true,
+    binary: "  /usr/local/bin/kovanica  ",
+  });
+  assert.deepEqual(jsonCmd, {
+    binary: "/usr/local/bin/kovanica",
+    args: ["key", "inspect", "/home/node/.kovanica/wallet_v2.json", "--json"],
+    argv: ["/usr/local/bin/kovanica", "key", "inspect", "/home/node/.kovanica/wallet_v2.json", "--json"],
+    display: "/usr/local/bin/kovanica key inspect /home/node/.kovanica/wallet_v2.json --json",
+  });
+
+  const explicitNoJson = buildKeyInspectCommand({
+    keyfilePath: "keys/validator.json",
+    json: false,
+  });
+  assert.deepEqual(explicitNoJson.args, ["key", "inspect", "keys/validator.json"]);
+  assert.equal(explicitNoJson.display, "kovanica key inspect keys/validator.json");
+
+  // Reject path traversal
+  assert.throws(() => buildKeyInspectCommand({ keyfilePath: "../secret.json" }), /traversal/i);
+  assert.throws(
+    () => buildKeyInspectCommand({ keyfilePath: "/var/lib/kovanica/../../etc/shadow" }),
+    /traversal/i,
+  );
+  assert.throws(
+    () => buildKeyInspectCommand({ keyfilePath: "wallet.json", binary: "../bin/kovanica" }),
+    /traversal/i,
+  );
+
+  // Reject empty paths, option injection, whitespace, control chars, and shell metacharacters
+  for (const badPath of [
+    "",
+    "   ",
+    "-rf",
+    "--json",
+    "/tmp/key;rm -rf /",
+    "/tmp/key$(whoami).json",
+    "/tmp/key`id`.json",
+    "/tmp/key|cat",
+    "/tmp/key&bg",
+    "/tmp/key with space.json",
+    "/tmp/key\nwhoami",
+    "/tmp/key\0null.json",
+    "/tmp/key'quote.json",
+    '/tmp/key"quote.json',
+    "/tmp/key>out.json",
+    "/tmp/key*.json",
+  ]) {
+    assert.throws(() => buildKeyInspectCommand({ keyfilePath: badPath }));
+    assert.throws(() => buildKeyInspectCommand({ keyfilePath: "wallet.json", binary: badPath }));
+  }
+
+  // Reject invalid options shape and non-boolean json flag
+  assert.throws(() => buildKeyInspectCommand(null as unknown as { keyfilePath: string }));
+  assert.throws(
+    () =>
+      buildKeyInspectCommand({
+        keyfilePath: "wallet.json",
+        json: "true" as unknown as boolean,
+      }),
+    /json/i,
   );
 });

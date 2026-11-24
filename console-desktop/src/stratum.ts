@@ -20,11 +20,24 @@ export interface StratumWorkerItem {
   session_id?: number;
   worker_name: string;
   authorized?: boolean;
+  extranonce_subscribed?: boolean;
   difficulty: number;
   shares_accepted: number;
   shares_rejected: number;
+  shares_stale?: number;
   connected_secs: number;
   idle_secs?: number;
+}
+
+/** Raw aggregate summary object returned by `kovanica-stratum`'s `/workers` endpoint. */
+export interface StratumWorkersSummaryPayload {
+  min_difficulty: number | null;
+  median_difficulty: number | null;
+  max_difficulty: number | null;
+  total_accepted_shares: number;
+  total_rejected_shares: number;
+  total_stale_shares: number;
+  stale_ratio: number;
 }
 
 /** Sanitized `/workers` payload returned by `kovanica-stratum`. */
@@ -32,8 +45,48 @@ export interface StratumWorkersReport {
   active_workers: number;
   vardiff_enabled: boolean;
   banned_ips?: number;
+  summary?: StratumWorkersSummaryPayload;
   workers: StratumWorkerItem[];
   timestamp?: number | string;
+}
+
+/** Normalized aggregate difficulty & share summary across active workers. */
+export interface StratumWorkersAggregateSummary {
+  minDifficulty: number | null;
+  medianDifficulty: number | null;
+  maxDifficulty: number | null;
+  totalAcceptedShares: number;
+  totalRejectedShares: number;
+  totalStaleShares: number;
+  staleRatio: number;
+}
+
+/** Normalized per-worker row ready for console-desktop table rendering. */
+export interface StratumWorkerTableRow {
+  sessionId: number | null;
+  workerName: string;
+  authorized: boolean;
+  extranonceSubscribed: boolean;
+  difficulty: number;
+  sharesAccepted: number;
+  sharesRejected: number;
+  sharesStale: number;
+  staleRatio: number;
+  connectedSecs: number;
+  connectedLabel: string;
+  idleSecs: number | null;
+  idleLabel: string;
+}
+
+/** Parsed `/workers` response with aggregate summary and normalized table rows. */
+export interface StratumWorkersSummaryView {
+  activeWorkers: number;
+  vardiffEnabled: boolean;
+  bannedIps: number | null;
+  timestamp: number | string | null;
+  summarySource: "server" | "computed";
+  summary: StratumWorkersAggregateSummary;
+  rows: StratumWorkerTableRow[];
 }
 
 export type ConsoleStratumAlertSeverity = "critical" | "warning" | "info";
@@ -212,6 +265,26 @@ export function parseStratumWorkers(raw: unknown): StratumWorkersReport {
       parsedItem.authorized = item.authorized;
     }
 
+    if (item.extranonce_subscribed !== undefined) {
+      if (typeof item.extranonce_subscribed !== "boolean") {
+        throw new Error(
+          `Stratum /workers item at index ${idx} has an invalid extranonce_subscribed flag.`,
+        );
+      }
+      parsedItem.extranonce_subscribed = item.extranonce_subscribed;
+    }
+
+    if (item.shares_stale !== undefined) {
+      if (
+        typeof item.shares_stale !== "number" ||
+        !Number.isFinite(item.shares_stale) ||
+        item.shares_stale < 0
+      ) {
+        throw new Error(`Stratum /workers item at index ${idx} has an invalid shares_stale.`);
+      }
+      parsedItem.shares_stale = Math.floor(item.shares_stale);
+    }
+
     if (item.idle_secs !== undefined) {
       if (typeof item.idle_secs !== "number" || !Number.isFinite(item.idle_secs) || item.idle_secs < 0) {
         throw new Error(`Stratum /workers item at index ${idx} has an invalid idle_secs.`);
@@ -255,6 +328,10 @@ export function parseStratumWorkers(raw: unknown): StratumWorkersReport {
     report.banned_ips = Math.floor(obj.banned_ips);
   }
 
+  if (obj.summary !== undefined && obj.summary !== null) {
+    report.summary = parseRawWorkersSummaryObject(obj.summary);
+  }
+
   if (obj.timestamp !== undefined) {
     if (
       (typeof obj.timestamp === "number" && Number.isFinite(obj.timestamp) && obj.timestamp >= 0) ||
@@ -267,6 +344,166 @@ export function parseStratumWorkers(raw: unknown): StratumWorkersReport {
   }
 
   return report;
+}
+
+function parseNullableNonNegativeNumber(raw: unknown, field: string): number | null {
+  if (raw === null) return null;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    throw new Error(`Stratum /workers summary has an invalid ${field}.`);
+  }
+  return raw;
+}
+
+function parseNonNegativeShareCount(raw: unknown, field: string): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    throw new Error(`Stratum /workers summary has an invalid ${field}.`);
+  }
+  return Math.floor(raw);
+}
+
+function parseRawWorkersSummaryObject(raw: unknown): StratumWorkersSummaryPayload {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Stratum /workers summary must be a JSON object.");
+  }
+  const obj = raw as Record<string, unknown>;
+
+  const min_difficulty = parseNullableNonNegativeNumber(obj.min_difficulty, "min_difficulty");
+  const median_difficulty = parseNullableNonNegativeNumber(obj.median_difficulty, "median_difficulty");
+  const max_difficulty = parseNullableNonNegativeNumber(obj.max_difficulty, "max_difficulty");
+  const total_accepted_shares = parseNonNegativeShareCount(
+    obj.total_accepted_shares,
+    "total_accepted_shares",
+  );
+  const total_rejected_shares = parseNonNegativeShareCount(
+    obj.total_rejected_shares,
+    "total_rejected_shares",
+  );
+  const total_stale_shares = parseNonNegativeShareCount(
+    obj.total_stale_shares,
+    "total_stale_shares",
+  );
+
+  if (
+    typeof obj.stale_ratio !== "number" ||
+    !Number.isFinite(obj.stale_ratio) ||
+    obj.stale_ratio < 0 ||
+    obj.stale_ratio > 1
+  ) {
+    throw new Error("Stratum /workers summary has an invalid stale_ratio.");
+  }
+
+  return {
+    min_difficulty,
+    median_difficulty,
+    max_difficulty,
+    total_accepted_shares,
+    total_rejected_shares,
+    total_stale_shares,
+    stale_ratio: obj.stale_ratio,
+  };
+}
+
+function computeFallbackWorkersSummary(
+  workers: readonly StratumWorkerItem[],
+): StratumWorkersAggregateSummary {
+  const difficulties = workers
+    .map((w) => w.difficulty)
+    .filter((d) => Number.isFinite(d))
+    .sort((a, b) => a - b);
+
+  let minDifficulty: number | null = null;
+  let medianDifficulty: number | null = null;
+  let maxDifficulty: number | null = null;
+
+  if (difficulties.length > 0) {
+    const len = difficulties.length;
+    minDifficulty = difficulties[0];
+    maxDifficulty = difficulties[len - 1];
+    medianDifficulty =
+      len % 2 === 1
+        ? difficulties[Math.floor(len / 2)]
+        : (difficulties[len / 2 - 1] + difficulties[len / 2]) / 2;
+  }
+
+  let totalAcceptedShares = 0;
+  let totalRejectedShares = 0;
+  let totalStaleShares = 0;
+  for (const worker of workers) {
+    totalAcceptedShares += worker.shares_accepted;
+    totalRejectedShares += worker.shares_rejected;
+    totalStaleShares += worker.shares_stale ?? 0;
+  }
+
+  const totalShares = totalAcceptedShares + totalRejectedShares;
+  const staleRatio = totalShares === 0 ? 0 : totalStaleShares / totalShares;
+
+  return {
+    minDifficulty,
+    medianDifficulty,
+    maxDifficulty,
+    totalAcceptedShares,
+    totalRejectedShares,
+    totalStaleShares,
+    staleRatio,
+  };
+}
+
+/**
+ * Parses `kovanica-stratum`'s `GET /workers` JSON response into a normalized
+ * summary + table-row view for console-desktop.
+ *
+ * Uses the server-provided `summary` object when present (`summarySource: "server"`),
+ * and falls back to computing identical aggregate statistics when an older gateway
+ * omits `summary` (`summarySource: "computed"`).
+ */
+export function parseStratumWorkersSummary(payload: unknown): StratumWorkersSummaryView {
+  const report = parseStratumWorkers(payload);
+
+  const summarySource: "server" | "computed" = report.summary ? "server" : "computed";
+  const summary: StratumWorkersAggregateSummary = report.summary
+    ? {
+        minDifficulty: report.summary.min_difficulty,
+        medianDifficulty: report.summary.median_difficulty,
+        maxDifficulty: report.summary.max_difficulty,
+        totalAcceptedShares: report.summary.total_accepted_shares,
+        totalRejectedShares: report.summary.total_rejected_shares,
+        totalStaleShares: report.summary.total_stale_shares,
+        staleRatio: report.summary.stale_ratio,
+      }
+    : computeFallbackWorkersSummary(report.workers);
+
+  const rows: StratumWorkerTableRow[] = report.workers.map((worker) => {
+    const sharesStale = worker.shares_stale ?? 0;
+    const totalWorkerShares = worker.shares_accepted + worker.shares_rejected;
+    const staleRatio = totalWorkerShares === 0 ? 0 : sharesStale / totalWorkerShares;
+    const idleSecs = worker.idle_secs ?? null;
+
+    return {
+      sessionId: worker.session_id ?? null,
+      workerName: worker.worker_name,
+      authorized: worker.authorized ?? false,
+      extranonceSubscribed: worker.extranonce_subscribed ?? false,
+      difficulty: worker.difficulty,
+      sharesAccepted: worker.shares_accepted,
+      sharesRejected: worker.shares_rejected,
+      sharesStale,
+      staleRatio,
+      connectedSecs: worker.connected_secs,
+      connectedLabel: `${formatUptime(worker.connected_secs)} (${worker.connected_secs}s)`,
+      idleSecs,
+      idleLabel: idleSecs !== null ? `${formatUptime(idleSecs)} (${idleSecs}s)` : "—",
+    };
+  });
+
+  return {
+    activeWorkers: report.active_workers,
+    vardiffEnabled: report.vardiff_enabled,
+    bannedIps: report.banned_ips ?? null,
+    timestamp: report.timestamp ?? null,
+    summarySource,
+    summary,
+    rows,
+  };
 }
 
 /** Validates and parses the JSON body returned by `kovanica-stratum`'s `/health` endpoint. */
