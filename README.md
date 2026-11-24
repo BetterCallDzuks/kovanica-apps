@@ -1,57 +1,75 @@
 # kovanica-apps
 
-Client applications for **Kovanica** (KVNC), split out of the L1 monorepo on 2026-11-05.
+Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchain — covering Web Wallet (`wallet-web`), Desktop Console (`console-desktop`), Linux Node Supervisor (`node-desktop`), Desktop Comms (`desktop`), Android, and iOS.
 
-## HR
+> [!IMPORTANT]
+> **Repository Boundaries (HR / EN):**
+> - **EN:** Client apps live here (`wallet-web`, `console-desktop`, `node-desktop`, `desktop`, `android*`, `ios`). Native Rust FFI (`kovanica-light-ffi`), consensus, genesis, and node binaries remain in [`BetterCallDzuks/kovanica-l1`](https://github.com/BetterCallDzuks/kovanica-l1). Never reintroduce `kovanica-light-ffi`, secrets, `.env` files, or private IPs into this repository.
+> - **HR:** Ovdje žive klijentske aplikacije (`wallet-web`, `console-desktop`, `node-desktop`, `desktop`, `android*`, `ios`). Rust FFI (`kovanica-light-ffi`), consensus, genesis i node binarni kod ostaju u [`BetterCallDzuks/kovanica-l1`](https://github.com/BetterCallDzuks/kovanica-l1).
 
-Ovdje žive client appovi (Android / iOS / desktop / node-desktop / wallet-web).  
-**FFI ostaje u L1:** crate `kovanica-light-ffi` i cijeli Rust workspace ostaju u [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1).  
-Ovaj repo **ne** sadrži consensus, genesis, light-ffi niti server nginx.
+---
 
-Migrirano iz `apps/*` tipa `e98b5e008331056d6bea55014982d4077e745b77` (flatten: svaki app je top-level direktorij).
+## Repository Layout
 
-## EN
+| Directory | Platform / Stack | Role | Documentation |
+| :--- | :--- | :--- | :--- |
+| `wallet-web` | React / TanStack Start + `kovanica-sdk v0.5.0` | Hybrid web & desktop wallet (Chain `1` read-only `1-f35df34c92001436`, Chain `2` testnet `2-24cdb5fadd98b207`, Chain `3` devnet) | [`wallet-web/README.md`](wallet-web/README.md) |
+| `console-desktop` | Tauri + React + TypeScript | Desktop wallet, operator node inspector & cluster readiness console | [`console-desktop/README.md`](console-desktop/README.md) |
+| `node-desktop` | Tauri + Vite (Linux `.deb`) | External `kovanica-node` supervisor & operator CLI helper (no bundled node binary) | [`node-desktop/README.md`](node-desktop/README.md) |
+| `desktop` | Tauri | Desktop E2E encrypted Comms shell | [`desktop/README.md`](desktop/README.md) |
+| `android` / `android-wallet` | Kotlin / UniFFI | Light wallet & Android client apps | [`docs/android-release-build.md`](docs/android-release-build.md) |
+| `android-comms` | Kotlin | Android E2E encrypted Comms client | — |
+| `android-chain` | Kotlin | Shared canonical Chain IDs (`1` Mainnet, `2` Testnet, `3` Devnet) | — |
+| `android-node` | Kotlin / Rust | Android full-node PoC on Testnet (`2-24cdb5fadd98b207`) with light-node fallback | [`android-node/README.md`](android-node/README.md) |
+| `ios` | Swift / UniFFI | iOS light client | — |
 
-Client apps live here (Android / iOS / desktop / node-desktop / wallet-web).  
-**FFI stays in L1:** crate `kovanica-light-ffi` and the Rust workspace remain in [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1).  
-This repo does **not** host consensus, genesis, light-ffi, or seed nginx.
+---
 
-Migrated from `apps/*` at tip `e98b5e008331056d6bea55014982d4077e745b77` (flattened: each former `apps/<name>` is a top-level directory).
+## Key Capabilities
 
-## Layout
+1. **Web Wallet (`wallet-web`, powered by `kovanica-sdk v0.5.0`):**
+   - Multi-endpoint RPC failover (`createWalletFailoverClient`, `normalizeFailoverRpcUrls`) and header-aware RPC probing (`probeWalletRpcEndpoint`).
+   - Live transaction finality tracking (`watchSubmittedTxFinality`, `formatFinalityProgressBadge`) and mempool fee-tier estimation (`fetchWalletFeeTiers` with automatic legacy `-32601` fallback to `estimateFee`).
+   - Cryptographic pre-broadcast self-verification for native Transfer, Wasmi Call, and universal auto-decoded transactions (`verifySignedTransferTxBeforeBroadcast`, `verifySignedCallTxBeforeBroadcast`, `verifyAnySignedTxBeforeBroadcast`).
+   - PRO-21 address-book checksum & chain-policy guard (`validateAddressBookEntry`), typed contract facade pre-checks (`NameRegistryClient`, `EscrowClient`, `HtlcClient`), and BLAKE3-checksummed air-gap envelopes (`exportAirgapTxEnvelope`, `importAirgapTxEnvelope`).
 
-| Directory | Role |
-|-----------|------|
-| `android` | Light wallet / UniFFI Android app |
-| `android-wallet` | Android wallet |
-| `android-comms` | Android comms client |
-| `android-chain` | Shared Android chain IDs (`1` mainnet, `2` testnet, `3` devnet) |
-| `android-node` | Android full-node proof of concept on kovanica testnet (chain ID 2, tag `2-24cdb5fadd98b207`; L1 pin `fecc84cca95b8f0aef5d445999e0e7858e63f326`), with a light-node fallback and a minimal wallet |
-| `ios` | iOS light client |
-| `desktop` | Desktop Comms shell (Tauri) |
-| `console-desktop` | Console desktop wallet & node inspector (Tauri) |
-| `node-desktop` | Linux Kovanica Node supervisor (Tauri). External `kovanica-node` binary; no bundled node. |
-| `wallet-web` | Web & desktop hybrid wallet (React / TanStack Start; chains `1` mainnet tag `1-f35df34c92001436` read-only, `2` testnet tag `2-24cdb5fadd98b207`, `3` devnet) — see [wallet-web/README.md](wallet-web/README.md) |
+2. **Desktop Console (`console-desktop`):**
+   - Single-POST JSON-RPC 2.0 batch health probe (`probeRpcBatchHealth`) with `X-Kovanica-Network-Tag`, `X-Kovanica-Rpc-Version`, and `X-Kovanica-Chain-Id` extraction and canonical tag verification (`1-f35df34c92001436`, `2-24cdb5fadd98b207`).
+   - Operator summaries and health parsers: `formatNodeDoctorSummary`, `parseIndexerHealthSummary`, `parseLightnodeSyncSummary`, and `aggregateClusterReadiness` (`healthy` / `degraded` / `critical`).
 
-Build the native FFI from L1 (`kovanica-light-ffi`) and point `node-desktop` at a `kovanica-node` executable you built yourself. See [node-desktop/README.md](node-desktop/README.md) and [docs/linux-node-package.md](docs/linux-node-package.md) for Debian 12 `.deb` packaging (`npm run tauri -- build --bundles deb` and `scripts/check-deb.sh`).
+3. **Node Supervisor (`node-desktop`):**
+   - Stratum & faucet health parsers (`parseStratumHealthSummary`, `parseFaucetHealthSummary`) with draining, zero-worker, rejection-ratio, and balance-floor alarms.
+   - Shell-safe operator CLI builders: `buildSnapshotVerifyCommand`, `parseSnapshotVerifyReport`, `buildRpcProbeCommand`, and `buildAirgapEnvelopeDecodeCommand`.
+   - Debian 12 `.deb` packaging (`npm run tauri -- build --bundles deb` and `scripts/check-deb.sh`; see [`docs/linux-node-package.md`](docs/linux-node-package.md)).
 
-`console-desktop` and `desktop` resolve L1 crates and packages from a sibling checkout of [KovanicaDAG/kovanica-l1](https://github.com/KovanicaDAG/kovanica-l1) (`../../../kovanica-l1/crates/...` and `../../kovanica-l1/packages/...`). Light-ffi stays in that repo. The local sibling folder must be named `kovanica-l1` (not `kovanica`) for those relative paths.
+---
 
-## Recent Capabilities
+## Local Development & Verification
 
-- **`wallet-web`**: `kovanica-sdk v0.5.0` RPC failover client, finality tracker, pre-broadcast Call/Transfer/Auto verification, air-gap transaction envelopes (`kvnc-tx:v1:<base64url>`), and mempool fee tiers.
-- **`console-desktop`**: Single-POST JSON-RPC 2.0 batch probe with Kovanica identity headers (`X-Kovanica-Network-Tag`, `X-Kovanica-Rpc-Version`, `X-Kovanica-Chain-Id`), node-doctor readiness summary, indexer & lightnode health parsers, and cluster readiness aggregator.
-- **`node-desktop`**: Stratum & faucet health parsers and shell-safe CLI command builders for `kovanica snapshot verify`, `kovanica rpc probe`, and `kovanica tx envelope decode`.
+> [!NOTE]
+> `console-desktop` and `desktop` resolve L1 crates/packages from a sibling checkout named `kovanica-l1` (`../../kovanica-l1/...`), and `wallet-web` resolves `kovanica-sdk` from a sibling checkout named `kovanica-sdk` (`../../kovanica-sdk`).
 
-## Standing rules
+```bash
+# wallet-web
+cd wallet-web && npm ci && npm run typecheck && npm run lint && npm test && npm run build
 
-- Branch + PR; no force-push to `main`
-- No secrets, `.env`, or private IPs in commits
-- Do not reintroduce `kovanica-light-ffi` into this repo
+# console-desktop
+cd console-desktop && npm ci && npm run lint && npm test && npm run build
 
-Agent rules and the full-scope plan: [docs/AGENT-RULES.md](https://github.com/KovanicaDAG/kovanica-l1/blob/main/docs/AGENT-RULES.md) and [docs/PLAN-FULL-SCOPE.md](https://github.com/KovanicaDAG/kovanica-l1/blob/main/docs/PLAN-FULL-SCOPE.md) in KovanicaDAG/kovanica-l1.
+# node-desktop
+cd node-desktop && npm ci && npm run lint && npm test && npm run build
+```
 
-## Source
+---
 
-- L1: https://github.com/KovanicaDAG/kovanica-l1
-- Decision: Toni 2026-11-05 — create `kovanica-apps`; move `apps/*`; light-ffi stays in L1
+## Ecosystem Repositories
+
+| Repository | Role |
+| :--- | :--- |
+| **[BetterCallDzuks/kovanica-l1](https://github.com/BetterCallDzuks/kovanica-l1)** | Rust Layer-1 node, Hybrid PoW + GHOSTDAG consensus, Wasmi runtime, RPC, Stratum, Faucet, Indexer, Lightnode & CLI |
+| **[BetterCallDzuks/kovanica-sdk](https://github.com/BetterCallDzuks/kovanica-sdk)** | Official TypeScript SDK (`v0.5.0`) — browser & Node.js client, failover transport, facades, offline codecs & air-gap envelopes |
+| **[BetterCallDzuks/kovanica-web](https://github.com/BetterCallDzuks/kovanica-web)** | Public site, BlockDAG Explorer, Faucet, Pool portal & API Reference (`kovanica.online`) |
+| **[BetterCallDzuks/kovanica-apps](https://github.com/BetterCallDzuks/kovanica-apps)** | Client apps — `wallet-web`, `console-desktop`, `node-desktop`, `desktop`, Android & iOS |
+| **[BetterCallDzuks/kovanica-playground](https://github.com/BetterCallDzuks/kovanica-playground)** | Interactive developer RPC console & 7 `kovanica-sdk v0.5.0` studios |
+
+Standing PR workflow & agent rules: [`docs/AGENT-RULES.md`](https://github.com/BetterCallDzuks/kovanica-l1/blob/main/docs/AGENT-RULES.md) and [`docs/PLAN-FULL-SCOPE.md`](https://github.com/BetterCallDzuks/kovanica-l1/blob/main/docs/PLAN-FULL-SCOPE.md).
