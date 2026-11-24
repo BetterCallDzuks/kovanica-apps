@@ -3,6 +3,7 @@ import type {
   ContractFacadeClient,
   DryRunCallClient,
   EstimateAndBuildCallClient,
+  PriorityFeeTiersClient,
   TransactionReceipt,
   WaitForTransactionReceiptClient,
 } from "kovanica-sdk";
@@ -473,6 +474,23 @@ export function createAccountTxHistoryClient(rpcUrl: string): AccountTxHistoryCl
     async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
       const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
       let last = "transaction history request failed";
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          return (await post(candidate, method, normalizedParams)) as TResult;
+        } catch (error) {
+          last = error instanceof Error ? error.message : last;
+        }
+      }
+      throw new Error(last);
+    },
+  };
+}
+
+export function createPriorityFeeTiersClient(rpcUrl: string): PriorityFeeTiersClient {
+  return {
+    async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+      const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
+      let last = "mempool fee stats request failed";
       for (const candidate of withRpcPath(rpcUrl)) {
         try {
           return (await post(candidate, method, normalizedParams)) as TResult;
