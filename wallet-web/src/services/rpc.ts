@@ -456,6 +456,18 @@ export function createDryRunCallClient(rpcUrl: string): DryRunCallClient {
   };
 }
 
+export function createBatchContractCallClient(
+  rpcUrl: string,
+): EstimateAndBuildCallClient & DryRunCallClient {
+  const estimator = createCallEstimateClient(rpcUrl);
+  const dryRun = createDryRunCallClient(rpcUrl);
+  return {
+    estimateFee: estimator.estimateFee,
+    getNonce: estimator.getNonce,
+    call: dryRun.call,
+  };
+}
+
 export function createAccountTxHistoryClient(rpcUrl: string): AccountTxHistoryClient {
   return {
     async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {

@@ -35,6 +35,7 @@ import { parseAtoms } from "@/core/format";
 import { callNeed, shortfall } from "@/core/history-row";
 import type { TxPreview } from "@/core/session";
 import { ContactSelect } from "@/components/contacts/ContactSelect";
+import { BatchCallBuilder } from "@/components/contracts/BatchCallBuilder";
 import { FaucetButton } from "@/components/home/FaucetButton";
 import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
@@ -550,6 +551,7 @@ export function Contracts({
   }
 
   return (
+    <div className="grid gap-6">
     <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) void review(); else void readState(); }}>
       <div>
         <h2 className="text-2xl font-semibold">Contracts</h2>
@@ -800,6 +802,8 @@ export function Contracts({
       <PostBroadcastReceiptTracker contractFamily={contractId} rpcUrl={net.rpcUrl} online={net.online} />
       <ReceiptCard />
     </form>
+    <BatchCallBuilder senderAddress={ownerAddress} />
+    </div>
   );
 }
 

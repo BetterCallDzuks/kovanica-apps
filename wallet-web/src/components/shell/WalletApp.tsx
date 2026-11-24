@@ -14,6 +14,7 @@ import { useWatchOnly } from "@/stores/watchOnly";
 import { assertCanSign } from "@/lib/watchOnly";
 import { ActivityList } from "@/components/activity/ActivityList";
 import { ConfirmTx, type BroadcastNotice } from "@/components/confirm/ConfirmTx";
+import { BatchCallBuilder } from "@/components/contracts/BatchCallBuilder";
 import { Contracts } from "@/components/contracts/Contracts";
 import { Onboarding } from "@/components/onboarding/Onboarding";
 import { Receive } from "@/components/receive/Receive";
@@ -433,8 +434,11 @@ export function WalletApp() {
           ) : null}
           {tab === "contracts" ? (
             isWatchOnlyMode ? (
-              <div className="rounded-card border border-line bg-surface p-5 text-sm text-muted">
-                Contract signing is disabled in watch-only mode. Exit watch-only mode and unlock a wallet to submit contract calls.
+              <div className="grid gap-4">
+                <div className="rounded-card border border-line bg-surface p-5 text-sm text-muted">
+                  Contract signing is disabled in watch-only mode. Exit watch-only mode and unlock a wallet to submit contract calls. Read-only batch estimation and dry-run simulation remain available below.
+                </div>
+                <BatchCallBuilder senderAddress={accountAddress ?? ""} watchOnly />
               </div>
             ) : (
               <Contracts onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefill={contractPrefill} ownerAddress={account?.address ?? ""} />
