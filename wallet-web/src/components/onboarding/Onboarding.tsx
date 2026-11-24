@@ -1,10 +1,14 @@
 import { useMemo, useState } from "react";
 import { generatePhrase, isValidMnemonic, mnemonicWordCount, normalizeMnemonic, suggestWords } from "@/core/hd";
 import { quizChoices, quizMatches, quizPositions } from "@/core/quiz";
+import { presetById } from "@/lib/networks";
+import { validateWatchOnlyAddress } from "@/lib/watchOnly";
 import { createDesktopWallet, createHdWallet, importWallet, isDesktopShell, unlock } from "@/services/wallet";
+import { useNetwork } from "@/stores/network";
 import { useSession } from "@/stores/session";
+import { useWatchOnly } from "@/stores/watchOnly";
 
-type Mode = "choose" | "create" | "import" | "unlock";
+type Mode = "choose" | "create" | "import" | "unlock" | "watch";
 
 export function Onboarding({ mode }: { mode: Mode }) {
   const usesPass = useSession((s) => s.usesBip39Passphrase);
@@ -22,6 +26,14 @@ export function Onboarding({ mode }: { mode: Mode }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [suggest, setSuggest] = useState<string[]>([]);
+  const [watchAddress, setWatchAddress] = useState("");
+  const [watchLabel, setWatchLabel] = useState("");
+  const net = useNetwork();
+  const chainId = net.probedChainId ?? presetById(net.presetId).expectedChainId ?? undefined;
+  const watchValidation = useMemo(
+    () => (watchAddress.trim() ? validateWatchOnlyAddress(watchAddress, chainId) : null),
+    [watchAddress, chainId],
+  );
 
   const list = useMemo(() => normalizeMnemonic(phrase).split(" ").filter(Boolean), [phrase]);
   const positions = quizPositions(list.length);
@@ -134,6 +146,9 @@ export function Onboarding({ mode }: { mode: Mode }) {
           <button type="button" className="min-h-12 rounded-full border border-line text-paper" onClick={() => setScreen("import")}>
             Import a phrase
           </button>
+          <button type="button" className="min-h-12 rounded-full border border-line text-muted" onClick={() => { setError(null); setScreen("watch"); }}>
+            Watch an address (read-only)
+          </button>
         </div>
       ) : null}
 
@@ -153,6 +168,67 @@ export function Onboarding({ mode }: { mode: Mode }) {
           ) : null}
           <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={busy}>
             {busy ? "Unlocking…" : "Unlock"}
+          </button>
+          <button type="button" className="min-h-11 rounded-full border border-line text-sm text-muted" onClick={() => { setError(null); setScreen("watch"); }}>
+            Watch an address (read-only)
+          </button>
+        </form>
+      ) : null}
+
+      {screen === "watch" ? (
+        <form
+          className="mt-8 grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            try {
+              useWatchOnly.getState().enterWatchOnly(watchAddress, chainId, watchLabel);
+              setWatchAddress("");
+              setWatchLabel("");
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Could not open watch-only account");
+            }
+          }}
+        >
+          <p className="text-sm text-muted">
+            Inspect any PRO-21 address in read-only mode. No private keys are loaded and signing is disabled.
+          </p>
+          <label className="grid gap-1 text-sm text-muted">
+            Label (optional)
+            <input
+              className="min-h-11 rounded-2xl border border-line bg-ink px-4 text-paper"
+              value={watchLabel}
+              onChange={(e) => setWatchLabel(e.target.value)}
+              placeholder="Treasury / Cold storage"
+            />
+          </label>
+          <label className="grid gap-1 text-sm text-muted">
+            PRO-21 address
+            <input
+              className="min-h-11 rounded-2xl border border-line bg-ink px-4 font-mono text-sm text-paper"
+              value={watchAddress}
+              onChange={(e) => setWatchAddress(e.target.value)}
+              placeholder="kvnc…dag or tknc…dag"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </label>
+          {watchValidation ? (
+            <p className={watchValidation.ok ? "text-sm text-sage" : "text-sm text-clay"}>
+              {watchValidation.ok
+                ? `Valid ${watchValidation.account.network} address (read-only)`
+                : watchValidation.error}
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40"
+            disabled={!watchValidation?.ok}
+          >
+            Open read-only
+          </button>
+          <button type="button" className="min-h-11 text-muted" onClick={() => { setError(null); setScreen(mode); }}>
+            Back
           </button>
         </form>
       ) : null}

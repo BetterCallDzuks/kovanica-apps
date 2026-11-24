@@ -10,6 +10,8 @@ import { addAccount, clearBackup, forgetDevice, isDesktopShell, loadVault, lock,
 import { useActivity } from "@/stores/activity";
 import { getNodeStatusBadge, savedNetworkChoice, signingLock, useNetwork } from "@/stores/network";
 import { useSession } from "@/stores/session";
+import { useWatchOnly } from "@/stores/watchOnly";
+import { assertCanSign } from "@/lib/watchOnly";
 import { ActivityList } from "@/components/activity/ActivityList";
 import { ConfirmTx, type BroadcastNotice } from "@/components/confirm/ConfirmTx";
 import { Contracts } from "@/components/contracts/Contracts";
@@ -45,13 +47,15 @@ export function WalletApp() {
   const activityAt = useIdle((s) => s.at);
   const bumpIdle = useIdle((s) => s.bump);
   const session = useSession();
+  const watchOnly = useWatchOnly();
   const net = useNetwork();
   const lockState = signingLock(net);
   const nodeStatusBadge = getNodeStatusBadge(net);
   const account = session.accounts[session.active];
-  const accountAddress = account?.address;
+  const isWatchOnlyMode = watchOnly.active != null;
+  const accountAddress = isWatchOnlyMode ? watchOnly.active?.account.address : account?.address;
   const currentChainId = net.probedChainId ?? presetById(net.presetId).expectedChainId ?? null;
-  const displayAddress = account ? formatAddressForChain(account.address, currentChainId) : "";
+  const displayAddress = accountAddress ? formatAddressForChain(accountAddress, currentChainId) : "";
 
   useEffect(() => {
     const stopBackup = subscribeBackup(setBackup);
@@ -66,6 +70,7 @@ export function WalletApp() {
       };
       window.addEventListener("pointerdown", touch);
       useActivity.getState().hydrate();
+      useWatchOnly.getState().hydrate();
       setReady(true);
       return () => {
         stopBackup();
@@ -76,6 +81,7 @@ export function WalletApp() {
       useSession.getState().hydrate(loadVault());
     }
     useActivity.getState().hydrate();
+    useWatchOnly.getState().hydrate();
     const saved = savedNetworkChoice();
     if (saved) useNetwork.getState().setRpcUrl(saved.rpcUrl, saved.presetId);
     setReady(true);
@@ -113,11 +119,11 @@ export function WalletApp() {
   }, [ready, net.presetId, net.rpcUrl]);
 
   useEffect(() => {
-    if (!ready || session.status !== "unlocked" || !accountAddress || !net.online) return;
+    if (!ready || (session.status !== "unlocked" && !isWatchOnlyMode) || !accountAddress || !net.online) return;
     void readAccount(net.rpcUrl, accountAddress).then((state) => {
       useNetwork.getState().setAccountState(state.balance, state.nonce, state.fee);
     });
-  }, [ready, session.status, accountAddress, net.online, net.presetId, net.probedChainId, net.rpcUrl]);
+  }, [ready, session.status, isWatchOnlyMode, accountAddress, net.online, net.presetId, net.probedChainId, net.rpcUrl]);
 
   useEffect(() => {
     const mark = () => bumpIdle();
@@ -199,6 +205,10 @@ export function WalletApp() {
 
   async function confirm() {
     if (!preview || lockState.locked) return;
+    if (isWatchOnlyMode) {
+      assertCanSign(watchOnly.active?.account);
+      return;
+    }
     setSigning(true);
     try {
       const signed = await signReviewed(preview);
@@ -264,7 +274,7 @@ export function WalletApp() {
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  if (session.status !== "unlocked") {
+  if (session.status !== "unlocked" && !isWatchOnlyMode) {
     return (
       <main className="grid min-h-screen place-items-center bg-ink text-paper">
         <Onboarding key={session.status} mode={session.status === "locked" ? "unlock" : "choose"} />
@@ -324,55 +334,112 @@ export function WalletApp() {
           </button>
         </aside>
         <section className="px-5 py-6">
-          <div className="mb-5 flex gap-2 overflow-x-auto">
-            {session.accounts.map((item, index) => {
-              const itemDisplayAddress = formatAddressForChain(item.address, currentChainId);
-              return (
-                <button
-                  key={`${item.pathLabel}-${index}`}
-                  type="button"
-                  className={`min-h-11 shrink-0 rounded-full border px-4 text-left text-sm ${index === session.active ? "border-copper text-paper" : "border-line text-muted"}`}
-                  onClick={() => selectAccount(index)}
-                >
-                  <span className="block">{item.pathLabel === "Legacy account" ? "Legacy account" : `Account ${item.account}`}</span>
-                  <span className="block text-xs">{item.pathLabel} · {itemDisplayAddress.slice(0, 10)}…{itemDisplayAddress.slice(-6)}</span>
-                </button>
-              );
-            })}
-            {session.kind === "hd" ? (
-              <button type="button" className="min-h-11 shrink-0 rounded-full border border-line px-4 text-sm text-paper" onClick={() => void addAccount().catch((error: unknown) => toast(error instanceof Error ? error.message : "Could not add an account"))}>
-                Add account
+          {isWatchOnlyMode && watchOnly.active ? (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-card border border-copper bg-surface px-4 py-3" data-testid="watch-only-banner">
+              <div>
+                <p className="text-xs tracking-wide text-copper uppercase">Watch-Only · Read-Only (Signing Disabled)</p>
+                <p className="text-sm text-paper">{watchOnly.active.label} · {watchOnly.active.account.network}</p>
+              </div>
+              <button
+                type="button"
+                className="min-h-10 rounded-full border border-line px-4 text-sm text-paper"
+                onClick={() => {
+                  watchOnly.exitWatchOnly();
+                  setTab("home");
+                }}
+              >
+                Exit watch-only
               </button>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            <div className="mb-5 flex gap-2 overflow-x-auto">
+              {session.accounts.map((item, index) => {
+                const itemDisplayAddress = formatAddressForChain(item.address, currentChainId);
+                return (
+                  <button
+                    key={`${item.pathLabel}-${index}`}
+                    type="button"
+                    className={`min-h-11 shrink-0 rounded-full border px-4 text-left text-sm ${index === session.active ? "border-copper text-paper" : "border-line text-muted"}`}
+                    onClick={() => selectAccount(index)}
+                  >
+                    <span className="block">{item.pathLabel === "Legacy account" ? "Legacy account" : `Account ${item.account}`}</span>
+                    <span className="block text-xs">{item.pathLabel} · {itemDisplayAddress.slice(0, 10)}…{itemDisplayAddress.slice(-6)}</span>
+                  </button>
+                );
+              })}
+              {session.kind === "hd" ? (
+                <button type="button" className="min-h-11 shrink-0 rounded-full border border-line px-4 text-sm text-paper" onClick={() => void addAccount().catch((error: unknown) => toast(error instanceof Error ? error.message : "Could not add an account"))}>
+                  Add account
+                </button>
+              ) : null}
+            </div>
+          )}
           {tab === "home" ? (
             <div className="grid gap-5">
-              <p className="text-sm text-muted">{account?.pathLabel}</p>
-              {session.kind === "legacy" ? <p className="w-fit rounded-full border border-copper px-3 py-1 text-sm text-copper">Legacy account</p> : null}
+              <p className="text-sm text-muted">
+                {isWatchOnlyMode ? `${watchOnly.active?.label ?? "Watch-Only"} · Read-only` : account?.pathLabel}
+              </p>
+              {!isWatchOnlyMode && session.kind === "legacy" ? <p className="w-fit rounded-full border border-copper px-3 py-1 text-sm text-copper">Legacy account</p> : null}
               <p className="text-5xl font-semibold tabular-nums">{net.balanceAtoms == null ? "—" : formatKvnc(net.balanceAtoms)}</p>
               <p className="text-muted">{net.balanceAtoms == null ? "Balance unavailable" : `${formatAtoms(net.balanceAtoms)} atoms`}</p>
-              {account ? <FaucetButton address={displayAddress} /> : null}
+              {accountAddress ? <FaucetButton address={displayAddress} /> : null}
               <p className="mono text-sm break-all" data-testid="account-address">{displayAddress}</p>
               <div className="flex gap-3">
-                <button type="button" className="min-h-11 rounded-full bg-copper px-5 font-medium text-copper-ink" onClick={() => setTab("send")}>Send</button>
+                <button
+                  type="button"
+                  className="min-h-11 rounded-full bg-copper px-5 font-medium text-copper-ink disabled:opacity-40"
+                  disabled={isWatchOnlyMode}
+                  onClick={() => setTab("send")}
+                >
+                  Send
+                </button>
                 <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => setTab("receive")}>Receive</button>
-                <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => lock()}>Lock</button>
+                {isWatchOnlyMode ? (
+                  <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => watchOnly.exitWatchOnly()}>Exit</button>
+                ) : (
+                  <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => lock()}>Lock</button>
+                )}
               </div>
               <label className="grid gap-1 text-sm text-muted">
                 Indexer URL, optional
                 <input className="min-h-11 rounded-2xl border border-line bg-surface px-4 text-paper" value={net.indexerUrl} onChange={(e) => useNetwork.getState().setIndexerUrl(e.target.value)} placeholder="https://indexer.kovanica.online/logs" />
               </label>
               <AddressBook />
-              <button type="button" className="w-fit text-sm text-clay" onClick={() => { forgetDevice(); }}>
-                {isDesktopShell() ? "Lock the desktop wallet" : "Remove wallet from this browser"}
-              </button>
+              {!isWatchOnlyMode ? (
+                <button type="button" className="w-fit text-sm text-clay" onClick={() => { forgetDevice(); }}>
+                  {isDesktopShell() ? "Lock the desktop wallet" : "Remove wallet from this browser"}
+                </button>
+              ) : null}
               <p className="text-xs text-muted">Chain {net.probedChainId ?? "—"} · expected {presetById(net.presetId).expectedChainId ?? "reported"} · {chainName(net.probedChainId)}</p>
             </div>
           ) : null}
-          {tab === "send" ? <SendForm onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefillTo={sendTo} quoteTick={quoteTick} /> : null}
-          {tab === "receive" && account ? <Receive address={displayAddress} pathLabel={account.pathLabel} /> : null}
-          {tab === "activity" ? <ActivityList /> : null}
-          {tab === "contracts" ? <Contracts onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefill={contractPrefill} ownerAddress={account?.address ?? ""} /> : null}
+          {tab === "send" ? (
+            isWatchOnlyMode ? (
+              <div className="rounded-card border border-line bg-surface p-5 text-sm text-muted">
+                Signing is disabled in watch-only mode. Exit watch-only mode and unlock a wallet to send KVNC.
+              </div>
+            ) : (
+              <SendForm onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefillTo={sendTo} quoteTick={quoteTick} />
+            )
+          ) : null}
+          {tab === "receive" && accountAddress ? (
+            <Receive
+              address={displayAddress}
+              pathLabel={isWatchOnlyMode ? "Watch-only (read-only)" : (account?.pathLabel ?? "")}
+            />
+          ) : null}
+          {tab === "activity" ? (
+            <ActivityList address={accountAddress} chainId={currentChainId ?? undefined} />
+          ) : null}
+          {tab === "contracts" ? (
+            isWatchOnlyMode ? (
+              <div className="rounded-card border border-line bg-surface p-5 text-sm text-muted">
+                Contract signing is disabled in watch-only mode. Exit watch-only mode and unlock a wallet to submit contract calls.
+              </div>
+            ) : (
+              <Contracts onReview={(next) => { setNotice({ phase: "idle" }); setPreview(next); }} prefill={contractPrefill} ownerAddress={account?.address ?? ""} />
+            )
+          ) : null}
           {tab === "watch" ? (
             <Watchlist
               onSend={(address) => { setSendTo(address); setTab("send"); }}

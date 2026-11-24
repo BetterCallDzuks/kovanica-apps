@@ -1,4 +1,5 @@
 import type {
+  AccountTxHistoryClient,
   ContractFacadeClient,
   DryRunCallClient,
   EstimateAndBuildCallClient,
@@ -443,6 +444,23 @@ export function createDryRunCallClient(rpcUrl: string): DryRunCallClient {
     async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
       const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
       let last = "dry-run simulation failed";
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          return (await post(candidate, method, normalizedParams)) as TResult;
+        } catch (error) {
+          last = error instanceof Error ? error.message : last;
+        }
+      }
+      throw new Error(last);
+    },
+  };
+}
+
+export function createAccountTxHistoryClient(rpcUrl: string): AccountTxHistoryClient {
+  return {
+    async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+      const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
+      let last = "transaction history request failed";
       for (const candidate of withRpcPath(rpcUrl)) {
         try {
           return (await post(candidate, method, normalizedParams)) as TResult;

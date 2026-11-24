@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { checkAddress } from "@/core/address";
 import { presetById } from "@/lib/networks";
+import { validateWatchOnlyAddress } from "@/lib/watchOnly";
 import { readContract, readNodeWatch } from "@/services/rpc";
 import { useNetwork } from "@/stores/network";
 import { useSession } from "@/stores/session";
 import { loadWatch, removeWatch, saveWatch, type WatchItem, type WatchKind } from "@/stores/watch";
+import { useWatchOnly } from "@/stores/watchOnly";
 
 const KINDS: WatchKind[] = ["token", "vault", "htlc", "multisig"];
 const READS: Record<WatchKind, string> = {
@@ -29,6 +31,13 @@ export function Watchlist({ onSend, onContract }: { onSend: (address: string) =>
   const [nodeRead, setNodeRead] = useState<{ dag: string; template: string; header: string } | null>(null);
   const [nodeBusy, setNodeBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const watchOnly = useWatchOnly();
+  const [watchAccountLabel, setWatchAccountLabel] = useState("");
+  const [watchAccountAddress, setWatchAccountAddress] = useState("");
+  const [watchAccountError, setWatchAccountError] = useState<string | null>(null);
+  const watchAccountCheck = watchAccountAddress.trim()
+    ? validateWatchOnlyAddress(watchAccountAddress, chainId)
+    : null;
   const reportedChain = nodeRead ? fieldIn(nodeRead, ["chainId", "chain_id"]) : null;
   const hybrid = chainId === 1 || chainId === 2 || reportedChain === "1" || reportedChain === "2";
 
@@ -48,6 +57,87 @@ export function Watchlist({ onSend, onContract }: { onSend: (address: string) =>
 
   return (
     <div className="grid gap-4">
+      <section className="rounded-card border border-line bg-ink p-4">
+        <h2 className="text-lg font-semibold text-paper">Watch-Only Account</h2>
+        <p className="mt-1 text-sm text-muted">
+          Inspect any Kovanica PRO-21 address in read-only mode. Zero private key material is stored and signing is disabled.
+        </p>
+        <form
+          className="mt-3 grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setWatchAccountError(null);
+            try {
+              watchOnly.enterWatchOnly(watchAccountAddress, chainId, watchAccountLabel);
+              setWatchAccountLabel("");
+              setWatchAccountAddress("");
+            } catch (err) {
+              setWatchAccountError(err instanceof Error ? err.message : "Could not add watch-only account");
+            }
+          }}
+        >
+          <input
+            className="min-h-11 rounded-2xl border border-line bg-surface px-4 text-paper"
+            value={watchAccountLabel}
+            onChange={(e) => setWatchAccountLabel(e.target.value)}
+            placeholder="Label (optional)"
+          />
+          <input
+            className="min-h-11 rounded-2xl border border-line bg-surface px-4 font-mono text-sm text-paper"
+            value={watchAccountAddress}
+            onChange={(e) => setWatchAccountAddress(e.target.value)}
+            placeholder="kvnc…dag or tknc…dag"
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+          {watchAccountCheck ? (
+            <p className={watchAccountCheck.ok ? "text-sm text-sage" : "text-sm text-clay"}>
+              {watchAccountCheck.ok
+                ? `Valid ${watchAccountCheck.account.network} PRO-21 address (read-only)`
+                : watchAccountCheck.error}
+            </p>
+          ) : null}
+          {watchAccountError ? <p className="text-sm text-clay">{watchAccountError}</p> : null}
+          <button
+            type="submit"
+            className="min-h-11 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40"
+            disabled={!watchAccountCheck?.ok}
+          >
+            Inspect read-only
+          </button>
+        </form>
+        {watchOnly.saved.length > 0 ? (
+          <div className="mt-3 grid gap-2">
+            {watchOnly.saved.map((entry) => (
+              <div
+                key={`${entry.account.payloadHex}:${entry.account.chainId}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-surface px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm text-paper">{entry.label}</p>
+                  <p className="mono text-xs break-all text-muted">{entry.account.address}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="min-h-9 rounded-full border border-copper px-3 text-xs text-copper"
+                    onClick={() => watchOnly.selectSaved(entry.account.address)}
+                  >
+                    Inspect
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-9 text-xs text-clay"
+                    onClick={() => watchOnly.removeSaved(entry.account.address)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
       <div>
         <h2 className="text-2xl font-semibold">Watch</h2>
         <p className="mt-2 text-sm text-muted">Read-only. Token rows ask `balanceOf`. Vault, HTLC, and multisig ask `vested`, `locks`, and `threshold`, plus `kovanica_getStorage` at your account key.</p>
