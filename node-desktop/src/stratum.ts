@@ -1081,6 +1081,86 @@ export function buildAirgapEnvelopeDecodeCommand(
   return `kovanica tx envelope decode ${trimmed} --json`;
 }
 
+export interface KeyInspectCommandOptions {
+  /** Path to the keystore v2 JSON file to audit offline. */
+  keyfilePath: string;
+  /** Emit machine-readable JSON (`--json`). Defaults to `false`. */
+  json?: boolean;
+  /** Optional custom `kovanica` CLI binary path. Defaults to `"kovanica"`. */
+  binary?: string;
+}
+
+export interface KeyInspectCommand {
+  /** Validated CLI executable name or path. */
+  binary: string;
+  /** Argument vector for shell-free execution (`["key", "inspect", <keyfile>, ...("--json")]`). */
+  args: string[];
+  /** Complete argv tuple (`[binary, ...args]`). */
+  argv: string[];
+  /** Shell-safe single-line display command string. */
+  display: string;
+}
+
+function validateShellSafePath(raw: unknown, label: string): string {
+  if (typeof raw !== "string") {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    throw new Error(`${label} must not be empty.`);
+  }
+  if (trimmed.startsWith("-")) {
+    throw new Error(`${label} must not start with '-'.`);
+  }
+  if (trimmed.includes("..")) {
+    throw new Error(`${label} must not contain path traversal ('..').`);
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001F\u007F]/.test(trimmed)) {
+    throw new Error(`${label} must not contain whitespace or control characters.`);
+  }
+  if (/[;&|$`(){}[\]<>'"\\*?~!#%]/.test(trimmed)) {
+    throw new Error(`${label} contains disallowed shell metacharacters.`);
+  }
+  return trimmed;
+}
+
+/**
+ * Builds a shell-safe `kovanica key inspect <keyfile> [--json]` CLI invocation
+ * (argv array + display string) for offline keystore v2 auditing.
+ * Rejects empty paths, leading dashes, control characters/whitespace,
+ * shell metacharacters, and path traversal (`..`).
+ */
+export function buildKeyInspectCommand(
+  options: KeyInspectCommandOptions,
+): KeyInspectCommand {
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    throw new Error("Key inspect options must be an object.");
+  }
+
+  const keyfile = validateShellSafePath(options.keyfilePath, "Keyfile path");
+  const binary =
+    options.binary !== undefined
+      ? validateShellSafePath(options.binary, "CLI binary path")
+      : "kovanica";
+
+  if (options.json !== undefined && typeof options.json !== "boolean") {
+    throw new Error("json option must be a boolean.");
+  }
+
+  const args = ["key", "inspect", keyfile];
+  if (options.json === true) {
+    args.push("--json");
+  }
+  const argv = [binary, ...args];
+  return {
+    binary,
+    args,
+    argv,
+    display: argv.join(" "),
+  };
+}
+
 function parseFailedChecksList(raw: unknown): string[] {
   if (!Array.isArray(raw)) {
     return [];

@@ -11,6 +11,7 @@ import {
   normalizeStratumHealthUrl,
   parseStratumHealth,
   parseStratumWorkers,
+  parseStratumWorkersSummary,
   stratumHealthRows,
 } from "./stratum";
 import { mountStratumPanel } from "./stratum-panel";
@@ -253,6 +254,229 @@ describe("stratum health URL & schema helpers", () => {
     const report = await fetchStratumWorkers("http://127.0.0.1:9100/health", mockFetch);
     expect(report.workers).toHaveLength(2);
     expect(report.workers[0]?.worker_name).toBe("rig-alpha");
+  });
+
+  it("parseStratumWorkersSummary parses server summary and normalizes per-worker table rows", () => {
+    const payload = {
+      active_workers: 2,
+      vardiff_enabled: true,
+      banned_ips: 3,
+      summary: {
+        min_difficulty: 2,
+        median_difficulty: 3.25,
+        max_difficulty: 4.5,
+        total_accepted_shares: 192,
+        total_rejected_shares: 8,
+        total_stale_shares: 5,
+        stale_ratio: 0.025,
+      },
+      workers: [
+        {
+          session_id: 1,
+          worker_name: "rig-alpha",
+          authorized: true,
+          extranonce_subscribed: true,
+          difficulty: 4.5,
+          shares_accepted: 128,
+          shares_rejected: 6,
+          shares_stale: 4,
+          connected_secs: 3661,
+          idle_secs: 12,
+        },
+        {
+          session_id: 2,
+          worker_name: "rig-beta",
+          authorized: true,
+          extranonce_subscribed: false,
+          difficulty: 2,
+          shares_accepted: 64,
+          shares_rejected: 2,
+          shares_stale: 1,
+          connected_secs: 185,
+          idle_secs: 0,
+        },
+      ],
+      timestamp: 1700000123,
+    };
+
+    const parsed = parseStratumWorkersSummary(payload);
+    expect(parsed.summarySource).toBe("server");
+    expect(parsed.activeWorkers).toBe(2);
+    expect(parsed.vardiffEnabled).toBe(true);
+    expect(parsed.bannedIps).toBe(3);
+    expect(parsed.timestamp).toBe(1700000123);
+    expect(parsed.summary).toEqual({
+      minDifficulty: 2,
+      medianDifficulty: 3.25,
+      maxDifficulty: 4.5,
+      totalAcceptedShares: 192,
+      totalRejectedShares: 8,
+      totalStaleShares: 5,
+      staleRatio: 0.025,
+    });
+    expect(parsed.rows).toEqual([
+      {
+        sessionId: 1,
+        workerName: "rig-alpha",
+        authorized: true,
+        extranonceSubscribed: true,
+        difficulty: 4.5,
+        sharesAccepted: 128,
+        sharesRejected: 6,
+        sharesStale: 4,
+        staleRatio: 4 / 134,
+        connectedSecs: 3661,
+        connectedLabel: "1h 1m 1s (3661s)",
+        idleSecs: 12,
+        idleLabel: "12s (12s)",
+      },
+      {
+        sessionId: 2,
+        workerName: "rig-beta",
+        authorized: true,
+        extranonceSubscribed: false,
+        difficulty: 2,
+        sharesAccepted: 64,
+        sharesRejected: 2,
+        sharesStale: 1,
+        staleRatio: 1 / 66,
+        connectedSecs: 185,
+        connectedLabel: "3m 5s (185s)",
+        idleSecs: 0,
+        idleLabel: "0s (0s)",
+      },
+    ]);
+
+    // Accepts JSON string payloads directly
+    const fromJson = parseStratumWorkersSummary(JSON.stringify(payload));
+    expect(fromJson).toEqual(parsed);
+  });
+
+  it("parseStratumWorkersSummary computes fallback summary for legacy nodes omitting summary", () => {
+    // Even number of workers (2 workers: diff 2 and 4.5 -> median 3.25)
+    const evenFallback = parseStratumWorkersSummary(sampleWorkersPayload());
+    expect(evenFallback.summarySource).toBe("computed");
+    expect(evenFallback.summary).toEqual({
+      minDifficulty: 2,
+      medianDifficulty: 3.25,
+      maxDifficulty: 4.5,
+      totalAcceptedShares: 192,
+      totalRejectedShares: 2,
+      totalStaleShares: 0,
+      staleRatio: 0,
+    });
+    expect(evenFallback.rows[0]?.idleSecs).toBeNull();
+    expect(evenFallback.rows[0]?.idleLabel).toBe("—");
+
+    // Odd number of workers with shares_stale present
+    const oddFallback = parseStratumWorkersSummary({
+      active_workers: 3,
+      vardiff_enabled: true,
+      workers: [
+        {
+          worker_name: "rig-c",
+          difficulty: 16,
+          shares_accepted: 50,
+          shares_rejected: 10,
+          shares_stale: 5,
+          connected_secs: 600,
+        },
+        {
+          worker_name: "rig-a",
+          difficulty: 1,
+          shares_accepted: 20,
+          shares_rejected: 0,
+          shares_stale: 0,
+          connected_secs: 120,
+        },
+        {
+          worker_name: "rig-b",
+          difficulty: 4,
+          shares_accepted: 15,
+          shares_rejected: 5,
+          shares_stale: 5,
+          connected_secs: 300,
+        },
+      ],
+    });
+    expect(oddFallback.summarySource).toBe("computed");
+    expect(oddFallback.summary).toEqual({
+      minDifficulty: 1,
+      medianDifficulty: 4,
+      maxDifficulty: 16,
+      totalAcceptedShares: 85,
+      totalRejectedShares: 15,
+      totalStaleShares: 10,
+      staleRatio: 0.1,
+    });
+
+    // Empty worker list -> null difficulties and 0 stale ratio
+    const emptyFallback = parseStratumWorkersSummary({
+      active_workers: 0,
+      vardiff_enabled: false,
+      workers: [],
+    });
+    expect(emptyFallback.summarySource).toBe("computed");
+    expect(emptyFallback.summary).toEqual({
+      minDifficulty: null,
+      medianDifficulty: null,
+      maxDifficulty: null,
+      totalAcceptedShares: 0,
+      totalRejectedShares: 0,
+      totalStaleShares: 0,
+      staleRatio: 0,
+    });
+    expect(emptyFallback.rows).toEqual([]);
+  });
+
+  it("parseStratumWorkersSummary rejects malformed summary and shares_stale fields", () => {
+    expect(() =>
+      parseStratumWorkersSummary(sampleWorkersPayload({ summary: "bad" })),
+    ).toThrow(/summary must be a JSON object/i);
+    expect(() =>
+      parseStratumWorkersSummary(
+        sampleWorkersPayload({
+          summary: {
+            min_difficulty: -1,
+            median_difficulty: 2,
+            max_difficulty: 4,
+            total_accepted_shares: 10,
+            total_rejected_shares: 0,
+            total_stale_shares: 0,
+            stale_ratio: 0,
+          },
+        }),
+      ),
+    ).toThrow(/min_difficulty/i);
+    expect(() =>
+      parseStratumWorkersSummary(
+        sampleWorkersPayload({
+          summary: {
+            min_difficulty: 1,
+            median_difficulty: 2,
+            max_difficulty: 4,
+            total_accepted_shares: 10,
+            total_rejected_shares: 0,
+            total_stale_shares: 0,
+            stale_ratio: 1.5,
+          },
+        }),
+      ),
+    ).toThrow(/stale_ratio/i);
+    expect(() =>
+      parseStratumWorkersSummary({
+        workers: [
+          {
+            worker_name: "rig-1",
+            difficulty: 1,
+            shares_accepted: 10,
+            shares_rejected: 1,
+            shares_stale: -1,
+            connected_secs: 60,
+          },
+        ],
+      }),
+    ).toThrow(/shares_stale/i);
   });
 });
 
