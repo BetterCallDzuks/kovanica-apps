@@ -3,6 +3,8 @@ import { checkAddress } from "@/core/address";
 import { formatAtoms, formatKvnc, parseAtoms, parseKvnc } from "@/core/format";
 import type { TxPreview } from "@/core/session";
 import { ContactSelect } from "@/components/contacts/ContactSelect";
+import { PriorityFeeSelector } from "@/components/send/PriorityFeeSelector";
+import { TRANSFER_TX_WIRE_SIZE } from "@/lib/priorityFees";
 import { buildTransferPreview } from "@/services/wallet";
 import { signingLock, useNetwork } from "@/stores/network";
 import { presetById } from "@/lib/networks";
@@ -75,6 +77,14 @@ export function SendForm({ onReview, prefillTo = "", quoteTick = 0 }: { onReview
           <button type="button" className="min-h-11 rounded-full border border-line px-4 text-paper" onClick={max}>Max</button>
         </div>
       </label>
+      <PriorityFeeSelector
+        rpcUrl={net.rpcUrl}
+        online={net.online}
+        currentFeeAtoms={fee}
+        txSizeBytes={TRANSFER_TX_WIRE_SIZE}
+        quoteTick={quoteTick}
+        onSelectFeeAtoms={(atoms) => setFeeText(atoms.toString())}
+      />
       <p className="text-sm text-muted">
         Fee {fee == null ? "unavailable" : `${formatKvnc(fee)} KVNC (${formatAtoms(fee)} atoms)`}
         {net.balanceAtoms != null ? ` · balance ${formatKvnc(net.balanceAtoms)} KVNC` : ""}
