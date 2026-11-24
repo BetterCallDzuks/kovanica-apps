@@ -36,6 +36,7 @@ import { callNeed, shortfall } from "@/core/history-row";
 import type { TxPreview } from "@/core/session";
 import { ContactSelect } from "@/components/contacts/ContactSelect";
 import { BatchCallBuilder } from "@/components/contracts/BatchCallBuilder";
+import { ContractLogsMultisigPanel } from "@/components/contracts/ContractLogsMultisigPanel";
 import { FaucetButton } from "@/components/home/FaucetButton";
 import { presetById } from "@/lib/networks";
 import { buildCallPreview } from "@/services/wallet";
@@ -802,6 +803,7 @@ export function Contracts({
       <PostBroadcastReceiptTracker contractFamily={contractId} rpcUrl={net.rpcUrl} online={net.online} />
       <ReceiptCard />
     </form>
+    <ContractLogsMultisigPanel defaultContractAddress={contract} defaultContractFamily={contractId} />
     <BatchCallBuilder senderAddress={ownerAddress} />
     </div>
   );

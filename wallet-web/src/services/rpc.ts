@@ -3,6 +3,7 @@ import type {
   ContractFacadeClient,
   DryRunCallClient,
   EstimateAndBuildCallClient,
+  PaginatedLogsClient,
   PriorityFeeTiersClient,
   TransactionReceipt,
   WaitForTransactionReceiptClient,
@@ -491,6 +492,23 @@ export function createPriorityFeeTiersClient(rpcUrl: string): PriorityFeeTiersCl
     async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
       const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
       let last = "mempool fee stats request failed";
+      for (const candidate of withRpcPath(rpcUrl)) {
+        try {
+          return (await post(candidate, method, normalizedParams)) as TResult;
+        } catch (error) {
+          last = error instanceof Error ? error.message : last;
+        }
+      }
+      throw new Error(last);
+    },
+  };
+}
+
+export function createPaginatedLogsClient(rpcUrl: string): PaginatedLogsClient {
+  return {
+    async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+      const normalizedParams = Array.isArray(params) ? params : params === undefined ? [] : [params];
+      let last = "contract logs request failed";
       for (const candidate of withRpcPath(rpcUrl)) {
         try {
           return (await post(candidate, method, normalizedParams)) as TResult;
