@@ -255,11 +255,10 @@ class CreateTokenActivity : Activity() {
         addStack(
             WalletUi.caption(
                 this@CreateTokenActivity,
-                "This takes two transactions: a deploy that publishes the contract, whose fee " +
-                    "grows with the contract's size, then a call that creates the token and sets " +
-                    "its opening supply. The deploy has to be mined before the call, so it can " +
-                    "take a minute or two. The contract address is worked out on this phone — " +
-                    "the node doesn't report it.",
+                "Balanced fixed fee schedule: 1 KVNC for contract deploy + 5 KVNC for " +
+                    "token_create (6 KVNC total; 75% burned, 25% to block miner). The deploy " +
+                    "publishes the KVP-102 contract, then token_create mints your opening supply. " +
+                    "The contract address is derived locally on this phone.",
             ),
             0,
         )
