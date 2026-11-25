@@ -87,6 +87,7 @@ const ACTIONS = {
 } as const;
 
 type ActionId = (typeof ACTIONS)[ContractName][number]["id"];
+type ContractsSubTab = "execute" | "batch" | "logs-multisig";
 
 type QueuedBatchCall = {
   id: number;
@@ -111,6 +112,7 @@ export function Contracts({
   const net = useNetwork();
   const lock = signingLock(net);
   const policyChain = net.probedChainId ?? presetById(net.presetId).expectedChainId;
+  const [subTab, setSubTab] = useState<ContractsSubTab>("execute");
   const [contractId, setContractId] = useState<ContractName>("token");
   const [action, setAction] = useState<ActionId>("balance_of");
   const [contract, setContract] = useState("");
@@ -157,6 +159,7 @@ export function Contracts({
 
   useEffect(() => {
     if (!prefill) return;
+    setSubTab("execute");
     setContract(prefill.address);
     setContractId(prefill.kind);
     setAction(ACTIONS[prefill.kind][0].id);
@@ -553,11 +556,54 @@ export function Contracts({
 
   return (
     <div className="grid gap-6">
-    <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) void review(); else void readState(); }}>
       <div>
         <h2 className="text-2xl font-semibold">Contracts</h2>
         <p className="mt-2 text-sm text-muted">Canonical WASM entry points. A call is not signed until you confirm the method, arguments, fee, and gas. Reads never ask for the seed.</p>
       </div>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Contract workspace views">
+        <button
+          id="contracts-tab-execute"
+          type="button"
+          role="tab"
+          aria-selected={subTab === "execute"}
+          aria-controls="contracts-panel-execute"
+          className={`min-h-10 rounded-full border px-4 text-sm transition-colors ${subTab === "execute" ? "border-copper bg-copper/15 text-paper" : "border-line text-muted hover:text-paper"}`}
+          onClick={() => setSubTab("execute")}
+        >
+          Execute &amp; Simulate
+        </button>
+        <button
+          id="contracts-tab-batch"
+          type="button"
+          role="tab"
+          aria-selected={subTab === "batch"}
+          aria-controls="contracts-panel-batch"
+          className={`min-h-10 rounded-full border px-4 text-sm transition-colors ${subTab === "batch" ? "border-copper bg-copper/15 text-paper" : "border-line text-muted hover:text-paper"}`}
+          onClick={() => setSubTab("batch")}
+        >
+          Batch Builder{batchQueue.length > 0 ? ` (${batchQueue.length})` : ""}
+        </button>
+        <button
+          id="contracts-tab-logs-multisig"
+          type="button"
+          role="tab"
+          aria-selected={subTab === "logs-multisig"}
+          aria-controls="contracts-panel-logs-multisig"
+          className={`min-h-10 rounded-full border px-4 text-sm transition-colors ${subTab === "logs-multisig" ? "border-copper bg-copper/15 text-paper" : "border-line text-muted hover:text-paper"}`}
+          onClick={() => setSubTab("logs-multisig")}
+        >
+          Logs &amp; Multisig Bundles
+        </button>
+      </div>
+
+      <div
+        id="contracts-panel-execute"
+        role="tabpanel"
+        aria-labelledby="contracts-tab-execute"
+        hidden={subTab !== "execute"}
+        className={subTab === "execute" ? "grid gap-4" : "hidden"}
+      >
+        <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (current.sign) void review(); else void readState(); }}>
       <div className="grid grid-cols-2 gap-2">
         {(Object.keys(ACTIONS) as ContractName[]).map((item) => (
           <button key={item} type="button" className={`min-h-11 rounded-2xl border px-3 text-sm capitalize ${contractId === item ? "border-copper text-paper" : "border-line text-muted"}`} onClick={() => pickContract(item)}>
@@ -686,6 +732,23 @@ export function Contracts({
                 >
                   {estimating ? "Estimating…" : "Estimate fee & gas"}
                 </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                  disabled={estimatingBatch}
+                  onClick={queueCallToBatch}
+                >
+                  Queue call to batch
+                </button>
+                {batchQueue.length > 0 ? (
+                  <button
+                    type="button"
+                    className="min-h-9 rounded-full border border-copper px-3 text-xs text-copper"
+                    onClick={() => setSubTab("batch")}
+                  >
+                    Batch Builder ({batchQueue.length})
+                  </button>
+                ) : null}
               </div>
             </div>
             {simulation ? (
@@ -722,70 +785,6 @@ export function Contracts({
               </p>
             )}
           </div>
-          <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium text-paper">Batch Call Estimator Queue</span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
-                  disabled={estimatingBatch}
-                  onClick={queueCallToBatch}
-                >
-                  Queue call to batch
-                </button>
-                <button
-                  type="button"
-                  className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
-                  disabled={lock.locked || estimatingBatch || batchQueue.length === 0}
-                  onClick={() => void estimateQueuedBatch()}
-                >
-                  {estimatingBatch ? "Estimating batch…" : "Estimate batch"}
-                </button>
-                <button
-                  type="button"
-                  className="min-h-9 rounded-full border border-line px-3 text-xs text-muted disabled:opacity-40"
-                  disabled={estimatingBatch || batchQueue.length === 0}
-                  onClick={clearBatchQueue}
-                >
-                  Clear batch
-                </button>
-              </div>
-            </div>
-            {batchQueue.length > 0 ? (
-              <ul className="mt-3 grid gap-2">
-                {batchQueue.map((item, idx) => {
-                  const callEst = batchEstimate?.calls[idx];
-                  return (
-                    <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line/60 pt-2 text-xs">
-                      <span className="font-mono text-paper">
-                        #{idx + 1} {item.contractKind}.{item.method}
-                      </span>
-                      <span className="tabular-nums text-muted">
-                        {callEst
-                          ? `nonce=${callEst.nonce?.toString() ?? "auto"} • ${callEst.estimatedTxSize}B • fee=${callEst.marginedFee.toString()} • gas=${callEst.gasLimit.toString()}`
-                          : `value=${item.valueAtoms.toString()} atoms • gas=${(item.gasLimit ?? 100000n).toString()}`}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="mt-2 text-xs text-muted">
-                Queue multiple contract calls to preview sequential nonces and aggregate wire size, +20% margined fee, and gas limit in one batch RPC lookup.
-              </p>
-            )}
-            {batchEstimate ? (
-              <dl className="mt-3 grid gap-2">
-                {formatBatchCallEstimateSummary(batchEstimate).map((row) => (
-                  <div key={row.label} className="flex items-baseline justify-between gap-3 border-t border-line/60 pt-2">
-                    <dt className="text-xs text-muted">{row.label}</dt>
-                    <dd className="tabular-nums text-right text-paper">{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : null}
-          </div>
         </>
       ) : null}
       {lock.locked && current.sign ? <p className="text-sm text-clay">{lock.reason}</p> : null}
@@ -795,7 +794,7 @@ export function Contracts({
           {ownerAddress ? <div className="mt-3"><FaucetButton address={ownerAddress} onlyHybrid /></div> : null}
         </div>
       ) : null}
-      {error ? <p className="text-sm text-clay">{error}</p> : null}
+      {error && subTab === "execute" ? <p role="alert" className="text-sm text-clay">{error}</p> : null}
       {readout ? <p className="text-sm break-words text-paper">{readout}</p> : null}
       <button type="submit" className="min-h-12 rounded-full bg-copper font-medium text-copper-ink disabled:opacity-40" disabled={current.sign ? (lock.locked || estimating) : reading}>
         {current.sign ? (estimating ? "Estimating…" : "Review call") : reading ? "Reading…" : "Read"}
@@ -803,8 +802,92 @@ export function Contracts({
       <PostBroadcastReceiptTracker contractFamily={contractId} rpcUrl={net.rpcUrl} online={net.online} />
       <ReceiptCard />
     </form>
-    <ContractLogsMultisigPanel defaultContractAddress={contract} defaultContractFamily={contractId} />
-    <BatchCallBuilder senderAddress={ownerAddress} />
+      </div>
+
+      <div
+        id="contracts-panel-batch"
+        role="tabpanel"
+        aria-labelledby="contracts-tab-batch"
+        hidden={subTab !== "batch"}
+        className={subTab === "batch" ? "grid gap-6" : "hidden"}
+      >
+        <div className="rounded-3xl border border-line bg-ink px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium text-paper">Batch Call Estimator Queue</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                disabled={estimatingBatch || !current.sign}
+                onClick={queueCallToBatch}
+              >
+                Queue call to batch
+              </button>
+              <button
+                type="button"
+                className="min-h-9 rounded-full border border-line px-3 text-xs text-paper disabled:opacity-40"
+                disabled={lock.locked || estimatingBatch || batchQueue.length === 0}
+                onClick={() => void estimateQueuedBatch()}
+              >
+                {estimatingBatch ? "Estimating batch…" : "Estimate batch"}
+              </button>
+              <button
+                type="button"
+                className="min-h-9 rounded-full border border-line px-3 text-xs text-muted disabled:opacity-40"
+                disabled={estimatingBatch || batchQueue.length === 0}
+                onClick={clearBatchQueue}
+              >
+                Clear batch
+              </button>
+            </div>
+          </div>
+          {batchQueue.length > 0 ? (
+            <ul className="mt-3 grid gap-2">
+              {batchQueue.map((item, idx) => {
+                const callEst = batchEstimate?.calls[idx];
+                return (
+                  <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-2 border-t border-line/60 pt-2 text-xs">
+                    <span className="font-mono text-paper">
+                      #{idx + 1} {item.contractKind}.{item.method}
+                    </span>
+                    <span className="tabular-nums text-muted">
+                      {callEst
+                        ? `nonce=${callEst.nonce?.toString() ?? "auto"} • ${callEst.estimatedTxSize}B • fee=${callEst.marginedFee.toString()} • gas=${callEst.gasLimit.toString()}`
+                        : `value=${item.valueAtoms.toString()} atoms • gas=${(item.gasLimit ?? 100000n).toString()}`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="mt-2 text-xs text-muted">
+              Queue multiple contract calls to preview sequential nonces and aggregate wire size, +20% margined fee, and gas limit in one batch RPC lookup.
+            </p>
+          )}
+          {batchEstimate ? (
+            <dl className="mt-3 grid gap-2">
+              {formatBatchCallEstimateSummary(batchEstimate).map((row) => (
+                <div key={row.label} className="flex items-baseline justify-between gap-3 border-t border-line/60 pt-2">
+                  <dt className="text-xs text-muted">{row.label}</dt>
+                  <dd className="tabular-nums text-right text-paper">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {error && subTab === "batch" ? <p role="alert" className="mt-3 text-sm text-clay">{error}</p> : null}
+        </div>
+        <BatchCallBuilder senderAddress={ownerAddress} />
+      </div>
+
+      <div
+        id="contracts-panel-logs-multisig"
+        role="tabpanel"
+        aria-labelledby="contracts-tab-logs-multisig"
+        hidden={subTab !== "logs-multisig"}
+        className={subTab === "logs-multisig" ? "grid gap-4" : "hidden"}
+      >
+        <ContractLogsMultisigPanel defaultContractAddress={contract} defaultContractFamily={contractId} />
+      </div>
     </div>
   );
 }

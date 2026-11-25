@@ -8,7 +8,7 @@ import {
 import { formatKvnc } from "@/core/format";
 import { historyHeading, receiptStatusLine } from "@/core/history-row";
 import { useAccountTxHistory, type AccountTxDirection } from "@/hooks/useAccountTxHistory";
-import { presetById } from "@/lib/networks";
+import { explorerTxUrl, presetById } from "@/lib/networks";
 import {
   classifyAccountTxDirection,
   exportAccountTxHistoryCsv,
@@ -194,7 +194,9 @@ export function ActivityList({
                   <p className="mono mt-2 text-xs break-all text-muted">{entry.hash}</p>
                   <a
                     className="mt-2 inline-block text-sm text-copper"
-                    href={`https://explorer.kovanica.online/tx/${entry.hash}`}
+                    href={explorerTxUrl(activeChainId, entry.hash)}
+                    target="_blank"
+                    rel="noreferrer"
                   >
                     Explorer
                   </a>
@@ -293,7 +295,9 @@ export function ActivityList({
               <p className="mono mt-2 text-xs break-all text-muted">{row.hash}</p>
               <a
                 className="mt-2 inline-block text-sm text-copper"
-                href={`https://explorer.kovanica.online/tx/${row.hash}`}
+                href={explorerTxUrl(row.chainId || activeChainId, row.hash)}
+                target="_blank"
+                rel="noreferrer"
               >
                 Explorer
               </a>

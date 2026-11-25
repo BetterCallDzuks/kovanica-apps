@@ -3,7 +3,8 @@ import { formatAddressForChain } from "@/core/address";
 import { formatAtoms, formatKvnc } from "@/core/format";
 import type { TxPreview } from "@/core/session";
 import { AddressBook } from "@/components/contacts/AddressBook";
-import { chainName, presetById } from "@/lib/networks";
+import { ECOSYSTEM_LINKS } from "@/lib/ecosystem";
+import { chainName, explorerBaseUrl, presetById } from "@/lib/networks";
 import { broadcast, indexerLogs, probeNode, readAccount, receipt } from "@/services/rpc";
 import { onWalletLock, touchSession } from "@/services/tauri";
 import { addAccount, clearBackup, forgetDevice, isDesktopShell, loadVault, lock, lockUi, refreshDesktopSession, selectAccount, signReviewed, subscribeBackup } from "@/services/wallet";
@@ -333,6 +334,22 @@ export function WalletApp() {
           <button type="button" className="mt-4 min-h-11 rounded-full border border-line px-4 text-sm text-paper" onClick={() => setSettingsOpen(true)}>
             Settings
           </button>
+          <footer className="mt-6 border-t border-line pt-4" aria-label="Kovanica ecosystem">
+            <p className="text-xs tracking-[0.18em] text-muted uppercase">Ecosystem</p>
+            <nav className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Kovanica ecosystem links">
+              {ECOSYSTEM_LINKS.map((item) => (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-line bg-surface/60 px-2.5 py-1 text-xs text-muted transition-colors hover:border-copper hover:text-paper"
+                >
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          </footer>
         </aside>
         <section className="px-5 py-6">
           {isWatchOnlyMode && watchOnly.active ? (
@@ -377,34 +394,45 @@ export function WalletApp() {
           )}
           {tab === "home" ? (
             <div className="grid gap-5">
-              <p className="text-sm text-muted">
-                {isWatchOnlyMode ? `${watchOnly.active?.label ?? "Watch-Only"} · Read-only` : account?.pathLabel}
-              </p>
-              {!isWatchOnlyMode && session.kind === "legacy" ? <p className="w-fit rounded-full border border-copper px-3 py-1 text-sm text-copper">Legacy account</p> : null}
-              <p className="text-5xl font-semibold tabular-nums">{net.balanceAtoms == null ? "—" : formatKvnc(net.balanceAtoms)}</p>
-              <p className="text-muted">{net.balanceAtoms == null ? "Balance unavailable" : `${formatAtoms(net.balanceAtoms)} atoms`}</p>
-              {accountAddress ? <FaucetButton address={displayAddress} /> : null}
-              <p className="mono text-sm break-all" data-testid="account-address">{displayAddress}</p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  className="min-h-11 rounded-full bg-copper px-5 font-medium text-copper-ink disabled:opacity-40"
-                  disabled={isWatchOnlyMode}
-                  onClick={() => setTab("send")}
-                >
-                  Send
-                </button>
-                <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => setTab("receive")}>Receive</button>
-                {isWatchOnlyMode ? (
-                  <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => watchOnly.exitWatchOnly()}>Exit</button>
-                ) : (
-                  <button type="button" className="min-h-11 rounded-full border border-line px-5" onClick={() => lock()}>Lock</button>
-                )}
+              <div className="grid gap-4 rounded-card border border-line bg-surface p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted">
+                    {isWatchOnlyMode ? `${watchOnly.active?.label ?? "Watch-Only"} · Read-only` : account?.pathLabel}
+                  </p>
+                  {!isWatchOnlyMode && session.kind === "legacy" ? <p className="w-fit rounded-full border border-copper px-3 py-1 text-sm text-copper">Legacy account</p> : null}
+                </div>
+                <div>
+                  <p className="text-5xl font-semibold tabular-nums">{net.balanceAtoms == null ? "—" : formatKvnc(net.balanceAtoms)}</p>
+                  <p className="mt-1 text-muted">{net.balanceAtoms == null ? "Balance unavailable" : `${formatAtoms(net.balanceAtoms)} atoms`}</p>
+                </div>
+                <p className="mono text-sm break-all" data-testid="account-address">{displayAddress}</p>
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    className="min-h-11 rounded-full bg-copper px-5 font-medium text-copper-ink disabled:opacity-40"
+                    disabled={isWatchOnlyMode}
+                    onClick={() => setTab("send")}
+                  >
+                    Send
+                  </button>
+                  <button type="button" className="min-h-11 rounded-full border border-line px-5 text-paper transition-colors hover:border-copper" onClick={() => setTab("receive")}>Receive</button>
+                  {accountAddress ? <FaucetButton address={displayAddress} /> : null}
+                  <button type="button" className="min-h-11 rounded-full border border-line px-5 text-paper transition-colors hover:border-copper" onClick={() => setTab("contracts")}>Contracts</button>
+                  <a
+                    href={explorerBaseUrl(currentChainId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-11 items-center rounded-full border border-line px-5 text-sm text-paper transition-colors hover:border-copper"
+                  >
+                    Explorer
+                  </a>
+                  {isWatchOnlyMode ? (
+                    <button type="button" className="min-h-11 rounded-full border border-line px-5 text-muted transition-colors hover:border-copper hover:text-paper" onClick={() => watchOnly.exitWatchOnly()}>Exit</button>
+                  ) : (
+                    <button type="button" className="min-h-11 rounded-full border border-line px-5 text-muted transition-colors hover:border-copper hover:text-paper" onClick={() => lock()}>Lock</button>
+                  )}
+                </div>
               </div>
-              <label className="grid gap-1 text-sm text-muted">
-                Indexer URL, optional
-                <input className="min-h-11 rounded-2xl border border-line bg-surface px-4 text-paper" value={net.indexerUrl} onChange={(e) => useNetwork.getState().setIndexerUrl(e.target.value)} placeholder="https://indexer.kovanica.online/logs" />
-              </label>
               <AddressBook />
               {!isWatchOnlyMode ? (
                 <button type="button" className="w-fit text-sm text-clay" onClick={() => { forgetDevice(); }}>

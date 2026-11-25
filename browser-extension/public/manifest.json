@@ -7,7 +7,7 @@
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://rpc.kovanica.online/*",
-    "https://testnet-rpc.kovanica.online/*",
+    "https://rpc-testnet.kovanica.online/*",
     "http://127.0.0.1:8545/*"
   ],
   "action": {

@@ -12,7 +12,7 @@ Self-custodial Manifest V3 (MV3) browser extension wallet for the **Kovanica (KV
   - **Wave A**: Atomic Batch (`signBatchTransaction`) and Sponsored/Gasless (`signSponsoredTransaction`) transactions.
   - **Wave B**: Dynamic EIP-1559 base fee per byte & refundable storage deposit delta estimates.
   - **Wave C**: Passkey / WebAuthn (`SignatureScheme.Secp256r1WebAuthn`) vault unlock & Scoped Session Keys (`RegisterSessionKey` / `RevokeSessionKey` builders + policy UI).
-- **RPC & WebSocket**: Connects to `https://rpc.kovanica.online/rpc` (Mainnet), `https://testnet-rpc.kovanica.online/rpc` (Testnet), and `http://127.0.0.1:8545/rpc` (Devnet), with `KovanicaWsClient` live head tracking.
+- **RPC & WebSocket**: Connects to `https://rpc.kovanica.online/rpc` (Mainnet), `https://rpc-testnet.kovanica.online/rpc` (Testnet), and `http://127.0.0.1:8545/rpc` (Devnet), with `KovanicaWsClient` live head tracking.
 
 ---
 
