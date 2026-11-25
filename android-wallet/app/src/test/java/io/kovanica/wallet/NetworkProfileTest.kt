@@ -10,19 +10,19 @@ class NetworkProfileTest {
         assertEquals(2L, Networks.TESTNET.chainId)
         assertEquals("testnet", Networks.TESTNET.id)
         assertTrue(Networks.TESTNET.enabled)
-        assertEquals("Testnet (Chain 2)", Networks.TESTNET.label)
+        assertEquals("Testnet", Networks.TESTNET.label)
     }
 
     @Test
     fun theLiveTestnetHasAReachableFaucet() {
-        assertEquals("https://seed3.kovanica.online/faucet", Networks.TESTNET.faucetUrl)
+        assertEquals("https://faucet-testnet.kovanica.online/faucet", Networks.TESTNET.faucetUrl)
     }
 
     @Test
-    fun otherProfilesKeepTheirChainIds() {
+    fun onlyTestnetAndMainnetAreExposed() {
+        assertEquals(listOf(Networks.TESTNET, Networks.MAINNET), Networks.ALL)
         assertEquals(1L, Networks.MAINNET.chainId)
-        assertEquals(2L, Networks.HYBRID.chainId)
-        assertEquals(3L, Networks.DEVNET.chainId)
+        assertEquals("Mainnet", Networks.MAINNET.label)
     }
 
     @Test

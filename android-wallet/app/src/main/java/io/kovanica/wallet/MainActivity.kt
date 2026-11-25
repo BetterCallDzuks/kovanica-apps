@@ -236,43 +236,16 @@ class MainActivity : Activity() {
                 setLineSpacing(0f, 1.3f)
             }
             addStack(networkSoon, 4)
-            addHairline(14, 14)
-            addStack(caption("Endpoints are editable; they default to the chosen network."), 0)
-            addStack(rpcField, 10)
-            addStack(chainField, 8)
-            addStack(epochField, 8)
             faucetRow = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                addStack(faucetField)
+                visibility = View.GONE
             }
-            addStack(faucetRow, 8)
         }
 
-        val chainCard = card().apply {
-            addStack(sectionLabel("Chain status"))
-            chainState = TextView(this@MainActivity).apply {
-                textSize = 16f
-                typeface = Typeface.DEFAULT_BOLD
-                setLineSpacing(0f, 1.25f)
-                setTextColor(MUTED)
-            }
-            addStack(chainState, 2)
-            chainMeta = monoValue("").apply { setTextColor(MUTED) }
-            addStack(chainMeta, 8)
-            addStack(button("Check connection") { checkConnection() }, 14)
-            fallbackButton = button("Use rpc-testnet.kovanica.online", filled = false) { applyNetwork(Networks.TESTNET) }
-            fallbackButton.visibility = View.GONE
-            addStack(fallbackButton, 8)
-            addStack(button("Sync sealed header", filled = false) { sync() }, 10)
-            addStack(button("Verified balance", filled = false) { balance() }, 10)
-            addStack(
-                caption(
-                    "Check connection reads the chain head and your balance from the node you " +
-                        "selected. Sync and Verified balance also check the sealed header.",
-                ),
-                12,
-            )
-        }
+        // Hidden placeholders kept initialized for internal state helpers without showing Node/Sync UI.
+        chainState = TextView(this)
+        chainMeta = TextView(this)
+        fallbackButton = Button(this)
 
         val walletCard = card().apply {
             addStack(sectionLabel("Create or import"))
@@ -338,15 +311,14 @@ class MainActivity : Activity() {
         val tokensCard = tokensCard()
 
         walletPage = page(overviewCard, tokensCard, sendCard)
-        nodePage = page(networkCard, chainCard, nodeServiceCard())
-        accountPage = page(guideCard(), walletCard, moreCard())
+        nodePage = View(this).apply { visibility = View.GONE }
+        accountPage = page(networkCard, walletCard, moreCard())
         val fill = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT,
         )
         val pages = FrameLayout(this).apply {
             addView(walletPage, fill)
-            addView(nodePage, FrameLayout.LayoutParams(fill))
             addView(accountPage, FrameLayout.LayoutParams(fill))
         }
 
@@ -390,31 +362,18 @@ class MainActivity : Activity() {
             if (keystoreOrNull() == null) OverviewState.NoWallet else OverviewState.Idle,
         )
         setStatus(startupMessage(), if (staleSoon == null) Tone.NEUTRAL else Tone.WARN)
-        stopNodeListen = NodeRuntime.listen { snapshot ->
-            runOnUiThread { renderNode(snapshot) }
-        }
     }
 
     override fun onStart() {
         super.onStart()
-        val filter = IntentFilter(NodeRuntime.ACTION_UPDATED)
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(nodeUpdates, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(nodeUpdates, filter)
-        }
-        renderNode(NodeRuntime.snapshot)
     }
 
     override fun onDestroy() {
-        stopNodeListen()
         io.shutdown()
         super.onDestroy()
     }
 
     override fun onStop() {
-        runCatching { unregisterReceiver(nodeUpdates) }
         super.onStop()
         if (isChangingConfigurations) return
         // Opening History, Settings, or Receive also stops this screen.
@@ -485,10 +444,9 @@ class MainActivity : Activity() {
         nativeFailure?.let { return it }
         val soon = staleSoon
         if (soon != null) {
-            return "$soon\nStarted on ${current.label} — chain id ${current.chainId}."
+            return "$soon\nUsing ${current.label}."
         }
-        return "${current.label} — chain id ${current.chainId}.\n" +
-            "Check the connection, then create or import a wallet."
+        return "${current.label} ready.\nCreate or import a wallet to send and receive KVNC."
     }
 
     private fun spinner(): Spinner = Spinner(this).apply {
@@ -557,16 +515,16 @@ class MainActivity : Activity() {
         renderOverview(
             if (keystoreOrNull() == null) OverviewState.NoWallet else OverviewState.Idle,
         )
-        setStatus("Switched to ${network.label} — chain id ${network.chainId}.", Tone.OK)
+        setStatus("Switched to ${network.label}.", Tone.OK)
     }
 
     private fun indexOf(network: Network): Int =
         Networks.ALL.indexOfFirst { it.id == network.id }.coerceAtLeast(0)
 
     private fun updateNetworkNote() {
-        val faucet = if (current.faucetUrl == null) "no faucet here" else "faucet available"
-        networkNote.text = "${current.label}  ·  chain id ${current.chainId}  ·  $faucet"
-        networkChip.text = "${current.label} · ${current.chainId}"
+        val faucet = if (current.faucetUrl == null) "no faucet" else "faucet available"
+        networkNote.text = "${current.label}  ·  $faucet"
+        networkChip.text = current.label
         val locked = Networks.ALL.filter { !it.enabled }
         networkSoon.text = locked.joinToString("\n") { "${it.label}: ${it.soon ?: "not open yet"}" }
         networkSoon.visibility = if (locked.isEmpty()) View.GONE else View.VISIBLE
@@ -2116,7 +2074,7 @@ class MainActivity : Activity() {
             setTextColor(ACCENT)
             background = rounded(ACCENT_BG, 20)
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setOnClickListener { showTab(Tab.NODE) }
+            setOnClickListener { showTab(Tab.ACCOUNT) }
         }
         addView(networkChip)
     }
@@ -2150,9 +2108,9 @@ class MainActivity : Activity() {
         setPadding(dp(12), dp(8), dp(12), dp(12))
         setBackgroundColor(SURFACE)
         tabWallet = tabButton("Wallet") { showTab(Tab.WALLET) }
-        tabNode = tabButton("Node") { showTab(Tab.NODE) }
+        tabNode = TextView(this@MainActivity).apply { visibility = View.GONE }
         tabAccount = tabButton("Account") { showTab(Tab.ACCOUNT) }
-        listOf(tabWallet, tabNode, tabAccount).forEach { tab ->
+        listOf(tabWallet, tabAccount).forEach { tab ->
             addView(
                 tab,
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -2448,8 +2406,7 @@ class MainActivity : Activity() {
     private fun styleNetworkItem(view: TextView, network: Network, dropdown: Boolean) {
         view.text = when {
             !network.enabled -> "${network.label} — ${network.soon ?: "not open yet"}"
-            network.id == "hybrid" -> "Recommended · ${network.label} · chain ${network.chainId}"
-            else -> "${network.label} · chain ${network.chainId}"
+            else -> network.label
         }
         view.setTextColor(if (network.enabled) TEXT else MUTED)
         view.textSize = 15f

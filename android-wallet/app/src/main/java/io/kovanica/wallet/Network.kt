@@ -39,23 +39,15 @@ object Networks {
     val MAINNET: Network = Network(
         "mainnet", "Mainnet", ChainIds.MAINNET,
         "https://rpc.kovanica.online/rpc", null, enabled = false,
-        soon = "Frozen. Read-only.",
+        soon = "Launching 1.1.2027",
     )
     val TESTNET: Network = Network(
-        "testnet", "Testnet (Chain 2)", ChainIds.TESTNET,
+        "testnet", "Testnet", ChainIds.TESTNET,
         "https://rpc-testnet.kovanica.online/rpc",
-        "https://seed3.kovanica.online/faucet", enabled = true,
-    )
-    val HYBRID: Network = Network(
-        "hybrid", "Local Emulator · Chain 2 Hybrid PoW", ChainIds.HYBRID,
-        "http://10.0.2.2:8545/rpc", "http://10.0.2.2:3000/faucet", enabled = true,
-    )
-    val DEVNET: Network = Network(
-        "devnet", "Devnet (Chain 3)", ChainIds.DEVNET,
-        "http://10.0.2.2:8545/rpc", "http://10.0.2.2:8080/faucet", enabled = true,
+        "https://faucet-testnet.kovanica.online/faucet", enabled = true,
     )
 
-    val ALL: List<Network> = listOf(TESTNET, HYBRID, DEVNET, MAINNET)
+    val ALL: List<Network> = listOf(TESTNET, MAINNET)
     val DEFAULT: Network = TESTNET
 
     /** Look up a profile by id; `null` when unknown (including `null`). */

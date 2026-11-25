@@ -533,6 +533,23 @@ class NodePolicyTest {
     }
 
     @Test
+    fun generatedConfigSupportsOptInMiningWithCoinbaseAndThreads() {
+        val text = NodeConfigText.render(
+            dataDir = "/data/user/0/online.kovanica.node.android/files/chaindata",
+            chainId = ChainIds.TESTNET,
+            miningEnabled = true,
+            minerAddress = sample,
+            miningThreads = 2,
+        )
+        assertTrue(text.contains("[mining]"))
+        assertTrue(text.contains("enabled = true"))
+        assertTrue(text.contains("threads = 2"))
+        assertTrue(text.contains("coinbase = \"$sample\""))
+        val notif = NodeService.formatNotificationText("synced", 1234L, 3L, miningEnabled = true)
+        assertTrue(notif.contains("Mining: ON"))
+    }
+
+    @Test
     fun addressValidationMatchesTheCanonicalVectors() {
         assertTrue(KvncAddress.isValid(zero, ChainIds.TESTNET))
         assertTrue(KvncAddress.isValid(sample, ChainIds.MAINNET))

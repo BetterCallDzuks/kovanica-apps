@@ -38,7 +38,13 @@ object NodeConfigText {
         )
     }
 
-    fun render(dataDir: String, chainId: Long = ChainIds.TESTNET): String {
+    fun render(
+        dataDir: String,
+        chainId: Long = ChainIds.TESTNET,
+        miningEnabled: Boolean = false,
+        minerAddress: String? = null,
+        miningThreads: Int = 1,
+    ): String {
         val guard = ChainGuard.evaluate(chainId)
         require(guard.allowed) { guard.message }
         val boot = Bootstrap.official().joinToString(", ") { "\"$it\"" }
@@ -46,6 +52,20 @@ object NodeConfigText {
             "emission_policy = \"no-stake-82m\"\n"
         } else {
             ""
+        }
+        val threads = miningThreads.coerceIn(1, 4)
+        val cleanMiner = minerAddress?.trim().orEmpty()
+        val miningBlock = if (miningEnabled) {
+            buildString {
+                appendLine("[mining]")
+                appendLine("enabled = true")
+                appendLine("threads = $threads")
+                if (cleanMiner.isNotEmpty()) {
+                    appendLine("coinbase = \"${escape(cleanMiner)}\"")
+                }
+            }.trimEnd()
+        } else {
+            "[mining]\nenabled = false"
         }
         return """
             chain_id = $chainId
@@ -58,8 +78,7 @@ object NodeConfigText {
             $emission
             bootnodes = [$boot]
 
-            [mining]
-            enabled = false
+            $miningBlock
         """.trimIndent().trim() + "\n"
     }
 
