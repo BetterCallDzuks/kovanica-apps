@@ -14,7 +14,7 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 | Directory | Platform / Stack | Role | Documentation |
 | :--- | :--- | :--- | :--- |
 | `wallet-web` | React / TanStack Start + `kovanica-sdk v0.9.0` | Hybrid web & desktop wallet with Ecosystem Switcher, 3-sub-tab Contracts workspace, and canonical `rpc-testnet.kovanica.online` defaults | [`wallet-web/README.md`](wallet-web/README.md) |
-| `browser-extension` | Chrome / Brave / Firefox MV3 + `window.kovanica` | Non-custodial browser extension wallet with `window.kovanica` dApp provider, Wave A batch signing & Ecosystem links | [`browser-extension/README.md`](browser-extension/README.md) |
+| `browser-extension` | Chrome / Brave / Firefox MV3 + `window.kovanica` | Non-custodial browser extension wallet with `window.kovanica` dApp provider, Wave A batch signing, dual Chrome/Firefox MV3 manifests & Chrome Web Store / Firefox AMO release kit (`store-assets/`) | [`browser-extension/README.md`](browser-extension/README.md) |
 | `console-desktop` | Tauri + React + TypeScript | Desktop wallet, operator node inspector & cluster readiness console | [`console-desktop/README.md`](console-desktop/README.md) |
 | `node-desktop` | Tauri + Vite (Linux `.deb`) | External `kovanica-node` supervisor & operator CLI helper (no bundled node binary) | [`node-desktop/README.md`](node-desktop/README.md) |
 | `desktop` | Tauri | Desktop E2E encrypted Comms shell | [`desktop/README.md`](desktop/README.md) |
@@ -53,6 +53,9 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 ```bash
 # wallet-web
 cd wallet-web && npm ci && npm run typecheck && npm run lint && npm test && npm run build
+
+# browser-extension (Chrome + Firefox MV3 builds & deterministic store .zip bundles)
+cd browser-extension && npm ci && npm run typecheck && npm test && npm run package
 
 # console-desktop
 cd console-desktop && npm ci && npm run lint && npm test && npm run build
