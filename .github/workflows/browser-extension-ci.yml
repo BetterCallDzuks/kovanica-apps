@@ -1,0 +1,75 @@
+name: browser-extension-ci
+
+on:
+  pull_request:
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/browser-extension-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/browser-extension-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-test-build:
+    name: Typecheck, Unit Tests & MV3 Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: browser-extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout BetterCallDzuks/kovanica-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: BetterCallDzuks/kovanica-sdk
+          ref: 3c9c805072aa5dc703d865c3a8496efe5e713b8d
+          path: kovanica-sdk
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build kovanica-sdk and link sibling
+        run: |
+          cd kovanica-sdk
+          npm ci
+          npm run build
+          cd ..
+          ln -s "$(pwd)/kovanica-sdk" "$(pwd)/../kovanica-sdk"
+        working-directory: .
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build MV3 unpacked extension
+        run: npm run build
+
+      - name: Verify MV3 bundle artifacts
+        run: |
+          test -f dist/manifest.json
+          test -f dist/background.js
+          test -f dist/content.js
+          test -f dist/inpage.js
+          test -f dist/popup.html
+          test -f dist/popup.js
+          test -f dist/approval.html
+          test -f dist/approval.js
+          test -f dist/styles.css
+          test -f dist/icons/icon-128.png
