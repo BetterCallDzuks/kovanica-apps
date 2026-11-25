@@ -11,14 +11,20 @@ object FaucetClaim {
 }
 
 object SeedCheck {
+    private val LEADING_INDEX = Regex("^#?\\d+[.):\\s-]+")
+
     fun positions(wordCount: Int): List<Int> = if (wordCount >= 14) listOf(3, 8, 14) else listOf(3, 8, 12)
+
+    fun normalizeAnswer(raw: String): String =
+        raw.trim().replace(LEADING_INDEX, "").trim().lowercase()
 
     fun matches(mnemonic: String, answers: List<String>): Boolean {
         val words = mnemonic.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         val spots = positions(words.size)
         if (answers.size != spots.size) return false
         return spots.zip(answers).all { (position, answer) ->
-            words.getOrNull(position - 1)?.equals(answer.trim(), ignoreCase = true) == true
+            val cleaned = normalizeAnswer(answer)
+            cleaned.isNotEmpty() && words.getOrNull(position - 1)?.equals(cleaned, ignoreCase = true) == true
         }
     }
 }

@@ -23,6 +23,7 @@ class FaucetClaimTest {
         assertEquals(listOf(3, 8, 14), SeedCheck.positions(24))
         assertEquals(listOf(3, 8, 12), SeedCheck.positions(12))
         assertTrue(SeedCheck.matches(phrase, listOf("w3", "w8", "w14")))
+        assertTrue(SeedCheck.matches(phrase, listOf("3.  w3", " #8 w8 ", "14) W14")))
         assertFalse(SeedCheck.matches(phrase, listOf("w3", "w8", "nope")))
     }
 }
