@@ -1,6 +1,6 @@
 # kovanica-apps
 
-Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchain — covering Web Wallet (`wallet-web`), Desktop Console (`console-desktop`), Linux Node Supervisor (`node-desktop`), Desktop Comms (`desktop`), Android, and iOS.
+Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchain — covering Web Wallet (`wallet-web`), MV3 Browser Extension (`browser-extension`), Desktop Console (`console-desktop`), Linux Node Supervisor (`node-desktop`), Desktop Comms (`desktop`), Android, and iOS.
 
 > [!IMPORTANT]
 > **Repository Boundaries (HR / EN):**
@@ -13,7 +13,8 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 
 | Directory | Platform / Stack | Role | Documentation |
 | :--- | :--- | :--- | :--- |
-| `wallet-web` | React / TanStack Start + `kovanica-sdk v0.5.0` | Hybrid web & desktop wallet (Chain `1` read-only `1-f35df34c92001436`, Chain `2` testnet `2-24cdb5fadd98b207`, Chain `3` devnet) | [`wallet-web/README.md`](wallet-web/README.md) |
+| `wallet-web` | React / TanStack Start + `kovanica-sdk v0.9.0` | Hybrid web & desktop wallet with Ecosystem Switcher, 3-sub-tab Contracts workspace, and canonical `rpc-testnet.kovanica.online` defaults | [`wallet-web/README.md`](wallet-web/README.md) |
+| `browser-extension` | Chrome / Brave / Firefox MV3 + `window.kovanica` | Non-custodial browser extension wallet with `window.kovanica` dApp provider, Wave A batch signing & Ecosystem links | [`browser-extension/README.md`](browser-extension/README.md) |
 | `console-desktop` | Tauri + React + TypeScript | Desktop wallet, operator node inspector & cluster readiness console | [`console-desktop/README.md`](console-desktop/README.md) |
 | `node-desktop` | Tauri + Vite (Linux `.deb`) | External `kovanica-node` supervisor & operator CLI helper (no bundled node binary) | [`node-desktop/README.md`](node-desktop/README.md) |
 | `desktop` | Tauri | Desktop E2E encrypted Comms shell | [`desktop/README.md`](desktop/README.md) |
@@ -27,7 +28,7 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 
 ## Key Capabilities
 
-1. **Web Wallet (`wallet-web`, powered by `kovanica-sdk v0.5.0`):**
+1. **Web Wallet (`wallet-web`, powered by `kovanica-sdk v0.9.0`):**
    - Multi-endpoint RPC failover (`createWalletFailoverClient`, `normalizeFailoverRpcUrls`) and header-aware RPC probing (`probeWalletRpcEndpoint`).
    - Live transaction finality tracking (`watchSubmittedTxFinality`, `formatFinalityProgressBadge`) and mempool fee-tier estimation (`fetchWalletFeeTiers` with automatic legacy `-32601` fallback to `estimateFee`).
    - Cryptographic pre-broadcast self-verification for native Transfer, Wasmi Call, and universal auto-decoded transactions (`verifySignedTransferTxBeforeBroadcast`, `verifySignedCallTxBeforeBroadcast`, `verifyAnySignedTxBeforeBroadcast`).
