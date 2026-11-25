@@ -74,4 +74,30 @@ class LightFfiBridge : NativeBridge.Bridge {
             error.reason
         }
     }
+
+    override fun signBatchDeployCall(
+        secretKeyHex: String,
+        wasmHex: String,
+        method: String,
+        argsHex: String,
+        gasLimit: Long,
+        fee: Long,
+        nonce: Long,
+        chainId: Long,
+    ): String {
+        val ktClass = Class.forName("uniffi.kovanica_light.Kovanica_lightKt")
+        val fn = ktClass.methods.firstOrNull { it.name == "signBatchDeployCallRaw" }
+            ?: error("signBatchDeployCallRaw requires rebuilt libkovanica_light_ffi.so from L1 >= 0aebd8f")
+        return fn.invoke(
+            null,
+            secretKeyHex,
+            wasmHex,
+            method,
+            argsHex,
+            gasLimit.toULong(),
+            fee.toULong(),
+            nonce.toULong(),
+            chainId.toULong(),
+        ) as String
+    }
 }

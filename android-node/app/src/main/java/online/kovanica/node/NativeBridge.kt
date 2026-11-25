@@ -68,6 +68,30 @@ object NativeBridge {
     ): String = impl?.signTransfer(keystoreJson, passphrase, chainId, to, amount, fee, nonce)
         ?: error("native library is not packaged")
 
+    /**
+     * Wave A atomic 1-tx Deploy + Call batch signer (bound to `sign_batch_deploy_call_raw`
+     * in `kovanica-light-ffi`).
+     */
+    fun signBatchDeployCall(
+        secretKeyHex: String,
+        wasmHex: String,
+        method: String,
+        argsHex: String,
+        gasLimit: Long,
+        fee: Long,
+        nonce: Long,
+        chainId: Long,
+    ): String = impl?.signBatchDeployCall(
+        secretKeyHex,
+        wasmHex,
+        method,
+        argsHex,
+        gasLimit,
+        fee,
+        nonce,
+        chainId,
+    ) ?: error("native library is not packaged")
+
     fun verifyHeader(chainId: Long, headerJson: String, parentJson: String): String =
         impl?.verifyHeader(chainId, headerJson, parentJson) ?: "native library is not packaged"
 
@@ -97,5 +121,15 @@ object NativeBridge {
         fun verifyHeader(chainId: Long, headerJson: String, parentJson: String): String
         fun profile(chainId: Long): String
         fun sync(dbPath: String, endpoint: String, chainId: Long, maxBlocks: Long): String
+        fun signBatchDeployCall(
+            secretKeyHex: String,
+            wasmHex: String,
+            method: String,
+            argsHex: String,
+            gasLimit: Long,
+            fee: Long,
+            nonce: Long,
+            chainId: Long,
+        ): String = error("sign_batch_deploy_call_raw not available in packaged libkovanica_light_ffi")
     }
 }
