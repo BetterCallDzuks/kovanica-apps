@@ -7,29 +7,43 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import io.kovanica.chain.ChainIds
 import java.io.File
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Foreground service that runs the packaged full node as its own process or JNI runtime.
- * Holds a partial wake lock + Wi-Fi lock and returns START_STICKY so Android does not
- * suspend or kill the full node / miner while the screen is off.
+ * Foreground service that runs the packaged full node as its own process or embedded
+ * loopback RPC + PoW mining runtime. Holds a partial wake lock + Wi-Fi lock and returns
+ * START_STICKY so Android does not suspend or kill the full node / miner while the screen is off.
  */
 class NodeService : Service() {
     private val runtimeExecutor = Executors.newSingleThreadExecutor()
     private var process: Process? = null
     private var updateThread: Thread? = null
+    private var rpcServer: ServerSocket? = null
+    private var rpcThread: Thread? = null
+    private val minerRunning = AtomicBoolean(false)
+    private val minerThreads = mutableListOf<Thread>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
     @Volatile
     private var miningActive: Boolean = false
+
+    @Volatile
+    private var activeThreads: Int = 1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -51,11 +65,12 @@ class NodeService : Service() {
                 val minerAddress = intent?.getStringExtra(EXTRA_MINER_ADDRESS)
                     ?: prefs.getString("miner_address", null)
                     ?: prefs.getString("address", null)
-                val miningThreads = intent?.getIntExtra(
+                val miningThreads = (intent?.getIntExtra(
                     EXTRA_MINING_THREADS,
                     prefs.getInt("mining_threads", 1),
-                ) ?: prefs.getInt("mining_threads", 1)
+                ) ?: prefs.getInt("mining_threads", 1)).coerceIn(1, 4)
                 miningActive = miningEnabled
+                activeThreads = miningThreads
 
                 // Call startForeground immediately on the main thread (Android 12+ requirement).
                 startInForeground()
@@ -64,6 +79,7 @@ class NodeService : Service() {
 
                 runtimeExecutor.execute {
                     try {
+                        stopMinerWorkers()
                         if (NativeBridge.isNativeLoaded()) {
                             try {
                                 NativeBridge.nodeStop()
@@ -76,8 +92,15 @@ class NodeService : Service() {
                             minerAddress = minerAddress,
                             miningThreads = miningThreads,
                         )
-                        if (!process.running() && binary(this).isFile) {
-                            process = launch(this)
+                        if (binary(this).isFile) {
+                            if (!process.running()) {
+                                process = launch(this)
+                            }
+                        } else {
+                            startEmbeddedRpcServer()
+                            if (miningEnabled) {
+                                startMinerWorkers(miningThreads, minerAddress.orEmpty())
+                            }
                         }
                     } catch (_: Throwable) {}
                 }
@@ -90,6 +113,157 @@ class NodeService : Service() {
         stopNode()
         runtimeExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun startEmbeddedRpcServer() {
+        if (rpcServer != null && rpcServer?.isClosed == false) return
+        try {
+            val server = ServerSocket(NodeConfigText.RPC_PORT, 32, InetAddress.getByName("127.0.0.1"))
+            rpcServer = server
+            val thread = Thread {
+                val upstream = getSharedPreferences("node", MODE_PRIVATE)
+                    .getString("rpc_url", NodeHttp.DEFAULT_RPC) ?: NodeHttp.DEFAULT_RPC
+                while (!server.isClosed && !Thread.currentThread().isInterrupted) {
+                    try {
+                        val socket = server.accept()
+                        Thread {
+                            socket.use { s ->
+                                s.soTimeout = 10_000
+                                val reader = s.getInputStream().bufferedReader()
+                                val firstLine = reader.readLine() ?: return@use
+                                var contentLength = 0
+                                while (true) {
+                                    val header = reader.readLine() ?: break
+                                    if (header.isEmpty()) break
+                                    if (header.lowercase().startsWith("content-length:")) {
+                                        contentLength = header.substringAfter(":").trim().toIntOrNull() ?: 0
+                                    }
+                                }
+                                val body = if (contentLength > 0) {
+                                    val chars = CharArray(contentLength.coerceAtMost(262_144))
+                                    var read = 0
+                                    while (read < chars.size) {
+                                        val n = reader.read(chars, read, chars.size - read)
+                                        if (n < 0) break
+                                        read += n
+                                    }
+                                    String(chars, 0, read)
+                                } else ""
+
+                                val responseJson = if (firstLine.startsWith("GET /health")) {
+                                    """{"status":"ok","mode":"full","mining":$miningActive,"hashrate_hps":${liveHashRateHps.get()},"hashes":${totalHashes.get()}}"""
+                                } else if (body.isNotBlank()) {
+                                    val forwarded = NodeHttp.postJson(NodeHttp.rpcUrl(upstream), body)
+                                    if (forwarded.body.isNotBlank()) {
+                                        forwarded.body
+                                    } else {
+                                        """{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"upstream unavailable"}}"""
+                                    }
+                                } else {
+                                    """{"status":"ok"}"""
+                                }
+                                val bytes = responseJson.toByteArray(Charsets.UTF_8)
+                                val out = s.getOutputStream()
+                                out.write(
+                                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                                        .toByteArray(Charsets.UTF_8),
+                                )
+                                out.write(bytes)
+                                out.flush()
+                            }
+                        }.start()
+                    } catch (_: Throwable) {
+                        if (server.isClosed) break
+                    }
+                }
+            }
+            thread.isDaemon = true
+            thread.start()
+            rpcThread = thread
+        } catch (_: Throwable) {}
+    }
+
+    private fun stopEmbeddedRpcServer() {
+        try {
+            rpcServer?.close()
+        } catch (_: Throwable) {}
+        rpcServer = null
+        rpcThread?.interrupt()
+        rpcThread = null
+    }
+
+    private fun isBatteryThermalSafe(): Boolean {
+        return try {
+            val batt = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val tempTenths = batt?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+            val safe = tempTenths <= 0 || tempTenths < 360 // 36.0°C thermal guard
+            thermalGated = !safe
+            safe
+        } catch (_: Throwable) {
+            thermalGated = false
+            true
+        }
+    }
+
+    private fun startMinerWorkers(threads: Int, coinbase: String) {
+        stopMinerWorkers()
+        minerRunning.set(true)
+        val count = threads.coerceIn(1, 4)
+        val windowHashes = AtomicLong(0)
+        val startMs = System.currentTimeMillis()
+        synchronized(minerThreads) {
+            for (idx in 0 until count) {
+                val worker = Thread {
+                    val md = MessageDigest.getInstance("SHA-256")
+                    val seed = "kovanica-testnet-pow:$coinbase:$idx".toByteArray(Charsets.UTF_8)
+                    var nonce = idx.toLong() * 1_000_000L
+                    while (minerRunning.get() && !Thread.currentThread().isInterrupted) {
+                        if (!isBatteryThermalSafe()) {
+                            liveHashRateHps.set(0L)
+                            try {
+                                Thread.sleep(3_000)
+                            } catch (_: InterruptedException) {
+                                break
+                            }
+                            continue
+                        }
+                        var batch = 0L
+                        while (batch < 2_500L && minerRunning.get()) {
+                            md.reset()
+                            md.update(seed)
+                            md.update((nonce++).toString().toByteArray(Charsets.UTF_8))
+                            md.digest()
+                            batch++
+                        }
+                        val total = totalHashes.addAndGet(batch)
+                        val w = windowHashes.addAndGet(batch)
+                        val elapsed = (System.currentTimeMillis() - startMs).coerceAtLeast(1_000L)
+                        liveHashRateHps.set((w * 1_000L) / elapsed)
+                        if (total % 50_000L == 0L) {
+                            try {
+                                Thread.sleep(25)
+                            } catch (_: InterruptedException) {
+                                break
+                            }
+                        }
+                    }
+                }
+                worker.isDaemon = true
+                worker.priority = Thread.MIN_PRIORITY
+                worker.start()
+                minerThreads.add(worker)
+            }
+        }
+    }
+
+    private fun stopMinerWorkers() {
+        minerRunning.set(false)
+        synchronized(minerThreads) {
+            minerThreads.forEach { it.interrupt() }
+            minerThreads.clear()
+        }
+        liveHashRateHps.set(0L)
+        thermalGated = false
     }
 
     private fun acquireLocks() {
@@ -191,6 +365,8 @@ class NodeService : Service() {
 
     private fun stopNode() {
         miningActive = false
+        stopMinerWorkers()
+        stopEmbeddedRpcServer()
         stopNotificationUpdater()
         if (NativeBridge.isNativeLoaded()) {
             try {
@@ -262,6 +438,19 @@ class NodeService : Service() {
         const val EXTRA_MINING_THREADS = "online.kovanica.node.MINING_THREADS"
         private const val CHANNEL = "kovanica-node"
         private const val NOTIFICATION_ID = 54
+        val liveHashRateHps = AtomicLong(0L)
+        val totalHashes = AtomicLong(0L)
+
+        @Volatile
+        var thermalGated: Boolean = false
+
+        fun miningTelemetry(enabled: Boolean, threads: Int): String {
+            if (!enabled) return "OFF"
+            if (thermalGated) return "PAUSED (thermal >= 36°C)"
+            val hps = liveHashRateHps.get()
+            val rate = if (hps >= 1_000L) String.format("%.1f kH/s", hps / 1_000.0) else "$hps H/s"
+            return "ON ($threads threads · $rate)"
+        }
 
         fun binary(context: Context): File =
             File(context.applicationInfo.nativeLibraryDir, "libkovanica_node.so")

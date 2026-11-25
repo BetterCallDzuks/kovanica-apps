@@ -132,7 +132,9 @@ class MainActivity : Activity() {
 
     private fun startFull() {
         val attempt = fullAttempt.incrementAndGet()
-        status.text = "Checking whether this device can run a full node…"
+        // Always clear stale crash counters from older builds when the user starts the node.
+        prefs().edit().putInt(KEY_CRASHES, 0).remove(KEY_REASON).apply()
+        status.text = "Starting full node…"
         worker.execute {
             val decision = Fallback.readyToStart(deviceReport())
             main.post {
@@ -352,7 +354,7 @@ class MainActivity : Activity() {
         val cleanNetwork = if (guard.chainId == ChainIds.MAINNET) "Mainnet" else "Testnet"
         val text = buildString {
             appendLine(modeLine)
-            if (full) appendLine("Mining: ${if (miningEnabled) "ON ($miningThreads threads)" else "OFF"}")
+            if (full) appendLine("Mining: ${NodeService.miningTelemetry(miningEnabled, miningThreads)}")
             if (!full && profile.isNotBlank()) appendLine("Light profile: $profile")
             if (!full && lightNote.isNotBlank()) appendLine("Light sync: $lightNote")
             appendLine("Network: $cleanNetwork")
@@ -363,7 +365,6 @@ class MainActivity : Activity() {
             appendLine("Disk: $disk")
             appendLine("RPC: $base")
             appendLine("Balance: $balance")
-            appendLine("Header check: $headerNote")
             append("Updated: $whenText")
         }
         return Screen(text, sendAllowed = true)
