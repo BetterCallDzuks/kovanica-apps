@@ -289,7 +289,7 @@ export function WalletApp() {
   return (
     <main className="min-h-screen bg-ink text-paper">
       <div className="mx-auto grid min-h-screen w-full max-w-5xl md:grid-cols-[240px_1fr]">
-        <aside className="border-b border-line px-5 py-6 md:border-r md:border-b-0">
+        <aside className="min-w-0 border-b border-line px-5 py-6 md:border-r md:border-b-0">
           <p className="text-xs tracking-[0.22em] text-copper uppercase">Kovanica</p>
           <h1 className="mt-2 text-2xl font-semibold">Wallet</h1>
           <div className="mt-6 flex flex-wrap items-center gap-2 text-sm">
@@ -351,7 +351,7 @@ export function WalletApp() {
             </nav>
           </footer>
         </aside>
-        <section className="px-5 py-6">
+        <section className="min-w-0 px-5 py-6">
           {isWatchOnlyMode && watchOnly.active ? (
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-card border border-copper bg-surface px-4 py-3" data-testid="watch-only-banner">
               <div>
