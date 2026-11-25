@@ -26,6 +26,8 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -250,19 +252,14 @@ class MainActivity : Activity() {
         val walletCard = card().apply {
             addStack(sectionLabel("Create or import"))
             addStack(
-                caption("Uses the passphrase at the top. The seed stays on this phone."),
+                caption("Uses the passphrase at the top. Your recovery words stay on this phone."),
                 0,
             )
-            addStack(button("Create HD wallet (24 words)") { onCreateHdWallet(24u) }, 12)
-            addStack(button("Create HD wallet (12 words)", filled = false) { onCreateHdWallet(12u) }, 8)
-            addStack(button("Create legacy wallet", filled = false) { onCreateWallet() }, 8)
-            addStack(caption("Or import an existing wallet from its seed."), 16)
+            addStack(button("Create wallet (24 words)") { onCreateHdWallet(24u) }, 12)
+            addStack(button("Create wallet (12 words)", filled = false) { onCreateHdWallet(12u) }, 8)
+            addStack(caption("Or import an existing wallet from its 12- or 24-word seed."), 16)
             addStack(mnemonicField, 8)
-            addStack(bip39PassField, 8)
-            addStack(accountIndexField, 8)
-            addStack(button("Import HD wallet") { onImportHdWallet() }, 10)
-            addStack(button("Import legacy wallet", filled = false) { onImportWallet() }, 8)
-            addStack(button("Derive HD account", filled = false) { onDeriveHdAccount() }, 8)
+            addStack(button("Import wallet") { onImportHdWallet() }, 10)
         }
 
         val sendCard = card().apply {
@@ -867,48 +864,118 @@ class MainActivity : Activity() {
     private fun confirmSeed(created: CreatedWallet) {
         val words = created.mnemonic.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         val spots = SeedCheck.positions(words.size)
+
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(0))
+            setBackgroundColor(SURFACE)
+            setPadding(dp(20), dp(14), dp(20), dp(14))
         }
-        val phraseView = TextView(this).apply {
-            text = words.mapIndexed { index, word -> "${index + 1}.  $word" }.joinToString("\n")
+
+        val subtitle = TextView(this).apply {
+            text = "Write down all ${words.size} words in order. The wallet is not saved until you confirm 3 words."
+            textSize = 13f
+            setTextColor(MUTED)
+            setLineSpacing(0f, 1.3f)
+        }
+        column.addStack(subtitle, 0)
+
+        // Two-column scrollable grid so all 12 or 24 words are always visible with dark contrast.
+        val half = (words.size + 1) / 2
+        val gridRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = rounded(SURFACE_2, 12, LINE, 1)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val leftCol = TextView(this).apply {
+            text = words.take(half).mapIndexed { i, w -> "${i + 1}. $w" }.joinToString("\n")
             typeface = Typeface.MONOSPACE
-            textSize = 16f
+            textSize = 14f
             setTextColor(TEXT)
-            setLineSpacing(0f, 1.35f)
+            setTextIsSelectable(true)
+            setLineSpacing(0f, 1.4f)
         }
-        column.addView(phraseView)
-        val fields = mutableListOf<EditText>()
-        val dialog = AlertDialog.Builder(this)
+        val rightCol = TextView(this).apply {
+            text = words.drop(half).mapIndexed { i, w -> "${half + i + 1}. $w" }.joinToString("\n")
+            typeface = Typeface.MONOSPACE
+            textSize = 14f
+            setTextColor(TEXT)
+            setTextIsSelectable(true)
+            setLineSpacing(0f, 1.4f)
+        }
+        gridRow.addView(leftCol, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        gridRow.addView(
+            rightCol,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(12)
+            },
+        )
+        column.addStack(gridRow, 12)
+
+        // Pre-create confirmation inputs in the hierarchy (initially GONE) so AlertDialog
+        // allows the soft keyboard immediately without FLAG_ALT_FOCUSABLE_IM blocking IME.
+        val confirmBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val fields = spots.mapIndexed { idx, position ->
+            val input = field("Word #$position", "", mono = true).apply {
+                setSingleLine(true)
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            }
+            confirmBox.addStack(input, if (idx == 0) 12 else 8)
+            input
+        }
+        column.addStack(confirmBox, 0)
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(SURFACE)
+            isFillViewport = true
+            addView(column)
+        }
+
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle("Write down your seed")
-            .setMessage("The wallet is not saved until you confirm three words.")
-            .setView(column)
+            .setView(scroll)
             .setNegativeButton("Cancel") { _, _ ->
                 pendingCreate = null
                 setStatus("Wallet was not saved.", Tone.WARN)
             }
             .setPositiveButton("I wrote them down", null)
             .create()
+
         dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(rounded(SURFACE, 16, LINE, 1))
+            dialog.window?.clearFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+            )
+            dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(ACCENT)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(MUTED)
+
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (phraseView.visibility == View.VISIBLE) {
-                    phraseView.visibility = View.GONE
+                if (gridRow.visibility == View.VISIBLE) {
+                    gridRow.visibility = View.GONE
+                    confirmBox.visibility = View.VISIBLE
                     dialog.setTitle("Confirm your seed")
-                    dialog.setMessage("Select word ${spots.joinToString(", ") { "#$it" }}.")
-                    fields += spots.map { position ->
-                        EditText(this).apply {
-                            hint = "Word #$position"
-                            setSingleLine(true)
-                            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                        }.also { column.addView(it) }
-                    }
+                    subtitle.text = "Type word ${spots.joinToString(", ") { "#$it" }} to save your wallet."
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "Confirm"
+                    fields.firstOrNull()?.let { first ->
+                        first.requestFocus()
+                        first.post {
+                            val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+                            imm?.showSoftInput(first, InputMethodManager.SHOW_IMPLICIT)
+                        }
+                    }
                     return@setOnClickListener
                 }
                 val answers = fields.map { it.text.toString() }
                 if (!SeedCheck.matches(created.mnemonic, answers)) {
-                    Toast.makeText(this, "Those words do not match.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Those words do not match. Check word ${spots.joinToString(", ") { "#$it" }}.",
+                        Toast.LENGTH_LONG,
+                    ).show()
                     return@setOnClickListener
                 }
                 val editor = prefs().edit()
@@ -1299,8 +1366,6 @@ class MainActivity : Activity() {
     /** The token watchlist card: add form plus one row per watched contract. */
     private fun tokensCard(): LinearLayout = card().apply {
         addStack(tokensHeader())
-        addStack(button("Create token", filled = false) { openCreateToken() }, 10)
-        addStack(button("Contracts", filled = false) { openContracts() }, 8)
         tokensState = TextView(this@MainActivity).apply {
             textSize = 12f
             setTextColor(MUTED)
