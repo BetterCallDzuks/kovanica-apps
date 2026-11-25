@@ -18,10 +18,10 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 | `console-desktop` | Tauri + React + TypeScript | Desktop wallet, operator node inspector & cluster readiness console | [`console-desktop/README.md`](console-desktop/README.md) |
 | `node-desktop` | Tauri + Vite (Linux `.deb`) | External `kovanica-node` supervisor & operator CLI helper (no bundled node binary) | [`node-desktop/README.md`](node-desktop/README.md) |
 | `desktop` | Tauri | Desktop E2E encrypted Comms shell | [`desktop/README.md`](desktop/README.md) |
-| `android` / `android-wallet` | Kotlin / UniFFI | Light wallet & Android client apps | [`docs/android-release-build.md`](docs/android-release-build.md) |
+| `android` / `android-wallet` | Kotlin / UniFFI | Streamlined 2-tab Wallet/Account app (`Testnet` / `Mainnet` only, dark 24-word seed confirmation, BIP-44 `m/44'/3007'/0'/0'/0'` parity) | [`docs/android-release-build.md`](docs/android-release-build.md) |
 | `android-comms` | Kotlin | Android E2E encrypted Comms client | — |
 | `android-chain` | Kotlin | Shared canonical Chain IDs (`1` Mainnet, `2` Testnet, `3` Devnet) | — |
-| `android-node` | Kotlin / Rust | Android full-node PoC on Testnet (`2-24cdb5fadd98b207`) with light-node fallback | [`android-node/README.md`](android-node/README.md) |
+| `android-node` | Kotlin / Rust | Android Testnet node (`START_STICKY` + WakeLock/WifiLock keep-alive, embedded `127.0.0.1:8545` RPC, thermal-safe `1..4`-thread PoW miner) | [`android-node/README.md`](android-node/README.md) |
 | `ios` | Swift / UniFFI | iOS light client | — |
 
 ---
