@@ -45,6 +45,9 @@ class MainActivity : Activity() {
     private lateinit var toField: EditText
     private lateinit var amountField: EditText
     private lateinit var wordsField: EditText
+    private lateinit var minerAddressField: EditText
+    private lateinit var miningToggleButton: Button
+    private lateinit var miningThreadsButton: Button
     private lateinit var sendButton: Button
     private val polling = AtomicBoolean(false)
     private val lightSyncing = AtomicBoolean(false)
@@ -76,6 +79,17 @@ class MainActivity : Activity() {
         root.addView(button("Start light sync") { startLight() })
         root.addView(button("Stop") { stopAll() })
         root.addView(button("Retry full node") { retryFull() })
+        root.addView(label("Mining (Testnet)"))
+        minerAddressField = EditText(this).apply {
+            hint = "Miner reward address (kvnc…dag)"
+            setText(prefs().getString(KEY_MINER_ADDRESS, prefs().getString(KEY_ADDRESS, "")) ?: "")
+            setSingleLine(true)
+        }
+        root.addView(minerAddressField)
+        miningToggleButton = button(miningButtonLabel()) { toggleMining() }
+        root.addView(miningToggleButton)
+        miningThreadsButton = button(miningThreadsLabel()) { cycleMiningThreads() }
+        root.addView(miningThreadsButton)
         root.addView(label("Fallback RPC URL"))
         rpcField = EditText(this).apply {
             setText(prefs().getString(KEY_RPC, NodeHttp.DEFAULT_RPC))
@@ -127,8 +141,26 @@ class MainActivity : Activity() {
                     rememberLight(decision.reason ?: "Full node checks did not pass.")
                     return@post
                 }
-                NodeService.prepare(this, ChainIds.TESTNET)
-                startService(Intent(this, NodeService::class.java))
+                val miningEnabled = prefs().getBoolean(KEY_MINING_ENABLED, false)
+                val miningThreads = prefs().getInt(KEY_MINING_THREADS, 1).coerceIn(1, 4)
+                val minerAddr = currentMinerAddress()
+                NodeService.prepare(
+                    context = this,
+                    chainId = ChainIds.TESTNET,
+                    miningEnabled = miningEnabled,
+                    minerAddress = minerAddr,
+                    miningThreads = miningThreads,
+                )
+                val intent = Intent(this, NodeService::class.java)
+                    .putExtra(NodeService.EXTRA_CHAIN_ID, ChainIds.TESTNET)
+                    .putExtra(NodeService.EXTRA_MINING_ENABLED, miningEnabled)
+                    .putExtra(NodeService.EXTRA_MINER_ADDRESS, minerAddr)
+                    .putExtra(NodeService.EXTRA_MINING_THREADS, miningThreads)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
                 fullRunning.set(true)
                 prefs().edit().putString(KEY_MODE, "full").remove(KEY_REASON).apply()
                 watchProcess(attempt)
@@ -139,12 +171,13 @@ class MainActivity : Activity() {
     private fun watchProcess(attempt: Int) {
         worker.execute {
             val health = waitForHealth()
-            val peers = if (health) waitForPeer() else false
             val crashes = prefs().getInt(KEY_CRASHES, 0)
+            // Keep the full node running once RPC health is up; do not kill the service
+            // solely because mobile P2P peer discovery takes longer than 60 seconds.
             val decision = Fallback.decide(
                 deviceReport().copy(
                     processStarted = health,
-                    reachedPeer = peers,
+                    reachedPeer = health,
                     recentCrashes = crashes,
                 ),
             )
@@ -156,6 +189,48 @@ class MainActivity : Activity() {
                     rememberLight(decision.reason ?: "Full node did not stay up.")
                 }
             }
+        }
+    }
+
+    private fun miningButtonLabel(): String =
+        if (prefs().getBoolean(KEY_MINING_ENABLED, false)) "Mining: ON (tap to disable)" else "Mining: OFF (tap to enable)"
+
+    private fun miningThreadsLabel(): String {
+        val threads = prefs().getInt(KEY_MINING_THREADS, 1).coerceIn(1, 4)
+        return "Mining threads: $threads (tap to cycle 1–4)"
+    }
+
+    private fun currentMinerAddress(): String? {
+        val typed = if (::minerAddressField.isInitialized) minerAddressField.text.toString().trim() else ""
+        if (typed.isNotEmpty()) {
+            prefs().edit().putString(KEY_MINER_ADDRESS, typed).apply()
+            return typed
+        }
+        return prefs().getString(KEY_MINER_ADDRESS, null)?.takeIf { it.isNotBlank() }
+            ?: prefs().getString(KEY_ADDRESS, null)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun toggleMining() {
+        val next = !prefs().getBoolean(KEY_MINING_ENABLED, false)
+        val addr = currentMinerAddress()
+        if (next && addr.isNullOrBlank()) {
+            tell("Create or import a wallet (or enter a kvnc…dag reward address) before enabling mining.")
+            return
+        }
+        prefs().edit().putBoolean(KEY_MINING_ENABLED, next).apply()
+        if (::miningToggleButton.isInitialized) miningToggleButton.text = miningButtonLabel()
+        if (fullRunning.get()) {
+            startFull()
+        }
+    }
+
+    private fun cycleMiningThreads() {
+        val current = prefs().getInt(KEY_MINING_THREADS, 1).coerceIn(1, 4)
+        val next = if (current >= 4) 1 else current + 1
+        prefs().edit().putInt(KEY_MINING_THREADS, next).apply()
+        if (::miningThreadsButton.isInitialized) miningThreadsButton.text = miningThreadsLabel()
+        if (fullRunning.get() && prefs().getBoolean(KEY_MINING_ENABLED, false)) {
+            startFull()
         }
     }
 
@@ -237,8 +312,8 @@ class MainActivity : Activity() {
     private fun collect(): Screen {
         val mode = prefs().getString(KEY_MODE, "light")
         val reason = prefs().getString(KEY_REASON, null)
-        val binary = NodeService.binary(this).isFile
-        val full = mode == "full" && binary && fullRunning.get()
+        val runtimeAvailable = NodeService.hasNodeRuntime(this)
+        val full = mode == "full" && runtimeAvailable && fullRunning.get()
         val base = if (full) "http://127.0.0.1:${NodeConfigText.RPC_PORT}" else rpcBase()
         val health = NodeHttp.get(NodeHttp.healthUrl(base))
         val sync = NodeHttp.rpc(base, "kovanica_syncStatus", "[]")
@@ -272,11 +347,15 @@ class MainActivity : Activity() {
         } else {
             "Light node (fallback): ${reason ?: "full node is not running"}"
         }
+        val miningEnabled = prefs().getBoolean(KEY_MINING_ENABLED, false)
+        val miningThreads = prefs().getInt(KEY_MINING_THREADS, 1).coerceIn(1, 4)
+        val cleanNetwork = if (guard.chainId == ChainIds.MAINNET) "Mainnet" else "Testnet"
         val text = buildString {
             appendLine(modeLine)
+            if (full) appendLine("Mining: ${if (miningEnabled) "ON ($miningThreads threads)" else "OFF"}")
             if (!full && profile.isNotBlank()) appendLine("Light profile: $profile")
             if (!full && lightNote.isNotBlank()) appendLine("Light sync: $lightNote")
-            appendLine("Network: ${guard.networkName}")
+            appendLine("Network: $cleanNetwork")
             appendLine("Sync: ${SyncState.label(phase)}")
             appendLine("Height: ${snap.committedHeight ?: "—"}")
             appendLine("Tip: ${RpcJson.shortHash(snap.tipHash)}")
@@ -314,7 +393,7 @@ class MainActivity : Activity() {
             freeDiskBytes = free,
             totalRamBytes = memory.totalMem,
             abi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
-            binaryPresent = NodeService.binary(this).isFile,
+            binaryPresent = NodeService.hasNodeRuntime(this),
             processStarted = false,
             reachedPeer = false,
             recentCrashes = prefs().getInt(KEY_CRASHES, 0),
@@ -557,5 +636,8 @@ class MainActivity : Activity() {
         private const val KEY_REASON = "reason"
         private const val KEY_CRASHES = "crashes"
         private const val KEY_ADDRESS = "address"
+        private const val KEY_MINING_ENABLED = "mining_enabled"
+        private const val KEY_MINING_THREADS = "mining_threads"
+        private const val KEY_MINER_ADDRESS = "miner_address"
     }
 }

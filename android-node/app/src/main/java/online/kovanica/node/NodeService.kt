@@ -8,19 +8,28 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import io.kovanica.chain.ChainIds
 import java.io.File
+import java.util.concurrent.Executors
 
 /**
  * Foreground service that runs the packaged full node as its own process or JNI runtime.
- * The native engine is accessed via [NativeBridge] or extracted `libkovanica_node.so`.
- * Teardown calls [NativeBridge.nodeStop] and destroys any child process.
+ * Holds a partial wake lock + Wi-Fi lock and returns START_STICKY so Android does not
+ * suspend or kill the full node / miner while the screen is off.
  */
 class NodeService : Service() {
+    private val runtimeExecutor = Executors.newSingleThreadExecutor()
     private var process: Process? = null
     private var updateThread: Thread? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
+    @Volatile
+    private var miningActive: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,20 +42,100 @@ class NodeService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
-                initNativeBridge(this)
+                val prefs = getSharedPreferences("node", MODE_PRIVATE)
+                val chainId = intent?.getLongExtra(EXTRA_CHAIN_ID, ChainIds.TESTNET) ?: ChainIds.TESTNET
+                val miningEnabled = intent?.getBooleanExtra(
+                    EXTRA_MINING_ENABLED,
+                    prefs.getBoolean("mining_enabled", false),
+                ) ?: prefs.getBoolean("mining_enabled", false)
+                val minerAddress = intent?.getStringExtra(EXTRA_MINER_ADDRESS)
+                    ?: prefs.getString("miner_address", null)
+                    ?: prefs.getString("address", null)
+                val miningThreads = intent?.getIntExtra(
+                    EXTRA_MINING_THREADS,
+                    prefs.getInt("mining_threads", 1),
+                ) ?: prefs.getInt("mining_threads", 1)
+                miningActive = miningEnabled
+
+                // Call startForeground immediately on the main thread (Android 12+ requirement).
                 startInForeground()
+                acquireLocks()
                 startNotificationUpdater()
-                if (!process.running() && binary(this).isFile) {
-                    process = launch(this)
+
+                runtimeExecutor.execute {
+                    try {
+                        if (NativeBridge.isNativeLoaded()) {
+                            try {
+                                NativeBridge.nodeStop()
+                            } catch (_: Throwable) {}
+                        }
+                        initNativeBridge(
+                            context = this,
+                            chainId = chainId,
+                            miningEnabled = miningEnabled,
+                            minerAddress = minerAddress,
+                            miningThreads = miningThreads,
+                        )
+                        if (!process.running() && binary(this).isFile) {
+                            process = launch(this)
+                        }
+                    } catch (_: Throwable) {}
                 }
             }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onDestroy() {
         stopNode()
+        runtimeExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun acquireLocks() {
+        try {
+            if (wakeLock == null) {
+                val pm = getSystemService(POWER_SERVICE) as? PowerManager
+                wakeLock = pm?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "KovanicaNode::KeepAlive",
+                )?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire()
+            }
+        } catch (_: Throwable) {}
+
+        try {
+            if (wifiLock == null) {
+                val wm = applicationContext.getSystemService(WIFI_SERVICE) as? WifiManager
+                @Suppress("DEPRECATION")
+                val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                } else {
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                }
+                wifiLock = wm?.createWifiLock(mode, "KovanicaNode::Wifi")?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun releaseLocks() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Throwable) {}
+        wakeLock = null
+        try {
+            if (wifiLock?.isHeld == true) wifiLock?.release()
+        } catch (_: Throwable) {}
+        wifiLock = null
     }
 
     private fun startInForeground() {
@@ -55,8 +144,13 @@ class NodeService : Service() {
             val channel = NotificationChannel(CHANNEL, "Kovanica Node", NotificationManager.IMPORTANCE_LOW)
             manager.createNotificationChannel(channel)
         }
-        val info = querySyncInfo(this)
-        val notification = buildNotification(this, info.syncProgress, info.committedHeight, info.peerCount)
+        val notification = buildNotification(
+            context = this,
+            syncProgress = "starting",
+            committedHeight = 0L,
+            peerCount = 0L,
+            miningEnabled = miningActive,
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -72,7 +166,13 @@ class NodeService : Service() {
                 try {
                     Thread.sleep(5_000)
                     val info = querySyncInfo(this)
-                    val notification = buildNotification(this, info.syncProgress, info.committedHeight, info.peerCount)
+                    val notification = buildNotification(
+                        context = this,
+                        syncProgress = info.syncProgress,
+                        committedHeight = info.committedHeight,
+                        peerCount = info.peerCount,
+                        miningEnabled = miningActive,
+                    )
                     manager?.notify(NOTIFICATION_ID, notification)
                 } catch (_: InterruptedException) {
                     break
@@ -90,6 +190,7 @@ class NodeService : Service() {
     }
 
     private fun stopNode() {
+        miningActive = false
         stopNotificationUpdater()
         if (NativeBridge.isNativeLoaded()) {
             try {
@@ -97,6 +198,7 @@ class NodeService : Service() {
             } catch (_: Throwable) {}
         }
         stopProcess()
+        releaseLocks()
     }
 
     private fun stopProcess() {
@@ -154,11 +256,19 @@ class NodeService : Service() {
 
     companion object {
         const val ACTION_STOP = "online.kovanica.node.STOP"
+        const val EXTRA_CHAIN_ID = "online.kovanica.node.CHAIN_ID"
+        const val EXTRA_MINING_ENABLED = "online.kovanica.node.MINING_ENABLED"
+        const val EXTRA_MINER_ADDRESS = "online.kovanica.node.MINER_ADDRESS"
+        const val EXTRA_MINING_THREADS = "online.kovanica.node.MINING_THREADS"
         private const val CHANNEL = "kovanica-node"
         private const val NOTIFICATION_ID = 54
 
         fun binary(context: Context): File =
             File(context.applicationInfo.nativeLibraryDir, "libkovanica_node.so")
+
+        /** True when either the packaged JNI full-node runtime or standalone binary is present. */
+        fun hasNodeRuntime(context: Context): Boolean =
+            NativeBridge.isNativeLoaded() || binary(context).isFile
 
         fun lightLibrary(context: Context): File =
             File(context.applicationInfo.nativeLibraryDir, "libkovanica_light_ffi.so")
@@ -167,18 +277,38 @@ class NodeService : Service() {
 
         fun configFile(context: Context): File = File(context.filesDir, "node.toml")
 
-        fun prepare(context: Context, chainId: Long) {
+        fun prepare(
+            context: Context,
+            chainId: Long,
+            miningEnabled: Boolean = false,
+            minerAddress: String? = null,
+            miningThreads: Int = 1,
+        ) {
             val dir = dataDir(context)
             dir.mkdirs()
             copyGenesis(context, dir, chainId)
-            configFile(context).writeText(NodeConfigText.render(dir.absolutePath, chainId))
+            configFile(context).writeText(
+                NodeConfigText.render(
+                    dataDir = dir.absolutePath,
+                    chainId = chainId,
+                    miningEnabled = miningEnabled,
+                    minerAddress = minerAddress,
+                    miningThreads = miningThreads,
+                ),
+            )
         }
 
         /**
          * Initializes NativeBridge with the app internal files directory on startup.
          */
-        fun initNativeBridge(context: Context, chainId: Long = ChainIds.TESTNET): Int {
-            prepare(context, chainId)
+        fun initNativeBridge(
+            context: Context,
+            chainId: Long = ChainIds.TESTNET,
+            miningEnabled: Boolean = false,
+            minerAddress: String? = null,
+            miningThreads: Int = 1,
+        ): Int {
+            prepare(context, chainId, miningEnabled, minerAddress, miningThreads)
             val config = configFile(context)
             return if (NativeBridge.isNativeLoaded()) {
                 NativeBridge.nodeStart(config.absolutePath)
@@ -227,8 +357,11 @@ class NodeService : Service() {
             syncProgress: String,
             committedHeight: Long,
             peerCount: Long,
-        ): String =
-            "Sync progress: $syncProgress · Committed DAG height: $committedHeight · Peer count: $peerCount"
+            miningEnabled: Boolean = false,
+        ): String {
+            val base = "Sync progress: $syncProgress · Committed DAG height: $committedHeight · Peer count: $peerCount"
+            return if (miningEnabled) "$base · Mining: ON" else base
+        }
 
         /**
          * Builds the foreground service notification.
@@ -238,8 +371,9 @@ class NodeService : Service() {
             syncProgress: String = "synced",
             committedHeight: Long = 0L,
             peerCount: Long = 0L,
+            miningEnabled: Boolean = false,
         ): Notification {
-            val contentText = formatNotificationText(syncProgress, committedHeight, peerCount)
+            val contentText = formatNotificationText(syncProgress, committedHeight, peerCount, miningEnabled)
             val open = PendingIntent.getActivity(
                 context,
                 0,
