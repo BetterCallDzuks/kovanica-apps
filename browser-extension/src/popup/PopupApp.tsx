@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { parseKvnc } from "kovanica-sdk";
+import { ECOSYSTEM_LINKS, resolveEcosystemHref } from "../core/ecosystem";
 import type { NetworkProfile } from "../core/networks";
 import { validateRecipientAddress } from "../core/networks";
 import {
@@ -544,6 +545,23 @@ export function PopupApp(): React.JSX.Element {
           )}
         </>
       )}
+
+      <footer className="ecosystem-footer" aria-label="Kovanica Ecosystem">
+        <span className="muted">Ecosystem</span>
+        <nav className="ecosystem-links" aria-label="Ecosystem links">
+          {ECOSYSTEM_LINKS.map((item) => (
+            <a
+              key={item.id}
+              className="ecosystem-link"
+              href={resolveEcosystemHref(item, state.network.explorerUrl)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      </footer>
     </div>
   );
 }

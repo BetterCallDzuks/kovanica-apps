@@ -21,6 +21,25 @@ export type NetworkPreset = {
   recommended?: boolean;
 };
 
+export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online/rpc";
+export const LOCAL_NODE_RPC = "http://127.0.0.1:8545";
+
+export const EXPLORER_BASE_URLS = {
+  mainnet: "https://explorer.kovanica.online",
+  testnet: "https://testnet.kovanica.online/explorer",
+} as const;
+
+export function explorerBaseUrl(chainId: number | null | undefined): string {
+  return chainId === CHAIN_IDS.MAINNET ? EXPLORER_BASE_URLS.mainnet : EXPLORER_BASE_URLS.testnet;
+}
+
+export function explorerTxUrl(chainId: number | null | undefined, txHash: string): string {
+  const base = explorerBaseUrl(chainId);
+  const cleanHash = txHash.trim();
+  if (!cleanHash) return base;
+  return `${base}/tx/${encodeURIComponent(cleanHash)}`;
+}
+
 export const PRESETS: NetworkPreset[] = [
   {
     id: "mainnet",
@@ -34,7 +53,7 @@ export const PRESETS: NetworkPreset[] = [
   {
     id: "testnet",
     label: "Testnet (2)",
-    rpcUrl: "http://127.0.0.1:8545",
+    rpcUrl: FALLBACK_RPC,
     expectedChainId: CHAIN_IDS.TESTNET,
     expectedNetworkTag: NETWORK_TAGS.TESTNET,
     localOnly: false,
@@ -71,9 +90,6 @@ export const CHAIN_NAMES: Record<number, string> = {
   [CHAIN_IDS.TESTNET]: "Testnet",
   [CHAIN_IDS.DEVNET]: "Devnet",
 };
-
-export const FALLBACK_RPC = "https://rpc-testnet.kovanica.online/rpc";
-export const LOCAL_NODE_RPC = "http://127.0.0.1:8545";
 
 export function isLocalRpc(url: string): boolean {
   try {

@@ -8,7 +8,7 @@ import {
 import { formatKvnc } from "@/core/format";
 import { historyHeading, receiptStatusLine } from "@/core/history-row";
 import { useAccountTxHistory, type AccountTxDirection } from "@/hooks/useAccountTxHistory";
-import { presetById } from "@/lib/networks";
+import { explorerTxUrl, presetById } from "@/lib/networks";
 import {
   classifyAccountTxDirection,
   exportAccountTxHistoryCsv,
@@ -79,8 +79,8 @@ export function ActivityList({
   });
 
   return (
-    <div className="grid gap-5">
-      <section className="grid gap-3">
+    <div className="grid min-w-0 gap-5">
+      <section className="grid min-w-0 gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-paper">On-chain history</h2>
@@ -160,15 +160,15 @@ export function ActivityList({
             No on-chain transactions found for this filter.
           </p>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid min-w-0 gap-3">
             {history.entries.map((entry) => {
               const dir = classifyAccountTxDirection(entry, activeAddress);
               const heading = historyHeading(dir, entry.kind);
               const counterparty = dir === "received" ? entry.from : (entry.to ?? entry.from);
               const formattedTime = formatEntryTimestamp(entry.timestamp);
               return (
-                <article key={entry.hash} className="rounded-card border border-line bg-ink px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
+                <article key={entry.hash} className="min-w-0 rounded-card border border-line bg-ink px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm text-paper">
                       {heading}
                       {entry.kind ? ` · ${entry.kind}` : ""}
@@ -186,7 +186,7 @@ export function ActivityList({
                     </p>
                   </div>
                   <p className="mt-2 tabular-nums text-paper">{formatKvnc(entry.amount)} KVNC</p>
-                  <p className="mt-1 text-sm text-muted">
+                  <p className="mt-1 text-sm break-all text-muted">
                     {dir === "received" ? "From" : "To"} {counterparty || "—"} · fee{" "}
                     {formatKvnc(entry.fee)} KVNC
                   </p>
@@ -194,7 +194,9 @@ export function ActivityList({
                   <p className="mono mt-2 text-xs break-all text-muted">{entry.hash}</p>
                   <a
                     className="mt-2 inline-block text-sm text-copper"
-                    href={`https://explorer.kovanica.online/tx/${entry.hash}`}
+                    href={explorerTxUrl(activeChainId, entry.hash)}
+                    target="_blank"
+                    rel="noreferrer"
                   >
                     Explorer
                   </a>
@@ -215,13 +217,13 @@ export function ActivityList({
         )}
       </section>
 
-      <section className="grid gap-3">
+      <section className="grid min-w-0 gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold text-paper">Local device activity</h3>
             <p className="text-sm text-muted">{note}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="min-h-11 rounded-full border border-line px-4 text-sm text-paper disabled:opacity-40"
@@ -261,8 +263,8 @@ export function ActivityList({
           const title = historyHeading(row.direction, row.note);
           const contract = title !== "Sent" && title !== "Received" && title !== "Self";
           return (
-            <article key={row.hash} className="rounded-card border border-line bg-ink px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
+            <article key={row.hash} className="min-w-0 rounded-card border border-line bg-ink px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm text-paper">
                   {title}
                   {row.note && contract ? ` · ${row.note}` : ""}
@@ -282,7 +284,7 @@ export function ActivityList({
               <p className="mt-2 tabular-nums text-paper">
                 {formatKvnc(BigInt(row.amountAtoms || "0"))} KVNC
               </p>
-              <p className="mt-1 text-sm text-muted">
+              <p className="mt-1 text-sm break-all text-muted">
                 To {row.counterparty || "—"} · fee {formatKvnc(BigInt(row.feeAtoms || "0"))} KVNC
                 {row.gasUsed ? ` · gas ${row.gasUsed}` : ""}
               </p>
@@ -293,7 +295,9 @@ export function ActivityList({
               <p className="mono mt-2 text-xs break-all text-muted">{row.hash}</p>
               <a
                 className="mt-2 inline-block text-sm text-copper"
-                href={`https://explorer.kovanica.online/tx/${row.hash}`}
+                href={explorerTxUrl(row.chainId || activeChainId, row.hash)}
+                target="_blank"
+                rel="noreferrer"
               >
                 Explorer
               </a>

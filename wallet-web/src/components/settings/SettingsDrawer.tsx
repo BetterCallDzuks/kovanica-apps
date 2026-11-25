@@ -14,6 +14,8 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
   const setMinutes = useSettings((s) => s.setLockMinutes);
   const rpcToken = useNetwork((s) => s.rpcToken);
   const setRpcToken = useNetwork((s) => s.setRpcToken);
+  const indexerUrl = useNetwork((s) => s.indexerUrl);
+  const setIndexerUrl = useNetwork((s) => s.setIndexerUrl);
   const activityAt = useIdle((s) => s.at);
   const status = useSession((s) => s.status);
   const [now, setNow] = useState(() => Date.now());
@@ -109,6 +111,25 @@ export function SettingsDrawer({ onClose }: { onClose: () => void }) {
             Stored only for this browser session and attached as an Authorization Bearer header on RPC requests.
           </p>
         </div>
+        <details className="mt-4 rounded-2xl border border-line bg-ink/50 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-paper">Advanced</summary>
+          <div className="mt-3 grid gap-2">
+            <label className="grid gap-1 text-sm text-muted">
+              Custom Indexer URL (optional)
+              <input
+                className="min-h-11 rounded-2xl border border-line bg-ink px-4 text-sm text-paper"
+                value={indexerUrl}
+                onChange={(e) => setIndexerUrl(e.target.value)}
+                placeholder="https://indexer.kovanica.online/logs"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </label>
+            <p className="text-xs text-muted">
+              Optional custom log indexer endpoint for incoming activity notes. Leave blank unless you operate a custom indexer.
+            </p>
+          </div>
+        </details>
         <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Address Book</h3>
         <AddressBookSection />
         <h3 className="mt-8 text-sm tracking-wide text-muted uppercase">Lock timeout</h3>

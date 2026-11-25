@@ -1,26 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { assertRpcUrl } from "@/lib/networks";
+import { WALLET_RPC_METHODS } from "@/lib/rpcMethods";
 
-const RPC_METHODS = new Set([
-  "kovanica_syncStatus",
-  "kovanica_getBalance",
-  "kovanica_getNonce",
-  "kovanica_estimateFee",
-  "kovanica_estimateGas",
-  "kovanica_sendRawTransaction",
-  "kovanica_getTransactionReceipt",
-  "kovanica_getTransaction",
-  "kovanica_blockNumber",
-  "kovanica_getStorage",
-  "kovanica_getStorageAt",
-  "kovanica_call",
-  "kovanica_getDagInfo",
-  "kovanica_getBlockTemplate",
-  "kovanica_getBlockByRound",
-  "kovanica_getLeaderHeader",
-  "kovanica_requestAirdrop",
-  "kovanica_nodeStatus",
-]);
+const RPC_METHODS = WALLET_RPC_METHODS;
 
 type RpcInput = { rpcUrl: string; method: string; params: unknown[]; rpcToken?: string };
 type HttpInput = { url: string };
