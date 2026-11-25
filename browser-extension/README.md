@@ -36,32 +36,40 @@ Self-custodial Manifest V3 (MV3) browser extension wallet for the **Kovanica (KV
 
 ---
 
-## Build & Development
+## Build, Package & Store Submission
 
 ```bash
 cd browser-extension
 npm install
 npm run typecheck
 npm test
-npm run build
+npm run build            # Default Chrome MV3 unpacked build -> dist/
+npm run package:chrome   # Reproducible Chrome Web Store ZIP -> dist/kovanica-wallet-chrome-v0.1.0.zip
+npm run package:firefox  # Reproducible Firefox AMO ZIP -> dist/kovanica-wallet-firefox-v0.1.0.zip
+npm run package:firefox-source  # AMO reviewer source archive -> dist/kovanica-wallet-firefox-source-v0.1.0.zip
+npm run package          # Builds all three archives + SHA-256 checksums into dist/
 ```
 
-The production MV3 bundle is emitted to `browser-extension/dist/`.
+Store listing copy, permission justifications, privacy policy, submission graphics, and upload checklists live in [`store-assets/`](./store-assets/):
+- [`store-assets/CHROME_WEB_STORE.md`](./store-assets/CHROME_WEB_STORE.md)
+- [`store-assets/FIREFOX_AMO.md`](./store-assets/FIREFOX_AMO.md)
+- [`store-assets/PRIVACY_POLICY.md`](./store-assets/PRIVACY_POLICY.md)
+- [`store-assets/SUBMISSION_CHECKLIST.md`](./store-assets/SUBMISSION_CHECKLIST.md)
 
 ---
 
 ## Load Unpacked Extension
 
 ### Chrome / Brave
-1. Run `npm run build` inside `browser-extension/`.
+1. Run `npm run build:chrome` (or `npm run build`) inside `browser-extension/`.
 2. Open `chrome://extensions` (or `brave://extensions`).
 3. Enable **Developer mode** (top-right toggle).
-4. Click **Load unpacked** and select `browser-extension/dist`.
+4. Click **Load unpacked** and select `browser-extension/dist/chrome` (or `browser-extension/dist`).
 
 ### Firefox (128+)
-1. Run `npm run build` inside `browser-extension/`.
+1. Run `npm run build:firefox` inside `browser-extension/`.
 2. Open `about:debugging#/runtime/this-firefox`.
-3. Click **Load Temporary Add-on…** and select `browser-extension/dist/manifest.json`.
+3. Click **Load Temporary Add-on…** and select `browser-extension/dist/firefox/manifest.json`.
 
 ---
 
