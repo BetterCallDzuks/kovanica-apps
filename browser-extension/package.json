@@ -6,7 +6,12 @@
   "description": "Kovanica (KVNC) MV3 Browser Extension Wallet with window.kovanica dApp provider",
   "scripts": {
     "build": "node scripts/build-extension.mjs",
-    "package": "node scripts/build-extension.mjs && node scripts/package-extension.mjs",
+    "build:chrome": "node scripts/build-extension.mjs --target=chrome --out=dist/chrome",
+    "build:firefox": "node scripts/build-extension.mjs --target=firefox --out=dist/firefox",
+    "package": "node scripts/package-store.mjs --target=all",
+    "package:chrome": "node scripts/package-store.mjs --target=chrome",
+    "package:firefox": "node scripts/package-store.mjs --target=firefox",
+    "package:firefox-source": "node scripts/package-store.mjs --target=firefox-source",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "vitest run"

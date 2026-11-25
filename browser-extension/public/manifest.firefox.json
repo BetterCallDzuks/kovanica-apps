@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Kovanica Wallet",
+  "short_name": "Kovanica",
+  "version": "0.1.0",
+  "description": "Self-custodial Kovanica (KVNC) Layer-1 wallet with window.kovanica dApp provider, Passkey unlock, and Wave A-C signing.",
+  "homepage_url": "https://kovanica.online",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://rpc.kovanica.online/*",
+    "https://rpc-testnet.kovanica.online/*",
+    "http://127.0.0.1:8545/*"
+  ],
+  "action": {
+    "default_title": "Kovanica Wallet",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["inpage.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "wallet@kovanica.online",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

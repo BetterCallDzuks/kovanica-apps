@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import React, { act } from "react";
@@ -156,6 +156,60 @@ describe("browser-extension networks, manifest & ecosystem links", () => {
       const origin = new URL(net.rpcUrl).origin;
       const expectedPattern = `${origin}/*`;
       expect(manifest.host_permissions).toContain(expectedPattern);
+    }
+  });
+
+  it("maintains valid dual-browser MV3 manifests and required PNG icons for Chrome and Firefox", () => {
+    const chromeManifest = JSON.parse(
+      readFileSync(resolve(EXT_ROOT, "public/manifest.json"), "utf8"),
+    ) as {
+      manifest_version: number;
+      description: string;
+      homepage_url?: string;
+      minimum_chrome_version?: string;
+      background?: { service_worker?: string; type?: string };
+      icons: Record<string, string>;
+      host_permissions: string[];
+    };
+
+    const firefoxManifest = JSON.parse(
+      readFileSync(resolve(EXT_ROOT, "public/manifest.firefox.json"), "utf8"),
+    ) as {
+      manifest_version: number;
+      description: string;
+      homepage_url?: string;
+      background?: { scripts?: string[]; type?: string };
+      icons: Record<string, string>;
+      host_permissions: string[];
+      browser_specific_settings?: {
+        gecko?: {
+          id?: string;
+          strict_min_version?: string;
+          data_collection_permissions?: { required?: string[] };
+        };
+      };
+    };
+
+    expect(chromeManifest.manifest_version).toBe(3);
+    expect(firefoxManifest.manifest_version).toBe(3);
+    expect(chromeManifest.description.length).toBeLessThanOrEqual(132);
+    expect(firefoxManifest.description.length).toBeLessThanOrEqual(132);
+    expect(chromeManifest.homepage_url).toBe("https://kovanica.online");
+    expect(firefoxManifest.homepage_url).toBe("https://kovanica.online");
+    expect(chromeManifest.minimum_chrome_version).toBe("120");
+    expect(chromeManifest.background?.service_worker).toBe("background.js");
+    expect(firefoxManifest.background?.scripts).toEqual(["background.js"]);
+    expect(firefoxManifest.browser_specific_settings?.gecko?.id).toBe("wallet@kovanica.online");
+    expect(firefoxManifest.browser_specific_settings?.gecko?.strict_min_version).toBe("128.0");
+    expect(firefoxManifest.browser_specific_settings?.gecko?.data_collection_permissions?.required).toEqual([
+      "none",
+    ]);
+    expect(firefoxManifest.host_permissions).toEqual(chromeManifest.host_permissions);
+
+    for (const size of ["16", "32", "48", "128"]) {
+      expect(chromeManifest.icons[size]).toBe(`icons/icon-${size}.png`);
+      expect(firefoxManifest.icons[size]).toBe(`icons/icon-${size}.png`);
+      expect(existsSync(resolve(EXT_ROOT, "public", chromeManifest.icons[size]!))).toBe(true);
     }
   });
 

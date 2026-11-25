@@ -3,7 +3,9 @@
   "name": "Kovanica Wallet",
   "short_name": "Kovanica",
   "version": "0.1.0",
-  "description": "Self-custodial Kovanica (KVNC) Layer-1 browser extension wallet with window.kovanica dApp provider, Passkey unlock, and Wave A-C signing.",
+  "description": "Self-custodial Kovanica (KVNC) Layer-1 wallet with window.kovanica dApp provider, Passkey unlock, and Wave A-C signing.",
+  "homepage_url": "https://kovanica.online",
+  "minimum_chrome_version": "120",
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://rpc.kovanica.online/*",
@@ -45,11 +47,5 @@
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "wallet@kovanica.online",
-      "strict_min_version": "128.0"
-    }
   }
 }
