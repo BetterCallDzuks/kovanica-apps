@@ -2072,12 +2072,12 @@ class MainActivity : Activity() {
         val span = SpannableString(body)
         val at = body.indexOf(interval)
         if (at >= 0 && (snapshot.intervalTone == "ok" || snapshot.intervalTone == "drift")) {
-            val color = if (snapshot.intervalTone == "ok") 0xFF7D9A78.toInt() else 0xFFE0B15A.toInt()
+            val color = if (snapshot.intervalTone == "ok") 0xFF2FBAA4.toInt() else 0xFFF2A900.toInt()
             span.setSpan(ForegroundColorSpan(color), at, at + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         val rpcAt = body.indexOf("● Embedded RPC")
         if (rpcAt >= 0) {
-            span.setSpan(ForegroundColorSpan(0xFF7D9A78.toInt()), rpcAt, rpcAt + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            span.setSpan(ForegroundColorSpan(0xFF2FBAA4.toInt()), rpcAt, rpcAt + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         nodeMeta.text = span
         if (::localRpcButton.isInitialized) localRpcButton.text = localRpcLabel()

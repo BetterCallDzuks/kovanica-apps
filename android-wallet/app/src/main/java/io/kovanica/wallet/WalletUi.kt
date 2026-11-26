@@ -33,23 +33,23 @@ import kotlin.math.roundToInt
  * KVNC mark is the official artwork bundled in `assets/kuna-logo.webp`.
  */
 object WalletUi {
-    // Ink-toned surface. Explicit so the screen reads the same on any device theme.
-    val INK = 0xFF0E1116.toInt()
-    val SURFACE = 0xFF171C23.toInt()
-    val SURFACE_2 = 0xFF1E242C.toInt()
-    val LINE = 0xFF2A323C.toInt()
-    val TEXT = 0xFFEDF1F6.toInt()
-    val MUTED = 0xFF95A0AE.toInt()
-    val ACCENT = 0xFFF0B429.toInt()
-    val ACCENT_INK = 0xFF1A1E25.toInt()
-    val ACCENT_BG = 0x1AF0B429.toInt()
-    val GOOD = 0xFF5BD6A0.toInt()
-    val GOOD_BG = 0x1A5BD6A0.toInt()
-    val BAD = 0xFFFF7B84.toInt()
-    val BAD_BG = 0x1AFF7B84.toInt()
+    // kovanica.online dark zinc + gold + teal palette.
+    val INK = 0xFF09090B.toInt()
+    val SURFACE = 0xFF121214.toInt()
+    val SURFACE_2 = 0xFF1A1A1E.toInt()
+    val LINE = 0xFF2A2A30.toInt()
+    val TEXT = 0xFFF2F1EE.toInt()
+    val MUTED = 0xFF9A9AA3.toInt()
+    val ACCENT = 0xFFF2A900.toInt()
+    val ACCENT_INK = 0xFF0A0A0B.toInt()
+    val ACCENT_BG = 0x1AF2A900.toInt()
+    val GOOD = 0xFF2FBAA4.toInt()
+    val GOOD_BG = 0x1A2FBAA4.toInt()
+    val BAD = 0xFFC45C4A.toInt()
+    val BAD_BG = 0x1AC45C4A.toInt()
 
     /** Press tint: the accent at about 18% alpha. */
-    val RIPPLE = 0x2EF0B429.toInt()
+    val RIPPLE = 0x2EF2A900.toInt()
 
     fun rounded(
         ctx: Context,

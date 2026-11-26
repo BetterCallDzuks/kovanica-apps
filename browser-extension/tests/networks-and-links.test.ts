@@ -353,9 +353,9 @@ describe("browser-extension networks, manifest & ecosystem links", () => {
     });
   });
 
-  it("preserves browser-extension CSS design tokens", () => {
+  it("matches kovanica.online CSS design tokens", () => {
     const styles = readFileSync(resolve(EXT_ROOT, "src/styles.css"), "utf8");
-    for (const token of ["#0b0e14", "#131924", "#1b2333", "#273248", "#eef2ff", "#3b82f6", "Inter"]) {
+    for (const token of ["#09090b", "#121214", "#1a1a1e", "#2a2a30", "#f2f1ee", "#F2A900", "#2fbaa4", "IBM Plex Sans"]) {
       expect(styles).toContain(token);
     }
   });
