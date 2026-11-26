@@ -3,6 +3,7 @@ import { entropyFromPhrase, isValidMnemonic, mnemonicWordCount, normalizeMnemoni
 import { openVault, sealVault, type PublicAccount, type VaultFile, type VaultKind } from "@/core/keystore";
 import {
   derivePublicAccount,
+  deriveStealthMetaAddress,
   describeAccount,
   isUnlocked,
   lockSession,
@@ -457,6 +458,10 @@ export async function refreshDesktopSession(): Promise<void> {
   } catch {
     if (meta) useSession.getState().showLocked(meta);
   }
+}
+
+export function getStealthMetaAddress(): string | null {
+  return deriveStealthMetaAddress();
 }
 
 export function forgetDevice() {
