@@ -9,7 +9,7 @@ import {
   unwrapVaultPasswordWithPasskey,
 } from "../core/passkey";
 import type { LocalSessionKeyRecord } from "../core/session-keys";
-import type { WatchedTokenBalance, WatchedTokenEntry } from "../core/tokens";
+import { parseTokenUnits, type WatchedTokenBalance, type WatchedTokenEntry } from "../core/tokens";
 import type { WaveBFeeEstimate } from "../core/tx-signer";
 import type { PasskeyWrappedVaultKey, WalletAccountSummary } from "../core/vault";
 
@@ -28,6 +28,7 @@ interface WalletStateResponse {
   connectedOrigins: string[];
   sessionKeys: LocalSessionKeyRecord[];
   watchedTokens?: WatchedTokenEntry[];
+  stealthMetaAddress?: string | null;
   latestHeadHeight: number | null;
 }
 
@@ -64,6 +65,12 @@ export function PopupApp(): React.JSX.Element {
   const [tokenBalances, setTokenBalances] = useState<WatchedTokenBalance[]>([]);
   const [tokensLoading, setTokensLoading] = useState(false);
   const [newTokenContract, setNewTokenContract] = useState("");
+
+  // Inline KVP-102 token send state
+  const [sendingTokenContract, setSendingTokenContract] = useState<string | null>(null);
+  const [tokenSendTo, setTokenSendTo] = useState("");
+  const [tokenSendAmount, setTokenSendAmount] = useState("");
+  const [tokenSendSubmitting, setTokenSendSubmitting] = useState(false);
 
   // Send state
   const [sendTo, setSendTo] = useState("");
@@ -267,9 +274,56 @@ export function PopupApp(): React.JSX.Element {
     setError("");
     try {
       await sendBg("WALLET_REMOVE_TOKEN", { contract });
+      if (sendingTokenContract === contract) {
+        setSendingTokenContract(null);
+        setTokenSendTo("");
+        setTokenSendAmount("");
+      }
       await refreshState();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function handleToggleTokenSend(contract: string): void {
+    setError("");
+    if (sendingTokenContract === contract) {
+      setSendingTokenContract(null);
+      setTokenSendTo("");
+      setTokenSendAmount("");
+    } else {
+      setSendingTokenContract(contract);
+      setTokenSendTo("");
+      setTokenSendAmount("");
+    }
+  }
+
+  async function handleSendToken(token: WatchedTokenBalance): Promise<void> {
+    setError("");
+    setNotice("");
+    setTokenSendSubmitting(true);
+    try {
+      const decimals = token.decimals ?? 0;
+      const amountUnits = parseTokenUnits(tokenSendAmount, decimals);
+      if (amountUnits <= 0n) {
+        throw new Error("Token amount must be greater than zero");
+      }
+      const res = await sendBg<{ signingHashHex: string; txHash?: string }>("WALLET_SEND_TOKEN", {
+        contract: token.contract,
+        to: tokenSendTo.trim(),
+        amountUnits: amountUnits.toString(),
+      });
+      setNotice(
+        `Sent ${tokenSendAmount.trim()} ${token.symbol ?? "tokens"} · tx: ${res.txHash ?? res.signingHashHex}`,
+      );
+      setSendingTokenContract(null);
+      setTokenSendTo("");
+      setTokenSendAmount("");
+      await refreshState();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTokenSendSubmitting(false);
     }
   }
 
@@ -460,6 +514,30 @@ export function PopupApp(): React.JSX.Element {
                 )}
               </div>
 
+              {state.stealthMetaAddress && (
+                <div className="card">
+                  <div className="row">
+                    <strong>Stealth Meta-Address (KVP-103)</strong>
+                    <span className="badge ok">Dual-Key</span>
+                  </div>
+                  <div className="muted">
+                    Share this meta-address to receive unlinkable one-time payments.
+                  </div>
+                  <div className="mono">{state.stealthMetaAddress}</div>
+                  <div className="row" style={{ justifyContent: "flex-end" }}>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(state.stealthMetaAddress ?? "");
+                        setNotice("Stealth meta-address copied");
+                      }}
+                    >
+                      Copy Stealth Address
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="card">
                 <div className="row">
                   <strong>KVP-102 Tokens</strong>
@@ -480,35 +558,114 @@ export function PopupApp(): React.JSX.Element {
                   <div className="token-list">
                     {(state.watchedTokens ?? []).map((entry) => {
                       const info = tokenBalances.find((t) => t.contract === entry.contract);
+                      const isSending = sendingTokenContract === entry.contract;
+                      const tokenRecipientCheck =
+                        isSending && tokenSendTo.trim()
+                          ? validateRecipientAddress(tokenSendTo.trim(), state.chainId)
+                          : null;
+                      let parsedUnitsPreview: bigint | null = null;
+                      let amountParseError = "";
+                      if (isSending && tokenSendAmount.trim() && info?.status === "ok") {
+                        try {
+                          parsedUnitsPreview = parseTokenUnits(tokenSendAmount, info.decimals ?? 0);
+                          if (parsedUnitsPreview <= 0n) {
+                            amountParseError = "Amount must be greater than zero";
+                          }
+                        } catch (err) {
+                          amountParseError = err instanceof Error ? err.message : String(err);
+                        }
+                      }
+
                       return (
                         <div key={entry.contract} className="token-row">
-                          <div className="token-meta">
-                            <div className="row" style={{ justifyContent: "flex-start", gap: 6 }}>
-                              <strong>
+                          <div className="token-row-header">
+                            <div className="token-meta">
+                              <div className="row" style={{ justifyContent: "flex-start", gap: 6 }}>
+                                <strong>
+                                  {info?.status === "ok"
+                                    ? `${info.symbol} · ${info.name}`
+                                    : `${entry.contract.slice(0, 12)}...${entry.contract.slice(-6)}`}
+                                </strong>
+                                {info?.paused && <span className="badge warn">Paused</span>}
+                              </div>
+                              <div className="muted">
                                 {info?.status === "ok"
-                                  ? `${info.symbol} · ${info.name}`
-                                  : `${entry.contract.slice(0, 12)}...${entry.contract.slice(-6)}`}
-                              </strong>
-                              {info?.paused && <span className="badge warn">Paused</span>}
+                                  ? `${info.balanceFormatted ?? "0"} ${info.symbol}`
+                                  : info?.status === "not_a_token"
+                                    ? "No KVP-102 state at contract"
+                                    : info?.status === "unreadable"
+                                      ? "Unreadable token state"
+                                      : info?.status === "error"
+                                        ? info.error ?? "RPC read failed"
+                                        : "Loading balance..."}
+                              </div>
                             </div>
-                            <div className="muted">
-                              {info?.status === "ok"
-                                ? `${info.balanceFormatted ?? "0"} ${info.symbol}`
-                                : info?.status === "not_a_token"
-                                  ? "No KVP-102 state at contract"
-                                  : info?.status === "unreadable"
-                                    ? "Unreadable token state"
-                                    : info?.status === "error"
-                                      ? info.error ?? "RPC read failed"
-                                      : "Loading balance..."}
+                            <div className="token-actions">
+                              {info?.status === "ok" && !info.paused && (
+                                <button
+                                  className="secondary"
+                                  onClick={() => handleToggleTokenSend(entry.contract)}
+                                >
+                                  {isSending ? "Close" : "Send"}
+                                </button>
+                              )}
+                              <button
+                                className="danger"
+                                onClick={() => void handleRemoveToken(entry.contract)}
+                              >
+                                Remove
+                              </button>
                             </div>
                           </div>
-                          <button
-                            className="danger"
-                            onClick={() => void handleRemoveToken(entry.contract)}
-                          >
-                            Remove
-                          </button>
+
+                          {isSending && info?.status === "ok" && (
+                            <div className="token-send-form">
+                              <input
+                                placeholder="Recipient PRO-21 address (kvnc...dag)"
+                                value={tokenSendTo}
+                                onChange={(e) => setTokenSendTo(e.target.value)}
+                              />
+                              {tokenRecipientCheck && !tokenRecipientCheck.valid && (
+                                <span className="badge danger">{tokenRecipientCheck.error}</span>
+                              )}
+                              <input
+                                placeholder={`Amount in ${info.symbol ?? "tokens"} (${info.decimals ?? 0} dec)`}
+                                value={tokenSendAmount}
+                                onChange={(e) => setTokenSendAmount(e.target.value)}
+                              />
+                              {amountParseError && (
+                                <span className="badge danger">{amountParseError}</span>
+                              )}
+                              {parsedUnitsPreview !== null && !amountParseError && (
+                                <div className="muted">
+                                  Base units: {parsedUnitsPreview.toString()}
+                                </div>
+                              )}
+                              <div className="row">
+                                <button
+                                  className="primary"
+                                  disabled={
+                                    tokenSendSubmitting ||
+                                    !tokenRecipientCheck?.valid ||
+                                    !parsedUnitsPreview ||
+                                    Boolean(amountParseError)
+                                  }
+                                  onClick={() => void handleSendToken(info)}
+                                >
+                                  {tokenSendSubmitting
+                                    ? "Sending..."
+                                    : `Send ${info.symbol ?? "Token"}`}
+                                </button>
+                                <button
+                                  className="secondary"
+                                  disabled={tokenSendSubmitting}
+                                  onClick={() => handleToggleTokenSend(entry.contract)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

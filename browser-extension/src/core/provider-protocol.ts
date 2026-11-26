@@ -29,7 +29,8 @@ export type ProviderMethod =
   | "signSponsoredTransaction"
   | "signMessage"
   | "registerSessionKey"
-  | "revokeSessionKey";
+  | "revokeSessionKey"
+  | "kovanica_getStealthMetaAddress";
 
 export type ProviderEventName = "accountsChanged" | "chainChanged" | "connect" | "disconnect";
 
@@ -174,6 +175,16 @@ export class KovanicaProviderController {
           return [];
         }
         return this.getActiveAddresses();
+
+      case "kovanica_getStealthMetaAddress": {
+        if (!this.connectedOrigins.has(origin)) {
+          throw new Error(`Origin ${origin} is not connected. Call window.kovanica.connect() first.`);
+        }
+        if (!this.vault.isUnlocked()) {
+          throw new Error("Wallet vault is locked. Unlock Kovanica Wallet first.");
+        }
+        return this.vault.getStealthMetaAddress()?.metaAddress ?? null;
+      }
 
       case "disconnect":
         this.disconnectOrigin(origin);
