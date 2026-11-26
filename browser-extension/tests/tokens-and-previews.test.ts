@@ -3,18 +3,9 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CHAIN_IDS,
-  NATIVE_KVNC_TOKEN,
-  buildAmmAddLiquidityCall,
-  buildAmmCreatePoolCall,
-  buildAmmRemoveLiquidityCall,
-  buildAmmSwapExactInCall,
-  buildRwaAllowlistCall,
-  buildRwaForcedTransferCall,
   buildRwaFreezeCall,
   buildRwaMintCall,
-  buildRwaPauseCall,
   buildRwaTransferCall,
-  buildTokenApproveCall,
   buildTokenTransferCall,
   bytesToHex,
   concatBytes,
@@ -45,6 +36,59 @@ const SPENDER_BYTES = new Uint8Array(32).fill(0x88);
 const SPENDER_MAINNET = encodeAddress(SPENDER_BYTES);
 
 const POOL_ID = new Uint8Array(32).fill(0xaa);
+const NATIVE_KVNC_TOKEN = new Uint8Array(32);
+
+function encodeAmmSwapExactInArgs(
+  poolId: Uint8Array,
+  tokenIn: Uint8Array,
+  amountIn: bigint,
+  minOut: bigint,
+): Uint8Array {
+  return concatBytes([poolId, tokenIn, u128le(amountIn), u128le(minOut)]);
+}
+
+function encodeAmmAddLiquidityArgs(
+  poolId: Uint8Array,
+  amount0Desired: bigint,
+  amount1Desired: bigint,
+  minLpOut: bigint,
+): Uint8Array {
+  return concatBytes([poolId, u128le(amount0Desired), u128le(amount1Desired), u128le(minLpOut)]);
+}
+
+function encodeAmmRemoveLiquidityArgs(
+  poolId: Uint8Array,
+  lpAmount: bigint,
+  minAmount0: bigint,
+  minAmount1: bigint,
+): Uint8Array {
+  return concatBytes([poolId, u128le(lpAmount), u128le(minAmount0), u128le(minAmount1)]);
+}
+
+function encodeAmmCreatePoolArgs(tokenA: Uint8Array, tokenB: Uint8Array): Uint8Array {
+  return concatBytes([tokenA, tokenB]);
+}
+
+function encodeRwaAllowlistArgs(account: Uint8Array, allowed: boolean, kycTier: number): Uint8Array {
+  return concatBytes([account, Uint8Array.of(allowed ? 1 : 0, kycTier)]);
+}
+
+function encodeRwaPauseArgs(paused: boolean): Uint8Array {
+  return Uint8Array.of(paused ? 1 : 0);
+}
+
+function encodeRwaForcedTransferArgs(
+  from: Uint8Array,
+  to: Uint8Array,
+  amount: bigint,
+  reason: string,
+): Uint8Array {
+  return concatBytes([from, to, u128le(amount), encodeBincodeString(reason)]);
+}
+
+function encodeTokenApproveArgs(spender: Uint8Array, amount: bigint): Uint8Array {
+  return concatBytes([spender, u128le(amount)]);
+}
 
 function encodeKvp102State(params: {
   name: string;
@@ -179,12 +223,12 @@ describe("KVP-102 Token Watchlist & Balance Reader", () => {
 
 describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () => {
   it("decodes AMM swap, liquidity, pool creation, and warns when minOut is 0", () => {
-    const swapArgs = buildAmmSwapExactInCall({
-      poolId: POOL_ID,
-      tokenIn: NATIVE_KVNC_TOKEN,
-      amountIn: 5_000_000_000n, // 5 KVNC
-      minOut: 0n,
-    });
+    const swapArgs = encodeAmmSwapExactInArgs(
+      POOL_ID,
+      NATIVE_KVNC_TOKEN,
+      5_000_000_000n, // 5 KVNC
+      0n,
+    );
     const swapPreview = buildApprovalPreview({
       method: "signTransaction",
       chainId: CHAIN_IDS.MAINNET,
@@ -205,12 +249,7 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
       true,
     );
 
-    const addLiqArgs = buildAmmAddLiquidityCall({
-      poolId: POOL_ID,
-      amount0Desired: 1000n,
-      amount1Desired: 2000n,
-      minLpOut: 500n,
-    });
+    const addLiqArgs = encodeAmmAddLiquidityArgs(POOL_ID, 1000n, 2000n, 500n);
     const addLiq = decodeContractCallPreview({
       method: "amm_add_liquidity",
       argsHex: `0x${bytesToHex(addLiqArgs)}`,
@@ -219,12 +258,7 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
     expect(addLiq.title).toBe("Sign Add Liquidity");
     expect(addLiq.details.find((d) => d.label === "Min LP Out")?.value).toBe("500 LP");
 
-    const remLiqArgs = buildAmmRemoveLiquidityCall({
-      poolId: POOL_ID,
-      lpAmount: 250n,
-      minAmount0: 100n,
-      minAmount1: 200n,
-    });
+    const remLiqArgs = encodeAmmRemoveLiquidityArgs(POOL_ID, 250n, 100n, 200n);
     const remLiq = decodeContractCallPreview({
       method: "amm_remove_liquidity",
       argsHex: `0x${bytesToHex(remLiqArgs)}`,
@@ -233,7 +267,7 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
     expect(remLiq.title).toBe("Sign Remove Liquidity");
     expect(remLiq.details.find((d) => d.label === "LP Burn Amount")?.value).toBe("250 LP");
 
-    const createPoolArgs = buildAmmCreatePoolCall(NATIVE_KVNC_TOKEN, CONTRACT_BYTES);
+    const createPoolArgs = encodeAmmCreatePoolArgs(NATIVE_KVNC_TOKEN, CONTRACT_BYTES);
     const createPool = decodeContractCallPreview({
       method: "amm_create_pool",
       argsHex: `0x${bytesToHex(createPoolArgs)}`,
@@ -270,11 +304,7 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
     });
     expect(transfer.details.find((d) => d.label === "Recipient")?.value).toBe(HOLDER_TESTNET);
 
-    const allowlistArgs = buildRwaAllowlistCall({
-      address: HOLDER_MAINNET,
-      allowed: true,
-      kycTier: 2,
-    });
+    const allowlistArgs = encodeRwaAllowlistArgs(HOLDER_BYTES, true, 2);
     const allowlist = decodeContractCallPreview({
       method: "rwa_set_allowlist",
       argsHex: `0x${bytesToHex(allowlistArgs)}`,
@@ -290,7 +320,7 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
     });
     expect(freeze.warning).toMatch(/Compliance Action/i);
 
-    const pauseArgs = buildRwaPauseCall(true);
+    const pauseArgs = encodeRwaPauseArgs(true);
     const pause = decodeContractCallPreview({
       method: "rwa_set_paused",
       argsHex: `0x${bytesToHex(pauseArgs)}`,
@@ -298,12 +328,12 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
     });
     expect(pause.warning).toMatch(/Pausing halts/i);
 
-    const clawbackArgs = buildRwaForcedTransferCall({
-      from: HOLDER_MAINNET,
-      to: SPENDER_MAINNET,
-      amount: 750n,
-      reason: "Court order #2026-04",
-    });
+    const clawbackArgs = encodeRwaForcedTransferArgs(
+      HOLDER_BYTES,
+      SPENDER_BYTES,
+      750n,
+      "Court order #2026-04",
+    );
     const clawback = decodeContractCallPreview({
       method: "rwa_forced_transfer",
       argsHex: `0x${bytesToHex(clawbackArgs)}`,
@@ -326,13 +356,13 @@ describe("AMM, RWA (KVP-106), and KVP-102 Contract-Call Signing Previews", () =>
     expect(tokTransfer.category).toBe("token");
     expect(tokTransfer.details.find((d) => d.label === "Recipient")?.value).toBe(HOLDER_MAINNET);
 
-    const approveArgs = buildTokenApproveCall(SPENDER_BYTES, 1_000_000n);
-    const swapArgs = buildAmmSwapExactInCall({
-      poolId: POOL_ID,
-      tokenIn: CONTRACT_BYTES,
-      amountIn: 1_000_000n,
-      minOut: 950_000n,
-    });
+    const approveArgs = encodeTokenApproveArgs(SPENDER_BYTES, 1_000_000n);
+    const swapArgs = encodeAmmSwapExactInArgs(
+      POOL_ID,
+      CONTRACT_BYTES,
+      1_000_000n,
+      950_000n,
+    );
     const batchPreview = buildApprovalPreview({
       method: "signBatchTransaction",
       chainId: CHAIN_IDS.MAINNET,
