@@ -9,6 +9,7 @@ import {
   unwrapVaultPasswordWithPasskey,
 } from "../core/passkey";
 import type { LocalSessionKeyRecord } from "../core/session-keys";
+import type { WatchedTokenBalance, WatchedTokenEntry } from "../core/tokens";
 import type { WaveBFeeEstimate } from "../core/tx-signer";
 import type { PasskeyWrappedVaultKey, WalletAccountSummary } from "../core/vault";
 
@@ -26,6 +27,7 @@ interface WalletStateResponse {
   passkeyRecord?: PasskeyWrappedVaultKey;
   connectedOrigins: string[];
   sessionKeys: LocalSessionKeyRecord[];
+  watchedTokens?: WatchedTokenEntry[];
   latestHeadHeight: number | null;
 }
 
@@ -56,9 +58,12 @@ export function PopupApp(): React.JSX.Element {
   const [importMnemonic, setImportMnemonic] = useState("");
   const [createdMnemonic, setCreatedMnemonic] = useState("");
 
-  // Balance state
+  // Balance & KVP-102 token watchlist state
   const [balanceKvnc, setBalanceKvnc] = useState("0");
   const [feeEst, setFeeEst] = useState<WaveBFeeEstimate | null>(null);
+  const [tokenBalances, setTokenBalances] = useState<WatchedTokenBalance[]>([]);
+  const [tokensLoading, setTokensLoading] = useState(false);
+  const [newTokenContract, setNewTokenContract] = useState("");
 
   // Send state
   const [sendTo, setSendTo] = useState("");
@@ -80,14 +85,29 @@ export function PopupApp(): React.JSX.Element {
       setState(next);
       if (next.unlocked && next.accounts[next.activeAccountIndex]) {
         const addr = next.accounts[next.activeAccountIndex]!.address;
-        const bal = await sendBg<{ balanceKvnc: string; feeEstimate: WaveBFeeEstimate }>(
-          "WALLET_FETCH_BALANCE",
-          { address: addr },
-        ).catch(() => null);
+        const [bal, tokRes] = await Promise.all([
+          sendBg<{ balanceKvnc: string; feeEstimate: WaveBFeeEstimate }>(
+            "WALLET_FETCH_BALANCE",
+            { address: addr },
+          ).catch(() => null),
+          (next.watchedTokens ?? []).length > 0
+            ? (setTokensLoading(true),
+              sendBg<{ tokens: WatchedTokenBalance[] }>("WALLET_FETCH_TOKEN_BALANCES", {
+                address: addr,
+              })
+                .catch(() => null)
+                .finally(() => setTokensLoading(false)))
+            : Promise.resolve({ tokens: [] }),
+        ]);
         if (bal) {
           setBalanceKvnc(bal.balanceKvnc);
           setFeeEst(bal.feeEstimate);
         }
+        if (tokRes) {
+          setTokenBalances(tokRes.tokens);
+        }
+      } else {
+        setTokenBalances([]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -230,12 +250,45 @@ export function PopupApp(): React.JSX.Element {
     }
   }
 
+  async function handleAddToken(): Promise<void> {
+    setError("");
+    setNotice("");
+    try {
+      await sendBg("WALLET_ADD_TOKEN", { contract: newTokenContract.trim() });
+      setNewTokenContract("");
+      setNotice("KVP-102 token added to watchlist");
+      await refreshState();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleRemoveToken(contract: string): Promise<void> {
+    setError("");
+    try {
+      await sendBg("WALLET_REMOVE_TOKEN", { contract });
+      await refreshState();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const recipientCheck = sendTo ? validateRecipientAddress(sendTo, state.chainId) : null;
+  const newTokenCheck = newTokenContract.trim()
+    ? validateRecipientAddress(newTokenContract.trim(), state.chainId)
+    : null;
 
   return (
     <div className="app-shell">
       <div className="header">
         <div className="brand">
+          <img
+            src="icons/kvnc-coin-128.png"
+            alt="KVNC"
+            className="coin-logo-sm"
+            width={22}
+            height={22}
+          />
           <span>Kovanica</span>
           <span className="badge">MV3</span>
         </div>
@@ -349,53 +402,138 @@ export function PopupApp(): React.JSX.Element {
           </div>
 
           {tab === "wallet" && activeAccount && (
-            <div className="card">
-              <div className="row">
-                <select
-                  value={state.activeAccountIndex}
-                  onChange={(e) => {
-                    void sendBg("WALLET_SELECT_ACCOUNT", { index: Number(e.target.value) }).then(
-                      refreshState,
-                    );
-                  }}
-                >
-                  {state.accounts.map((acc) => (
-                    <option key={acc.index} value={acc.index}>
-                      {acc.label} ({acc.path})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="secondary"
-                  onClick={() => void sendBg("WALLET_ADD_ACCOUNT").then(refreshState)}
-                >
-                  + Account
-                </button>
-              </div>
-              <div className="balance">{balanceKvnc} KVNC</div>
-              <div className="mono">{activeAccount.address}</div>
-              <div className="row">
-                <span className="badge ok">PRO-21 Strict</span>
-                {state.latestHeadHeight !== null && (
-                  <span className="badge">Head #{state.latestHeadHeight}</span>
-                )}
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(activeAccount.address);
-                    setNotice("Address copied");
-                  }}
-                >
-                  Copy
-                </button>
-              </div>
-              {feeEst && (
-                <div className="muted">
-                  Wave B base fee: {feeEst.baseFeePerByte} atoms/B · Est transfer fee:{" "}
-                  {feeEst.totalFeeKvnc} KVNC
+            <>
+              <div className="card">
+                <div className="row">
+                  <select
+                    value={state.activeAccountIndex}
+                    onChange={(e) => {
+                      void sendBg("WALLET_SELECT_ACCOUNT", { index: Number(e.target.value) }).then(
+                        refreshState,
+                      );
+                    }}
+                  >
+                    {state.accounts.map((acc) => (
+                      <option key={acc.index} value={acc.index}>
+                        {acc.label} ({acc.path})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="secondary"
+                    onClick={() => void sendBg("WALLET_ADD_ACCOUNT").then(refreshState)}
+                  >
+                    + Account
+                  </button>
                 </div>
-              )}
-            </div>
+                <div className="balance-row">
+                  <img
+                    src="icons/kvnc-coin-128.png"
+                    alt="KVNC coin"
+                    className="coin-logo"
+                    width={36}
+                    height={36}
+                  />
+                  <div className="balance">{balanceKvnc} KVNC</div>
+                </div>
+                <div className="mono">{activeAccount.address}</div>
+                <div className="row">
+                  <span className="badge ok">PRO-21 Strict</span>
+                  {state.latestHeadHeight !== null && (
+                    <span className="badge">Head #{state.latestHeadHeight}</span>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(activeAccount.address);
+                      setNotice("Address copied");
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                {feeEst && (
+                  <div className="muted">
+                    Wave B base fee: {feeEst.baseFeePerByte} atoms/B · Est transfer fee:{" "}
+                    {feeEst.totalFeeKvnc} KVNC
+                  </div>
+                )}
+              </div>
+
+              <div className="card">
+                <div className="row">
+                  <strong>KVP-102 Tokens</strong>
+                  <button
+                    className="secondary"
+                    disabled={tokensLoading}
+                    onClick={() => void refreshState()}
+                  >
+                    {tokensLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
+
+                {(state.watchedTokens ?? []).length === 0 ? (
+                  <div className="muted">
+                    No watched KVP-102 tokens on {state.network.name}. Add a contract address below.
+                  </div>
+                ) : (
+                  <div className="token-list">
+                    {(state.watchedTokens ?? []).map((entry) => {
+                      const info = tokenBalances.find((t) => t.contract === entry.contract);
+                      return (
+                        <div key={entry.contract} className="token-row">
+                          <div className="token-meta">
+                            <div className="row" style={{ justifyContent: "flex-start", gap: 6 }}>
+                              <strong>
+                                {info?.status === "ok"
+                                  ? `${info.symbol} · ${info.name}`
+                                  : `${entry.contract.slice(0, 12)}...${entry.contract.slice(-6)}`}
+                              </strong>
+                              {info?.paused && <span className="badge warn">Paused</span>}
+                            </div>
+                            <div className="muted">
+                              {info?.status === "ok"
+                                ? `${info.balanceFormatted ?? "0"} ${info.symbol}`
+                                : info?.status === "not_a_token"
+                                  ? "No KVP-102 state at contract"
+                                  : info?.status === "unreadable"
+                                    ? "Unreadable token state"
+                                    : info?.status === "error"
+                                      ? info.error ?? "RPC read failed"
+                                      : "Loading balance..."}
+                            </div>
+                          </div>
+                          <button
+                            className="danger"
+                            onClick={() => void handleRemoveToken(entry.contract)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="row">
+                  <input
+                    placeholder="KVP-102 contract (kvnc...dag)"
+                    value={newTokenContract}
+                    onChange={(e) => setNewTokenContract(e.target.value)}
+                  />
+                  <button
+                    className="secondary"
+                    disabled={!newTokenCheck?.valid}
+                    onClick={() => void handleAddToken()}
+                  >
+                    + Watch
+                  </button>
+                </div>
+                {newTokenCheck && !newTokenCheck.valid && (
+                  <span className="badge danger">{newTokenCheck.error}</span>
+                )}
+              </div>
+            </>
           )}
 
           {tab === "send" && (

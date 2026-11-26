@@ -78,9 +78,27 @@ export function ApprovalApp(): React.JSX.Element {
   return (
     <div className="app-shell">
       <div className="header">
-        <div className="brand">{preview.title}</div>
-        <span className="badge">Chain #{preview.chainId}</span>
+        <div className="brand">
+          <img
+            src="icons/kvnc-coin-128.png"
+            alt="KVNC"
+            className="coin-logo-sm"
+            width={22}
+            height={22}
+          />
+          <span>{preview.title}</span>
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          {preview.badgeLabel && (
+            <span className={`badge ${preview.category === "rwa" ? "warn" : "ok"}`}>
+              {preview.badgeLabel}
+            </span>
+          )}
+          <span className="badge">Chain #{preview.chainId}</span>
+        </div>
       </div>
+
+      {preview.warning && <div className="warn-box">{preview.warning}</div>}
 
       <div className="card">
         <div className="kv-item">
