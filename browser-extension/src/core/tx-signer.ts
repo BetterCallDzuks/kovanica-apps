@@ -29,6 +29,10 @@ import {
 
 export const DEFAULT_TRANSFER_MIN_FEE_ATOMS = 100_000n;
 export const DEFAULT_CALL_MIN_FEE_ATOMS = 1_000_000n;
+import {
+  decodeContractCallPreview,
+  type ContractPreviewCategory,
+} from "./contract-preview";
 import { validateRecipientAddress, type RecipientValidationResult } from "./networks";
 import {
   signRegisterSessionKeyTransaction,
@@ -108,6 +112,9 @@ export interface ApprovalPreview {
   title: string;
   summary: string;
   chainId: number;
+  category?: ContractPreviewCategory;
+  badgeLabel?: string;
+  warning?: string;
   recipientCheck?: RecipientValidationResult;
   additionalRecipientChecks?: RecipientValidationResult[];
   feeEstimate?: WaveBFeeEstimate;
@@ -465,6 +472,13 @@ export function buildApprovalPreview(params: {
     if (tx?.kind === "call") {
       const recipientCheck = validateRecipientAddress(tx.contract ?? "", chainId);
       const argsLen = tx.argsHex ? strip0x(tx.argsHex).length / 2 : 0;
+      const valueAtoms = BigInt(tx.value ?? 0);
+      const decoded = decodeContractCallPreview({
+        method: tx.method ?? "",
+        argsHex: tx.argsHex,
+        chainId,
+        valueAtoms,
+      });
       const feeEstimate = computeWaveBFeeEstimateLocal({
         txBytes: 220 + argsLen + (tx.method?.length ?? 0),
         gasUsed: BigInt(tx.gasLimit ?? DEFAULT_CALL_GAS_LIMIT),
@@ -474,15 +488,19 @@ export function buildApprovalPreview(params: {
       });
       return {
         method,
-        title: "Sign Contract Call",
-        summary: `Invoke ${tx.method} on contract`,
+        title: decoded.title,
+        summary: decoded.summary,
         chainId,
+        category: decoded.category,
+        badgeLabel: decoded.badgeLabel,
+        warning: decoded.warning,
         recipientCheck,
         feeEstimate,
         details: [
           { label: "Contract", value: tx.contract },
           { label: "Method", value: tx.method },
-          { label: "Value", value: `${formatKvnc(BigInt(tx.value ?? 0))} KVNC` },
+          ...decoded.details,
+          { label: "Value", value: `${formatKvnc(valueAtoms)} KVNC` },
           { label: "Gas Limit", value: String(tx.gasLimit ?? DEFAULT_CALL_GAS_LIMIT) },
           { label: "Nonce", value: String(tx.nonce) },
         ],
@@ -515,11 +533,48 @@ export function buildApprovalPreview(params: {
     const batch = requestParams as DAppBatchTxParams;
     const actions = Array.isArray(batch?.actions) ? batch.actions : [];
     const recipientChecks: RecipientValidationResult[] = [];
-    for (const act of actions) {
+    const actionDetails: Array<{ label: string; value: string }> = [];
+    let batchCategory: ContractPreviewCategory | undefined;
+    let batchBadgeLabel: string | undefined;
+    let batchWarning: string | undefined;
+
+    for (let i = 0; i < actions.length; i++) {
+      const act = actions[i]!;
       if (act.kind === "transfer" && act.to) {
         recipientChecks.push(validateRecipientAddress(act.to, chainId));
-      } else if (act.kind === "call" && act.contract && act.contract !== "0x" + "00".repeat(32)) {
-        recipientChecks.push(validateRecipientAddress(act.contract, chainId));
+        actionDetails.push({
+          label: `Action #${i + 1}`,
+          value: `Transfer ${formatKvnc(BigInt(act.amount ?? 0))} KVNC`,
+        });
+      } else if (act.kind === "call") {
+        if (act.contract && act.contract !== "0x" + "00".repeat(32)) {
+          recipientChecks.push(validateRecipientAddress(act.contract, chainId));
+        }
+        const decoded = decodeContractCallPreview({
+          method: act.method ?? "",
+          argsHex: act.argsHex,
+          chainId,
+          valueAtoms: BigInt(act.value ?? 0),
+        });
+        if (decoded.category === "amm" || decoded.category === "rwa") {
+          batchCategory = decoded.category;
+          batchBadgeLabel = `Batch · ${decoded.badgeLabel}`;
+        } else if (!batchCategory && decoded.category === "token") {
+          batchCategory = "token";
+          batchBadgeLabel = `Batch · ${decoded.badgeLabel}`;
+        }
+        if (decoded.warning && !batchWarning) {
+          batchWarning = decoded.warning;
+        }
+        actionDetails.push({
+          label: `Action #${i + 1} (${act.method ?? "call"})`,
+          value: decoded.summary,
+        });
+      } else if (act.kind === "deploy") {
+        actionDetails.push({
+          label: `Action #${i + 1}`,
+          value: "Deploy Wasm contract",
+        });
       }
     }
     const feeEstimate = computeWaveBFeeEstimateLocal({
@@ -532,11 +587,15 @@ export function buildApprovalPreview(params: {
       title: "Sign Atomic Batch (Wave A)",
       summary: `Execute ${actions.length} atomic action(s) all-or-nothing`,
       chainId,
+      category: batchCategory,
+      badgeLabel: batchBadgeLabel,
+      warning: batchWarning,
       recipientCheck: recipientChecks[0],
       additionalRecipientChecks: recipientChecks,
       feeEstimate,
       details: [
         { label: "Actions", value: `${actions.length} (${actions.map((a) => a.kind).join(", ")})` },
+        ...actionDetails,
         { label: "Nonce", value: String(batch?.nonce ?? 0) },
       ],
     };
@@ -544,11 +603,19 @@ export function buildApprovalPreview(params: {
 
   if (method === "signSponsoredTransaction") {
     const sponsored = requestParams as DAppSponsoredTxParams;
-    const innerTarget =
-      sponsored?.inner?.kind === "call"
-        ? sponsored.inner.contract
-        : (sponsored?.inner as DAppTransferTxParams | undefined)?.to ?? "";
+    const isCall = sponsored?.inner?.kind === "call";
+    const innerTarget = isCall
+      ? (sponsored.inner as DAppCallTxParams).contract
+      : (sponsored?.inner as DAppTransferTxParams | undefined)?.to ?? "";
     const recipientCheck = validateRecipientAddress(innerTarget, chainId);
+    const decodedCall = isCall
+      ? decodeContractCallPreview({
+          method: (sponsored.inner as DAppCallTxParams).method ?? "",
+          argsHex: (sponsored.inner as DAppCallTxParams).argsHex,
+          chainId,
+          valueAtoms: BigInt((sponsored.inner as DAppCallTxParams).value ?? 0),
+        })
+      : null;
     const feeEstimate = computeWaveBFeeEstimateLocal({
       txBytes: 320,
       fixedMinFee: DEFAULT_TRANSFER_MIN_FEE_ATOMS,
@@ -557,13 +624,19 @@ export function buildApprovalPreview(params: {
     return {
       method,
       title: "Sign Sponsored Transaction (Wave A)",
-      summary: "Gasless transaction co-signed by a fee sponsor",
+      summary: decodedCall
+        ? `Gasless ${decodedCall.badgeLabel}: ${decodedCall.summary}`
+        : "Gasless transaction co-signed by a fee sponsor",
       chainId,
+      category: decodedCall?.category,
+      badgeLabel: decodedCall ? `Sponsored · ${decodedCall.badgeLabel}` : undefined,
+      warning: decodedCall?.warning,
       recipientCheck,
       feeEstimate,
       details: [
         { label: "Fee Payer", value: sponsored?.feePayerPublicKeyHex ?? "" },
         { label: "Inner Kind", value: sponsored?.inner?.kind ?? "transfer" },
+        ...(decodedCall ? decodedCall.details : []),
         { label: "Nonce", value: String(sponsored?.nonce ?? 0) },
       ],
     };

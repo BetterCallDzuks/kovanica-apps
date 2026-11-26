@@ -19,6 +19,10 @@ import {
   type LocalSessionKeyRecord,
 } from "../core/session-keys";
 import {
+  TokenWatchlistManager,
+  readKvp102TokenBalance,
+} from "../core/tokens";
+import {
   estimateWaveBFeeFromRpc,
   signDAppTransaction,
 } from "../core/tx-signer";
@@ -32,6 +36,7 @@ const SESSION_KEYS_STORAGE_KEY = "kovanica_session_keys_v1";
 const AUTO_LOCK_ALARM_NAME = "kovanica_auto_lock";
 
 const storage = new ChromeLocalStorageAdapter();
+const tokenWatchlist = new TokenWatchlistManager(storage);
 let activeWsClient: KovanicaWsClient | null = null;
 let latestHeadHeight: number | null = null;
 
@@ -139,6 +144,7 @@ async function handlePopupAction(type: string, payload: Record<string, unknown> 
       const accounts = unlocked ? vault.getAccounts(chainId) : [];
       const activeAccountIndex = vault.getActiveAccountIndex();
       const sessionKeys = await loadSessionKeys();
+      const watchedTokens = await tokenWatchlist.list(chainId);
       return {
         hasVault,
         unlocked,
@@ -154,6 +160,7 @@ async function handlePopupAction(type: string, payload: Record<string, unknown> 
         connectedOrigins: providerController.getConnectedOrigins(),
         pendingApprovals: providerController.listPendingApprovals(),
         sessionKeys,
+        watchedTokens,
         latestHeadHeight,
       };
     }
@@ -235,6 +242,40 @@ async function handlePopupAction(type: string, payload: Record<string, unknown> 
         nonce: nonce.toString(),
         feeEstimate,
       };
+    }
+
+    case "WALLET_ADD_TOKEN": {
+      const chainId = providerController.getChainId();
+      const entry = await tokenWatchlist.add(chainId, String(payload.contract ?? ""));
+      return { entry };
+    }
+
+    case "WALLET_REMOVE_TOKEN": {
+      const chainId = providerController.getChainId();
+      const removed = await tokenWatchlist.remove(chainId, String(payload.contract ?? ""));
+      return { removed };
+    }
+
+    case "WALLET_FETCH_TOKEN_BALANCES": {
+      const chainId = providerController.getChainId();
+      const holderAddress = String(payload.address ?? "");
+      const watched = await tokenWatchlist.list(chainId);
+      if (watched.length === 0) {
+        return { tokens: [] };
+      }
+      const network = getNetworkByChainId(chainId);
+      const client = createRpcClient(network);
+      const tokens = await Promise.all(
+        watched.map((entry) =>
+          readKvp102TokenBalance({
+            client,
+            contractAddress: entry.contract,
+            holderAddress,
+            chainId,
+          }),
+        ),
+      );
+      return { tokens };
     }
 
     case "WALLET_SEND_TRANSFER": {

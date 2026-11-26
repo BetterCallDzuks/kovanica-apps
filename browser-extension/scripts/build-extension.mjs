@@ -99,6 +99,13 @@ async function build() {
     copyFileSync(iconSrc, resolve(iconsDir, `icon-${size}.png`));
   }
 
+  for (const coinSize of [128, 256]) {
+    const coinSrc = resolve(rootDir, `public/icons/kvnc-coin-${coinSize}.png`);
+    if (existsSync(coinSrc)) {
+      copyFileSync(coinSrc, resolve(iconsDir, `kvnc-coin-${coinSize}.png`));
+    }
+  }
+
   console.log(`Built Kovanica MV3 browser extension (${target}) into ${outDir}`);
 }
 
