@@ -1,21 +1,35 @@
 :root {
   color-scheme: dark;
-  --bg: #0b0e14;
-  --surface: #131924;
-  --surface-2: #1b2333;
-  --border: #273248;
-  --text: #eef2ff;
-  --muted: #93a3bf;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --ok: #22c55e;
+  --bg: #09090b;
+  --surface: #121214;
+  --surface-2: #1a1a1e;
+  --border: #2a2a30;
+  --border-hover: rgba(255, 255, 255, 0.14);
+  --text: #f2f1ee;
+  --muted: #9a9aa3;
+  --subtle: #6b6b74;
+  --accent: #F2A900;
+  --accent-hover: #c48a00;
+  --accent-fg: #0a0a0b;
+  --teal: #2fbaa4;
+  --teal-dark: #1c7c72;
+  --blue: #8aa0b4;
+  --ok: #16a765;
   --warn: #f59e0b;
-  --danger: #ef4444;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --danger: #c45c4a;
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-sans);
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -26,6 +40,7 @@ body {
   min-height: 540px;
   font-size: 13px;
   line-height: 1.45;
+  font-family: var(--font-sans);
 }
 
 .app-shell {
@@ -48,8 +63,11 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 700;
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .badge {
@@ -57,39 +75,43 @@ body {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--muted);
 }
 
 .badge.ok {
-  color: #86efac;
-  border-color: rgba(34, 197, 94, 0.4);
-  background: rgba(34, 197, 94, 0.12);
+  color: #7ee8d0;
+  border-color: rgba(47, 186, 164, 0.4);
+  background: rgba(47, 186, 164, 0.12);
 }
 
 .badge.warn {
   color: #fcd34d;
   border-color: rgba(245, 158, 11, 0.4);
-  background: rgba(245, 158, 11, 0.12);
+  background: rgba(245, 158, 11, 0.13);
 }
 
 .badge.danger {
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.4);
-  background: rgba(239, 68, 68, 0.12);
+  color: #f2a296;
+  border-color: rgba(196, 92, 74, 0.45);
+  background: rgba(196, 92, 74, 0.14);
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 .row {
@@ -103,23 +125,33 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .tab-btn {
   padding: 7px 6px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.tab-btn:hover:not(.active) {
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 .tab-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 
 input,
@@ -133,6 +165,14 @@ select {
   color: var(--text);
   font-size: 12px;
   font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 textarea {
@@ -144,15 +184,17 @@ button.primary {
   width: 100%;
   padding: 9px 12px;
   border-radius: 8px;
-  border: none;
+  border: 1px solid var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-button.primary:hover {
+button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 button.secondary {
@@ -163,20 +205,35 @@ button.secondary {
   color: var(--text);
   font-weight: 600;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+button.secondary:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: #222228;
 }
 
 button.danger {
   padding: 7px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  background: rgba(239, 68, 68, 0.14);
-  color: #fca5a5;
+  border: 1px solid rgba(196, 92, 74, 0.45);
+  background: rgba(196, 92, 74, 0.14);
+  color: #f2a296;
   font-weight: 600;
   cursor: pointer;
 }
 
+button.danger:hover:not(:disabled) {
+  background: rgba(196, 92, 74, 0.22);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   word-break: break-all;
 }
@@ -209,9 +266,11 @@ button.danger {
 }
 
 .balance {
-  font-size: 24px;
+  font-family: var(--font-mono);
+  font-size: 23px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: var(--text);
 }
 
 .token-list {
@@ -224,8 +283,8 @@ button.danger {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px;
-  border-radius: 8px;
+  padding: 9px 10px;
+  border-radius: 10px;
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
@@ -261,27 +320,27 @@ button.danger {
 
 .warn-box {
   background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.45);
+  border: 1px solid rgba(245, 158, 11, 0.4);
   color: #fcd34d;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 8px 10px;
   font-size: 12px;
 }
 
 .error-box {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #fca5a5;
-  border-radius: 8px;
+  background: rgba(196, 92, 74, 0.14);
+  border: 1px solid rgba(196, 92, 74, 0.45);
+  color: #f2a296;
+  border-radius: 10px;
   padding: 8px 10px;
   font-size: 12px;
 }
 
 .ok-box {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.4);
-  color: #86efac;
-  border-radius: 8px;
+  background: rgba(47, 186, 164, 0.12);
+  border: 1px solid rgba(47, 186, 164, 0.4);
+  color: #7ee8d0;
+  border-radius: 10px;
   padding: 8px 10px;
   font-size: 12px;
 }
@@ -327,9 +386,10 @@ button.danger {
 .ecosystem-link {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: 500;
   text-decoration: none;
   background: var(--surface);
@@ -339,7 +399,7 @@ button.danger {
 }
 
 .ecosystem-link:hover {
-  color: var(--text);
+  color: var(--accent);
   border-color: var(--accent);
   background: var(--surface-2);
 }

@@ -1,30 +1,40 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 @theme {
-  --color-ink: #0c1412;
-  --color-surface: #15211c;
-  --color-line: #2c3d35;
-  --color-paper: #f4f0e6;
-  --color-muted: #b3aa9a;
-  --color-copper: #e0b15a;
-  --color-copper-ink: #1c1408;
-  --color-clay: #e07a5f;
-  --color-sage: #9cba9a;
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --radius-card: 1.25rem;
+  --color-ink: #09090b;
+  --color-surface: #121214;
+  --color-surface-2: #1a1a1e;
+  --color-line: #2a2a30;
+  --color-paper: #f2f1ee;
+  --color-muted: #9a9aa3;
+  --color-subtle: #6b6b74;
+  --color-copper: #F2A900;
+  --color-copper-ink: #0a0a0b;
+  --color-gold: #F2A900;
+  --color-gold-dark: #c48a00;
+  --color-teal: #2fbaa4;
+  --color-clay: #c45c4a;
+  --color-sage: #2fbaa4;
+  --color-blue: #8aa0b4;
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius-card: 12px;
 }
 
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     background: var(--color-ink);
     color: var(--color-paper);
   }
   body {
     font-family: var(--font-sans);
     min-height: 100vh;
+    background: var(--color-ink);
+    color: var(--color-paper);
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
@@ -35,6 +45,10 @@
   }
   p {
     text-wrap: pretty;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-blue) 40%, transparent);
+    color: var(--color-paper);
   }
 }
 

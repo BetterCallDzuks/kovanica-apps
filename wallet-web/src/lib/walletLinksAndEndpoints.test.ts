@@ -224,7 +224,7 @@ describe("wallet-web endpoints, explorer helpers, ecosystem links & RPC allowlis
     assert.equal(activitySource.includes("https://explorer.kovanica.online/tx/"), false);
 
     const styles = readFileSync(resolve(WALLET_WEB_ROOT, "src/styles.css"), "utf8");
-    for (const token of ["#0c1412", "#15211c", "#2c3d35", "#e0b15a", "Outfit", "IBM Plex Mono"]) {
+    for (const token of ["#09090b", "#121214", "#2a2a30", "#F2A900", "IBM Plex Sans", "IBM Plex Mono"]) {
       assert.equal(styles.includes(token), true, `Missing design token ${token}`);
     }
   });

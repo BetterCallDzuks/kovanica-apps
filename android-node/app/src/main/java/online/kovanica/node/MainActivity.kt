@@ -7,6 +7,8 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -70,51 +72,79 @@ class MainActivity : Activity() {
         FfiInstall.install()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = (16 * resources.displayMetrics.density).toInt()
+            setBackgroundColor(COLOR_BG)
+            val pad = dp(16)
             setPadding(pad, pad, pad, pad)
         }
-        status = text("Starting…")
-        root.addView(status)
-        root.addView(button("Start full node") { startFull() })
-        root.addView(button("Start light sync") { startLight() })
-        root.addView(button("Stop") { stopAll() })
-        root.addView(button("Retry full node") { retryFull() })
+        window?.decorView?.setBackgroundColor(COLOR_BG)
+        window?.statusBarColor = COLOR_BG
+        window?.navigationBarColor = COLOR_BG
+
+        val header = TextView(this).apply {
+            text = "Kovanica Node"
+            textSize = 22f
+            typeface = Typeface.SERIF
+            setTextColor(COLOR_FG)
+            setPadding(0, 0, 0, dp(4))
+        }
+        root.addView(header)
+        status = text("Starting…").apply {
+            background = cardDrawable(COLOR_SURFACE, COLOR_BORDER, 12)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            typeface = Typeface.MONOSPACE
+            textSize = 12.5f
+        }
+        root.addView(status, marginParams(top = 6, bottom = 10))
+        root.addView(button("Start full node", primary = true) { startFull() }, marginParams(top = 6))
+        root.addView(button("Start light sync") { startLight() }, marginParams(top = 6))
+        root.addView(button("Stop") { stopAll() }, marginParams(top = 6))
+        root.addView(button("Retry full node") { retryFull() }, marginParams(top = 6))
         root.addView(label("Mining (Testnet)"))
-        minerAddressField = EditText(this).apply {
-            hint = "Miner reward address (kvnc…dag)"
+        minerAddressField = styledInput("Miner reward address (kvnc…dag)").apply {
             setText(prefs().getString(KEY_MINER_ADDRESS, prefs().getString(KEY_ADDRESS, "")) ?: "")
             setSingleLine(true)
         }
-        root.addView(minerAddressField)
-        miningToggleButton = button(miningButtonLabel()) { toggleMining() }
-        root.addView(miningToggleButton)
+        root.addView(minerAddressField, marginParams(top = 6))
+        miningToggleButton = button(miningButtonLabel(), primary = true) { toggleMining() }
+        root.addView(miningToggleButton, marginParams(top = 8))
         miningThreadsButton = button(miningThreadsLabel()) { cycleMiningThreads() }
-        root.addView(miningThreadsButton)
+        root.addView(miningThreadsButton, marginParams(top = 6))
         root.addView(label("Fallback RPC URL"))
-        rpcField = EditText(this).apply {
+        rpcField = styledInput("https://rpc-testnet.kovanica.online/rpc").apply {
             setText(prefs().getString(KEY_RPC, NodeHttp.DEFAULT_RPC))
             setSingleLine(true)
         }
-        root.addView(rpcField)
-        root.addView(button("Save RPC URL") { saveRpc() })
+        root.addView(rpcField, marginParams(top = 6))
+        root.addView(button("Save RPC URL") { saveRpc() }, marginParams(top = 6))
         root.addView(label("Wallet"))
-        addressView = text("No wallet yet")
-        root.addView(addressView)
-        qr = ImageView(this).apply { contentDescription = "Address QR" }
+        addressView = text("No wallet yet").apply {
+            background = cardDrawable(COLOR_SURFACE, COLOR_BORDER, 10)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+        }
+        root.addView(addressView, marginParams(top = 6))
+        qr = ImageView(this).apply {
+            contentDescription = "Address QR"
+            setPadding(0, dp(8), 0, dp(8))
+        }
         root.addView(qr)
-        root.addView(button("Create wallet") { createWallet() })
-        wordsField = EditText(this).apply { hint = "Recovery words" }
-        root.addView(wordsField)
-        root.addView(button("Import wallet") { importWallet() })
-        root.addView(button("Show recovery words") { showWords() })
+        root.addView(button("Create wallet", primary = true) { createWallet() }, marginParams(top = 6))
+        wordsField = styledInput("Recovery words")
+        root.addView(wordsField, marginParams(top = 8))
+        root.addView(button("Import wallet") { importWallet() }, marginParams(top = 6))
+        root.addView(button("Show recovery words") { showWords() }, marginParams(top = 6))
         root.addView(label("Send"))
-        toField = EditText(this).apply { hint = "Recipient address" }
-        amountField = EditText(this).apply { hint = "Amount (KVNC)" }
-        root.addView(toField)
-        root.addView(amountField)
-        sendButton = button("Review and send") { reviewSend() }
-        root.addView(sendButton)
-        setContentView(ScrollView(this).apply { addView(root) })
+        toField = styledInput("Recipient address")
+        amountField = styledInput("Amount (KVNC)")
+        root.addView(toField, marginParams(top = 6))
+        root.addView(amountField, marginParams(top = 6))
+        sendButton = button("Review and send", primary = true) { reviewSend() }
+        root.addView(sendButton, marginParams(top = 8, bottom = 16))
+        setContentView(ScrollView(this).apply {
+            setBackgroundColor(COLOR_BG)
+            addView(root)
+        })
         showAddress(prefs().getString(KEY_ADDRESS, null))
         schedule()
         if (prefs().getString(KEY_MODE, null) == null) {
@@ -613,25 +643,82 @@ class MainActivity : Activity() {
 
     private fun prefs() = getSharedPreferences("node", MODE_PRIVATE)
 
-    private fun text(value: String) = TextView(this).apply { text = value }
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-    private fun label(value: String) = TextView(this).apply {
-        text = value
-        setPadding(0, 24, 0, 0)
+    private fun cardDrawable(fill: Int, stroke: Int, radiusDp: Int) = GradientDrawable().apply {
+        setColor(fill)
+        cornerRadius = dp(radiusDp).toFloat()
+        setStroke(dp(1), stroke)
     }
 
-    private fun button(value: String, action: () -> Unit) = Button(this).apply {
+    private fun marginParams(top: Int = 0, bottom: Int = 0) = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        LinearLayout.LayoutParams.WRAP_CONTENT,
+    ).apply {
+        topMargin = dp(top)
+        bottomMargin = dp(bottom)
+    }
+
+    private fun styledInput(hintText: String) = EditText(this).apply {
+        hint = hintText
+        setTextColor(COLOR_FG)
+        setHintTextColor(COLOR_SUBTLE)
+        typeface = Typeface.MONOSPACE
+        textSize = 13f
+        background = cardDrawable(COLOR_SURFACE_2, COLOR_BORDER, 10)
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+    }
+
+    private fun text(value: String) = TextView(this).apply {
         text = value
+        setTextColor(COLOR_FG)
+    }
+
+    private fun label(value: String) = TextView(this).apply {
+        text = value.uppercase()
+        typeface = Typeface.MONOSPACE
+        textSize = 11f
+        letterSpacing = 0.14f
+        setTextColor(COLOR_MUTED)
+        setPadding(0, dp(20), 0, dp(4))
+    }
+
+    private fun button(value: String, primary: Boolean = false, action: () -> Unit) = Button(this).apply {
+        text = value
+        isAllCaps = false
+        typeface = Typeface.DEFAULT_BOLD
+        textSize = 14f
+        setTextColor(if (primary) COLOR_GOLD_FG else COLOR_FG)
+        background = cardDrawable(
+            fill = if (primary) COLOR_GOLD else COLOR_SURFACE_2,
+            stroke = if (primary) COLOR_GOLD else COLOR_BORDER,
+            radiusDp = 10,
+        )
+        setPadding(dp(14), dp(12), dp(14), dp(12))
         setOnClickListener { action() }
     }
 
     private fun tell(message: String) {
-        AlertDialog.Builder(this).setMessage(message).setPositiveButton("OK", null).show()
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private data class Screen(val text: String, val sendAllowed: Boolean)
 
     companion object {
+        // kovanica.online dark zinc + gold + teal design tokens
+        private const val COLOR_BG = 0xFF09090B.toInt()
+        private const val COLOR_SURFACE = 0xFF121214.toInt()
+        private const val COLOR_SURFACE_2 = 0xFF1A1A1E.toInt()
+        private const val COLOR_BORDER = 0xFF2A2A30.toInt()
+        private const val COLOR_FG = 0xFFF2F1EE.toInt()
+        private const val COLOR_MUTED = 0xFF9A9AA3.toInt()
+        private const val COLOR_SUBTLE = 0xFF6B6B74.toInt()
+        private const val COLOR_GOLD = 0xFFF2A900.toInt()
+        private const val COLOR_GOLD_FG = 0xFF0A0A0B.toInt()
+
         private const val KEY_RPC = "rpc_url"
         private const val KEY_MODE = "mode"
         private const val KEY_REASON = "reason"
