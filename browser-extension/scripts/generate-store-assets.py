@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Generate reproducible Kovanica Wallet brand icons and Chrome Web Store / Firefox AMO
-submission graphics using the official Kovanica palette:
-  - Background: #0b0f17 (Obsidian)
-  - Accent:     #c9a84c (Kovanica Gold)
-  - Foreground: #f5f5f5 (Ivory White)
+submission graphics using the official kovanica.online design system palette:
+  - Background: #09090b (Dark Zinc)
+  - Surface:    #121214 / #1a1a1e (Border: #2a2a30)
+  - Accent:     #F2A900 (Kovanica Gold) + #2fbaa4 (Teal)
+  - Foreground: #f2f1ee (Warm Ivory)
 """
 
 from pathlib import Path
@@ -15,18 +16,19 @@ PUBLIC_ICONS = ROOT / "public" / "icons"
 STORE_ICONS = ROOT / "store-assets" / "icons"
 STORE_IMAGES = ROOT / "store-assets" / "images"
 
-BG = (11, 15, 23, 255)          # #0b0f17
-SURFACE = (20, 27, 41, 255)     # #141b29
-SURFACE_2 = (28, 37, 56, 255)   # #1c2538
-BORDER = (44, 56, 82, 255)      # #2c3852
-GOLD = (201, 168, 76, 255)      # #c9a84c
-GOLD_DIM = (150, 122, 52, 255)  # #967a34
-GOLD_BG = (45, 38, 22, 255)
-WHITE = (245, 245, 245, 255)    # #f5f5f5
-MUTED = (156, 168, 192, 255)    # #9ca8c0
-GREEN = (34, 197, 94, 255)      # #22c55e
-GREEN_BG = (18, 46, 32, 255)
-BLUE = (59, 130, 246, 255)      # #3b82f6
+BG = (9, 9, 11, 255)            # #09090b
+SURFACE = (18, 18, 20, 255)     # #121214
+SURFACE_2 = (26, 26, 30, 255)   # #1a1a1e
+BORDER = (42, 42, 48, 255)      # #2a2a30
+GOLD = (242, 169, 0, 255)       # #F2A900
+GOLD_DIM = (196, 138, 0, 255)   # #c48a00
+GOLD_BG = (42, 32, 8, 255)
+INK = (10, 10, 11, 255)         # #0a0a0b
+WHITE = (242, 241, 238, 255)    # #f2f1ee
+MUTED = (154, 154, 163, 255)    # #9a9aa3
+GREEN = (47, 186, 164, 255)     # #2fbaa4 (Teal)
+GREEN_BG = (14, 42, 38, 255)
+BLUE = (138, 160, 180, 255)     # #8aa0b4
 
 FONT_BOLD_CANDIDATES = [
     "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
@@ -125,12 +127,12 @@ def draw_kovanica_icon(size: int) -> Image.Image:
 
 def write_icon_svg(path: Path) -> None:
     svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <rect x="5" y="5" width="118" height="118" rx="28" fill="#0b0f17" stroke="#c9a84c" stroke-width="5"/>
-  <circle cx="64" cy="64" r="43" fill="none" stroke="#967a34" stroke-width="2.5"/>
-  <rect x="41" y="32" width="14" height="64" rx="2.5" fill="#f5f5f5"/>
-  <polygon points="55,64 79,32 93,32 68,64" fill="#c9a84c"/>
-  <polygon points="55,64 68,64 93,96 79,96" fill="#c9a84c"/>
-  <polygon points="56,64 62,58 68,64 62,70" fill="#f5f5f5"/>
+  <rect x="5" y="5" width="118" height="118" rx="28" fill="#09090b" stroke="#F2A900" stroke-width="5"/>
+  <circle cx="64" cy="64" r="43" fill="none" stroke="#c48a00" stroke-width="2.5"/>
+  <rect x="41" y="32" width="14" height="64" rx="2.5" fill="#f2f1ee"/>
+  <polygon points="55,64 79,32 93,32 68,64" fill="#F2A900"/>
+  <polygon points="55,64 68,64 93,96 79,96" fill="#F2A900"/>
+  <polygon points="56,64 62,58 68,64 62,70" fill="#f2f1ee"/>
 </svg>
 """
     path.write_text(svg, encoding="utf-8")
@@ -156,9 +158,9 @@ def generate_promo_small(path: Path) -> None:
 
     # Subtle grid lines
     for gx in range(0, w, 40):
-        d.line([(gx, 0), (gx, h)], fill=(20, 27, 41, 120), width=1)
+        d.line([(gx, 0), (gx, h)], fill=(26, 26, 30, 120), width=1)
     for gy in range(0, h, 40):
-        d.line([(0, gy), (w, gy)], fill=(20, 27, 41, 120), width=1)
+        d.line([(0, gy), (w, gy)], fill=(26, 26, 30, 120), width=1)
 
     # Top gold bar
     d.rectangle([0, 0, w, 5], fill=GOLD)
@@ -197,9 +199,9 @@ def draw_backdrop(w: int, h: int) -> tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGBA", (w, h), BG)
     d = ImageDraw.Draw(img)
     for gx in range(0, w, 48):
-        d.line([(gx, 0), (gx, h)], fill=(20, 27, 41, 110), width=1)
+        d.line([(gx, 0), (gx, h)], fill=(26, 26, 30, 110), width=1)
     for gy in range(0, h, 48):
-        d.line([(0, gy), (w, gy)], fill=(20, 27, 41, 110), width=1)
+        d.line([(0, gy), (w, gy)], fill=(26, 26, 30, 110), width=1)
     d.rectangle([0, 0, w, 6], fill=GOLD)
     return img, d
 

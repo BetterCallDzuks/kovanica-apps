@@ -7,7 +7,7 @@ import { ECOSYSTEM_LINKS } from "@/lib/ecosystem";
 import { chainName, explorerBaseUrl, presetById } from "@/lib/networks";
 import { broadcast, indexerLogs, probeNode, readAccount, receipt } from "@/services/rpc";
 import { onWalletLock, touchSession } from "@/services/tauri";
-import { addAccount, clearBackup, forgetDevice, isDesktopShell, loadVault, lock, lockUi, refreshDesktopSession, selectAccount, signReviewed, subscribeBackup } from "@/services/wallet";
+import { addAccount, clearBackup, forgetDevice, getStealthMetaAddress, isDesktopShell, loadVault, lock, lockUi, refreshDesktopSession, selectAccount, signReviewed, subscribeBackup } from "@/services/wallet";
 import { useActivity } from "@/stores/activity";
 import { getNodeStatusBadge, savedNetworkChoice, signingLock, useNetwork } from "@/stores/network";
 import { useSession } from "@/stores/session";
@@ -455,6 +455,7 @@ export function WalletApp() {
             <Receive
               address={displayAddress}
               pathLabel={isWatchOnlyMode ? "Watch-only (read-only)" : (account?.pathLabel ?? "")}
+              stealthMetaAddress={!isWatchOnlyMode ? getStealthMetaAddress() : null}
             />
           ) : null}
           {tab === "activity" ? (

@@ -1,3 +1,4 @@
+import { deriveStealthKeypairFromMnemonic, formatStealthMetaAddress } from "kovanica-sdk";
 import { encodeAddress } from "./address";
 import { decodeRecipient } from "./address";
 import { bytesToHex, wipe } from "./bytes";
@@ -74,6 +75,17 @@ export function derivePublicAccount(ref: AccountRef): PublicAccount {
   } finally {
     wipe(seed);
   }
+}
+
+/**
+ * Deterministically derives the public KVP-103 stealth meta-address (`st:kvnc:...`)
+ * from the unlocked HD session without exposing scan/spend private keys.
+ */
+export function deriveStealthMetaAddress(): string | null {
+  if (!live || live.kind !== "hd") return null;
+  const mnemonic = phraseFromEntropy(live.entropy);
+  const kp = deriveStealthKeypairFromMnemonic(mnemonic);
+  return formatStealthMetaAddress(kp.scanPubkeyHex, kp.spendPubkeyHex);
 }
 
 export type PreviewDetail = { label: string; value: string; mono?: boolean };

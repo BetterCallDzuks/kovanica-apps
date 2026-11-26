@@ -8,6 +8,7 @@ import {
   registerPasskeyForVault,
   unwrapVaultPasswordWithPasskey,
 } from "../core/passkey";
+import { renderQrSvg } from "../core/qr";
 import type { LocalSessionKeyRecord } from "../core/session-keys";
 import { parseTokenUnits, type WatchedTokenBalance, type WatchedTokenEntry } from "../core/tokens";
 import type { WaveBFeeEstimate } from "../core/tx-signer";
@@ -85,6 +86,10 @@ export function PopupApp(): React.JSX.Element {
 
   // Security form
   const [passkeyPassword, setPasskeyPassword] = useState("");
+
+  // Inline SVG QR toggles (PRO-21 address + KVP-103 stealth meta-address)
+  const [showAddressQr, setShowAddressQr] = useState(false);
+  const [showStealthQr, setShowStealthQr] = useState(false);
 
   async function refreshState(): Promise<void> {
     try {
@@ -496,16 +501,38 @@ export function PopupApp(): React.JSX.Element {
                   {state.latestHeadHeight !== null && (
                     <span className="badge">Head #{state.latestHeadHeight}</span>
                   )}
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(activeAccount.address);
-                      setNotice("Address copied");
-                    }}
-                  >
-                    Copy
-                  </button>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button
+                      className="secondary"
+                      onClick={() => setShowAddressQr((prev) => !prev)}
+                    >
+                      {showAddressQr ? "Hide QR" : "Show QR"}
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(activeAccount.address);
+                        setNotice("Address copied");
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
+                {showAddressQr && (
+                  <div className="qr-panel">
+                    <div
+                      className="qr-frame"
+                      dangerouslySetInnerHTML={{
+                        __html: renderQrSvg(activeAccount.address, {
+                          ariaLabel: `PRO-21 receive QR for ${activeAccount.label}`,
+                          sizePx: 176,
+                        }),
+                      }}
+                    />
+                    <span className="muted">Scan to receive KVNC (PRO-21)</span>
+                  </div>
+                )}
                 {feeEst && (
                   <div className="muted">
                     Wave B base fee: {feeEst.baseFeePerByte} atoms/B · Est transfer fee:{" "}
@@ -524,7 +551,13 @@ export function PopupApp(): React.JSX.Element {
                     Share this meta-address to receive unlinkable one-time payments.
                   </div>
                   <div className="mono">{state.stealthMetaAddress}</div>
-                  <div className="row" style={{ justifyContent: "flex-end" }}>
+                  <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
+                    <button
+                      className="secondary"
+                      onClick={() => setShowStealthQr((prev) => !prev)}
+                    >
+                      {showStealthQr ? "Hide QR" : "Show QR"}
+                    </button>
                     <button
                       className="secondary"
                       onClick={() => {
@@ -535,6 +568,20 @@ export function PopupApp(): React.JSX.Element {
                       Copy Stealth Address
                     </button>
                   </div>
+                  {showStealthQr && (
+                    <div className="qr-panel">
+                      <div
+                        className="qr-frame"
+                        dangerouslySetInnerHTML={{
+                          __html: renderQrSvg(state.stealthMetaAddress, {
+                            ariaLabel: "KVP-103 stealth meta-address QR",
+                            sizePx: 176,
+                          }),
+                        }}
+                      />
+                      <span className="muted">Scan to receive private KVP-103 stealth payments</span>
+                    </div>
+                  )}
                 </div>
               )}
 
