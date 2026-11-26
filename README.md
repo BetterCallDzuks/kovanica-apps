@@ -13,22 +13,22 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 
 | Directory | Platform / Stack | Role | Documentation |
 | :--- | :--- | :--- | :--- |
-| `wallet-web` | React / TanStack Start + `kovanica-sdk v0.9.0` | Hybrid web & desktop wallet with Ecosystem Switcher, 3-sub-tab Contracts workspace, and canonical `rpc-testnet.kovanica.online` defaults | [`wallet-web/README.md`](wallet-web/README.md) |
-| `browser-extension` | Chrome / Brave / Firefox MV3 + `window.kovanica` | Non-custodial browser extension wallet with `window.kovanica` dApp provider, Wave A batch signing, dual Chrome/Firefox MV3 manifests & Chrome Web Store / Firefox AMO release kit (`store-assets/`) | [`browser-extension/README.md`](browser-extension/README.md) |
-| `console-desktop` | Tauri + React + TypeScript | Desktop wallet, operator node inspector & cluster readiness console | [`console-desktop/README.md`](console-desktop/README.md) |
-| `node-desktop` | Tauri + Vite (Linux `.deb`) | External `kovanica-node` supervisor & operator CLI helper (no bundled node binary) | [`node-desktop/README.md`](node-desktop/README.md) |
-| `desktop` | Tauri | Desktop E2E encrypted Comms shell | [`desktop/README.md`](desktop/README.md) |
-| `android` / `android-wallet` | Kotlin / UniFFI | Streamlined 2-tab Wallet/Account app (`Testnet` / `Mainnet` only, dark 24-word seed confirmation, BIP-44 `m/44'/3007'/0'/0'/0'` parity) | [`docs/android-release-build.md`](docs/android-release-build.md) |
+| `wallet-web` | React / TanStack Start + `kovanica-sdk v0.10.0` | Unified `kovanica.online` dark zinc + gold web wallet with inline SVG QR receive (`kvnc...dag` + KVP-103 `st:kvnc:...`), Ecosystem Switcher, 3-sub-tab Contracts workspace, and canonical `rpc-testnet.kovanica.online` defaults | [`wallet-web/README.md`](wallet-web/README.md) |
+| `browser-extension` | Chrome / Brave / Firefox MV3 + `window.kovanica` | Unified `kovanica.online` dark zinc + gold MV3 wallet with KVNC coin branding, KVP-102 token watchlist & send, KVP-103 stealth meta-address receive (`window.kovanica.getStealthMetaAddress()`), offline inline-SVG QR receive, AMM/RWA/KVP-102 signing previews & refreshed Chrome Web Store / Firefox AMO release kit (`store-assets/`) | [`browser-extension/README.md`](browser-extension/README.md) |
+| `console-desktop` | Tauri + React + TypeScript | Unified `kovanica.online` dark zinc + gold desktop wallet, operator node inspector & cluster readiness console | [`console-desktop/README.md`](console-desktop/README.md) |
+| `node-desktop` | Tauri + Vite (Linux `.deb`) | Unified `kovanica.online` dark zinc + gold external `kovanica-node` supervisor & operator CLI helper (no bundled node binary) | [`node-desktop/README.md`](node-desktop/README.md) |
+| `desktop` | Tauri | Unified `kovanica.online` dark zinc + gold Desktop E2E encrypted Comms shell | [`desktop/README.md`](desktop/README.md) |
+| `android` / `android-wallet` | Kotlin / UniFFI | `kovanica.online` dark zinc + gold 2-tab Wallet/Account app (`Testnet` / `Mainnet`, KVP-102 tokens, dark 24-word seed confirmation, BIP-44 `m/44'/3007'/0'/0'/0'` parity) | [`docs/android-release-build.md`](docs/android-release-build.md) |
 | `android-comms` | Kotlin | Android E2E encrypted Comms client | — |
 | `android-chain` | Kotlin | Shared canonical Chain IDs (`1` Mainnet, `2` Testnet, `3` Devnet) | — |
-| `android-node` | Kotlin / Rust | Android Testnet node (`START_STICKY` + WakeLock/WifiLock keep-alive, embedded `127.0.0.1:8545` RPC, thermal-safe `1..4`-thread PoW miner) | [`android-node/README.md`](android-node/README.md) |
+| `android-node` | Kotlin / Rust | `kovanica.online` dark zinc + gold Android Testnet node (`START_STICKY` + WakeLock/WifiLock keep-alive, embedded `127.0.0.1:8545` RPC, thermal-safe `1..4`-thread PoW miner) | [`android-node/README.md`](android-node/README.md) |
 | `ios` | Swift / UniFFI | iOS light client | — |
 
 ---
 
 ## Key Capabilities
 
-1. **Web Wallet (`wallet-web`, powered by `kovanica-sdk v0.9.0`):**
+1. **Web Wallet (`wallet-web`, powered by `kovanica-sdk v0.10.0`):**
    - Multi-endpoint RPC failover (`createWalletFailoverClient`, `normalizeFailoverRpcUrls`) and header-aware RPC probing (`probeWalletRpcEndpoint`).
    - Live transaction finality tracking (`watchSubmittedTxFinality`, `formatFinalityProgressBadge`) and mempool fee-tier estimation (`fetchWalletFeeTiers` with automatic legacy `-32601` fallback to `estimateFee`).
    - Cryptographic pre-broadcast self-verification for native Transfer, Wasmi Call, and universal auto-decoded transactions (`verifySignedTransferTxBeforeBroadcast`, `verifySignedCallTxBeforeBroadcast`, `verifyAnySignedTxBeforeBroadcast`).
@@ -90,10 +90,10 @@ cd node-desktop && npm ci && npm run lint && npm test && npm run build
 | Repository | Role |
 | :--- | :--- |
 | **[BetterCallDzuks/kovanica-l1](https://github.com/BetterCallDzuks/kovanica-l1)** | Rust Layer-1 node, Hybrid PoW + GHOSTDAG consensus, Wasmi runtime, RPC, Stratum, Faucet, Indexer, Lightnode & CLI |
-| **[BetterCallDzuks/kovanica-sdk](https://github.com/BetterCallDzuks/kovanica-sdk)** | Official TypeScript SDK (`v0.9.0`) — browser & Node.js client, failover transport, Wave A–D facades, offline codecs & air-gap envelopes |
-| **[BetterCallDzuks/kovanica-web](https://github.com/BetterCallDzuks/kovanica-web)** | Public site, BlockDAG Explorer, AMM DEX, RWA Portal, Mining Pool, Faucet, API Reference & Pricing (`kovanica.online`) |
+| **[BetterCallDzuks/kovanica-sdk](https://github.com/BetterCallDzuks/kovanica-sdk)** | Official TypeScript SDK (`v0.10.0`) — browser & Node.js client, KVP-103 stealth addresses, AMM & RWA clients, failover transport, Wave A–D facades, offline codecs & runnable `examples/` |
+| **[BetterCallDzuks/kovanica-web](https://github.com/BetterCallDzuks/kovanica-web)** | Public site, BlockDAG Explorer, AMM DEX, RWA Portal, Stealth Privacy, Mining Pool, Faucet, API Reference & Pricing (`kovanica.online`) |
 | **[BetterCallDzuks/kovanica-apps](https://github.com/BetterCallDzuks/kovanica-apps)** | Client apps — `wallet-web`, `browser-extension` (MV3), `console-desktop`, `node-desktop`, `desktop`, Android & iOS |
-| **[BetterCallDzuks/kovanica-playground](https://github.com/BetterCallDzuks/kovanica-playground)** | Interactive developer RPC console & 4-group `kovanica-sdk v0.9.0` studios |
+| **[BetterCallDzuks/kovanica-playground](https://github.com/BetterCallDzuks/kovanica-playground)** | Interactive developer RPC console, **KVP-103 Stealth Studio** & 4-group `kovanica-sdk v0.10.0` studios |
 | **[BetterCallDzuks/Kovanica-Vault](https://github.com/BetterCallDzuks/Kovanica-Vault)** | Interactive Obsidian Vault presentation (Canvases, Bubble Graph, Pitch Deck & Standards Registry) |
 
 Standing PR workflow & agent rules: [`docs/AGENT-RULES.md`](https://github.com/BetterCallDzuks/kovanica-l1/blob/main/docs/AGENT-RULES.md) and [`docs/PLAN-FULL-SCOPE.md`](https://github.com/BetterCallDzuks/kovanica-l1/blob/main/docs/PLAN-FULL-SCOPE.md).
