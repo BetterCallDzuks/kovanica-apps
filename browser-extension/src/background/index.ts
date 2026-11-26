@@ -1,4 +1,9 @@
-import { CHAIN_IDS, formatKvnc, type KovanicaWsClient } from "kovanica-sdk";
+import {
+  CHAIN_IDS,
+  DEFAULT_CALL_GAS_LIMIT,
+  formatKvnc,
+  type KovanicaWsClient,
+} from "kovanica-sdk";
 import {
   DEFAULT_NETWORKS,
   createRpcClient,
@@ -20,9 +25,12 @@ import {
 } from "../core/session-keys";
 import {
   TokenWatchlistManager,
+  parseTokenUnits,
   readKvp102TokenBalance,
+  signKvp102TokenTransfer,
 } from "../core/tokens";
 import {
+  DEFAULT_CALL_MIN_FEE_ATOMS,
   estimateWaveBFeeFromRpc,
   signDAppTransaction,
 } from "../core/tx-signer";
@@ -145,6 +153,9 @@ async function handlePopupAction(type: string, payload: Record<string, unknown> 
       const activeAccountIndex = vault.getActiveAccountIndex();
       const sessionKeys = await loadSessionKeys();
       const watchedTokens = await tokenWatchlist.list(chainId);
+      const stealthMetaAddress = unlocked
+        ? vault.getStealthMetaAddress()?.metaAddress ?? null
+        : null;
       return {
         hasVault,
         unlocked,
@@ -161,8 +172,17 @@ async function handlePopupAction(type: string, payload: Record<string, unknown> 
         pendingApprovals: providerController.listPendingApprovals(),
         sessionKeys,
         watchedTokens,
+        stealthMetaAddress,
         latestHeadHeight,
       };
+    }
+
+    case "WALLET_GET_STEALTH_META_ADDRESS": {
+      const stealth = vault.getStealthMetaAddress();
+      if (!stealth) {
+        throw new Error("Vault is locked");
+      }
+      return stealth;
     }
 
     case "WALLET_CREATE": {
@@ -312,6 +332,73 @@ async function handlePopupAction(type: string, payload: Record<string, unknown> 
         txHash = await client.sendRawTransaction(signed.rawTxHex);
       }
       return { ...signed, txHash };
+    }
+
+    case "WALLET_SEND_TOKEN": {
+      const chainId = providerController.getChainId();
+      const contract = String(payload.contract ?? "").trim();
+      const to = String(payload.to ?? "").trim();
+
+      const contractCheck = validateRecipientAddress(contract, chainId);
+      if (!contractCheck.valid) {
+        throw new Error(contractCheck.error ?? "Invalid KVP-102 token contract address");
+      }
+      const recipientCheck = validateRecipientAddress(to, chainId);
+      if (!recipientCheck.valid) {
+        throw new Error(recipientCheck.error ?? "Invalid PRO-21 recipient address");
+      }
+
+      const amountUnits =
+        payload.amountUnits !== undefined && payload.amountUnits !== null && String(payload.amountUnits).trim() !== ""
+          ? BigInt(String(payload.amountUnits))
+          : parseTokenUnits(String(payload.amount ?? ""), Number(payload.decimals ?? 0));
+
+      if (amountUnits <= 0n) {
+        throw new Error("Token transfer amount must be greater than zero");
+      }
+
+      const network = getNetworkByChainId(chainId);
+      const client = createRpcClient(network);
+      const accounts = vault.getAccounts(chainId);
+      const active = accounts[vault.getActiveAccountIndex()];
+      if (!active) throw new Error("No active account");
+
+      const nonce = await client
+        .getNonce(active.address)
+        .catch(() => BigInt(String(payload.nonce ?? 0)));
+      const gasLimit =
+        payload.gasLimit !== undefined ? BigInt(String(payload.gasLimit)) : DEFAULT_CALL_GAS_LIMIT;
+      const feeEst = await estimateWaveBFeeFromRpc(client, {
+        txBytes: 280,
+        gasUsed: gasLimit,
+        fixedMinFee: DEFAULT_CALL_MIN_FEE_ATOMS,
+      });
+
+      const signed = await vault.withActiveKeypair(({ secretKey, publicKey }) =>
+        signKvp102TokenTransfer({
+          contractAddress: contract,
+          recipientAddress: to,
+          amountUnits,
+          nonce,
+          fee: BigInt(feeEst.totalFeeAtoms),
+          gasLimit,
+          chainId,
+          privateKey: secretKey,
+          publicKey,
+        }),
+      );
+
+      let txHash: string | undefined;
+      if (payload.broadcast !== false) {
+        txHash = await client.sendRawTransaction(signed.rawTxHex);
+      }
+      return {
+        rawTxHex: signed.rawTxHex,
+        signingHashHex: signed.signingHashHex,
+        signatureHex: signed.signatureHex,
+        amountUnits: amountUnits.toString(),
+        txHash,
+      };
     }
 
     case "WALLET_REGISTER_SESSION_KEY": {

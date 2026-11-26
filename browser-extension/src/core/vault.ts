@@ -9,7 +9,9 @@ import {
   bip39Seed,
   bytesToHex,
   deriveBip44,
+  deriveStealthKeypairFromMnemonic,
   encodeAddress,
+  formatStealthMetaAddress,
   getPublicKey,
   hexToBytes,
   masterFromSeed,
@@ -281,6 +283,27 @@ export function deriveKovanicaAccount(
   }
 }
 
+export interface WalletStealthMetaAddress {
+  metaAddress: string;
+  scanPubkeyHex: string;
+  spendPubkeyHex: string;
+}
+
+/**
+ * Deterministically derives the public KVP-103 dual-key stealth meta-address
+ * (`st:kvnc:<scanPubHex>:<spendPubHex>`) from a BIP-39 mnemonic.
+ * Never returns private scan/spend keys.
+ */
+export function deriveKovanicaStealthMetaAddress(mnemonic: string): WalletStealthMetaAddress {
+  const kp = deriveStealthKeypairFromMnemonic(mnemonic);
+  const metaAddress = formatStealthMetaAddress(kp.scanPubkeyHex, kp.spendPubkeyHex);
+  return {
+    metaAddress,
+    scanPubkeyHex: kp.scanPubkeyHex,
+    spendPubkeyHex: kp.spendPubkeyHex,
+  };
+}
+
 export class VaultManager {
   private readonly storage: VaultStorageAdapter;
   private decrypted: DecryptedVaultPayload | null = null;
@@ -473,6 +496,18 @@ export class VaultManager {
     await this.storage.set(VAULT_STORAGE_KEY, updated);
     this.cachedRecord = updated;
     return this.getAccounts(CHAIN_IDS.MAINNET)[nextIndex]!;
+  }
+
+  /**
+   * Returns the deterministic KVP-103 stealth meta-address (`st:kvnc:...`)
+   * for the unlocked vault, or `null` while locked.
+   */
+  getStealthMetaAddress(): WalletStealthMetaAddress | null {
+    if (!this.decrypted) {
+      return null;
+    }
+    this.touchActivity();
+    return deriveKovanicaStealthMetaAddress(this.decrypted.mnemonic);
   }
 
   /**

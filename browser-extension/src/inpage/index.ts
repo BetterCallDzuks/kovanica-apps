@@ -21,6 +21,7 @@ export interface KovanicaWindowProvider {
   disconnect(): Promise<{ disconnected: true }>;
   getAccounts(): Promise<string[]>;
   getChainId(): Promise<number>;
+  getStealthMetaAddress(): Promise<string | null>;
   switchChain(chainId: number): Promise<{ chainId: number }>;
   signTransaction(tx: DAppTransactionParams): Promise<{
     rawTxHex: string;
@@ -135,6 +136,7 @@ export function createInpageProvider(targetWindow: Window = window): KovanicaWin
     disconnect: () => sendRequest("disconnect"),
     getAccounts: () => sendRequest("getAccounts"),
     getChainId: () => sendRequest("getChainId"),
+    getStealthMetaAddress: () => sendRequest("kovanica_getStealthMetaAddress"),
     switchChain: (chainId) => sendRequest("switchChain", { chainId }),
     signTransaction: (tx) => sendRequest("signTransaction", tx),
     signBatchTransaction: (tx) => sendRequest("signBatchTransaction", tx),

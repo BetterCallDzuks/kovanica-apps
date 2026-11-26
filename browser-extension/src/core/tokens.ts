@@ -1,12 +1,18 @@
 import {
+  DEFAULT_CALL_GAS_LIMIT,
+  buildTokenTransferCall,
   bytesToHex,
   decodeTokenState,
   deriveStorageSlotHex,
   hexToBytes,
+  signCallContractTransaction,
+  type CallTxKind,
   type KovanicaClient,
 } from "kovanica-sdk";
 import { validateRecipientAddress } from "./networks";
 import type { VaultStorageAdapter } from "./vault";
+
+export const DEFAULT_TOKEN_TRANSFER_FEE_ATOMS = 1_000_000n;
 
 export const TOKEN_WATCHLIST_STORAGE_KEY = "kovanica_token_watchlist_v1";
 export const KVP102_STATE_KEY = "kvnc/v1/state";
@@ -58,6 +64,117 @@ export function formatTokenUnits(amount: bigint, decimals: number): string {
   }
   const fracStr = frac.toString().padStart(safeDecimals, "0").replace(/0+$/, "");
   return `${whole.toString()}.${fracStr}`;
+}
+
+/**
+ * Parses a human-readable decimal token amount string into exact BigInt base
+ * units (zero floating-point loss). Rejects negative values, malformed strings,
+ * or fractional precision exceeding `decimals`.
+ */
+export function parseTokenUnits(input: string, decimals: number): bigint {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    throw new Error("Token amount is required");
+  }
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) {
+    throw new Error(`Invalid token decimals: ${decimals}`);
+  }
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(trimmed);
+  if (!match) {
+    throw new Error(`Invalid token amount: "${input}"`);
+  }
+  const wholePart = match[1]!;
+  const fracPart = match[2] ?? "";
+  if (fracPart.length > decimals) {
+    throw new Error(
+      `Amount "${input}" exceeds token precision (${decimals} decimal place${decimals === 1 ? "" : "s"})`,
+    );
+  }
+  const scale = 10n ** BigInt(decimals);
+  const whole = BigInt(wholePart) * scale;
+  const frac = fracPart.length > 0 ? BigInt(fracPart.padEnd(decimals, "0")) : 0n;
+  return whole + frac;
+}
+
+export interface SignKvp102TokenTransferParams {
+  contractAddress: string;
+  recipientAddress: string;
+  amountUnits: bigint;
+  nonce: bigint;
+  fee?: bigint;
+  gasLimit?: bigint;
+  chainId: number;
+  privateKey: Uint8Array;
+  publicKey: Uint8Array;
+}
+
+export interface SignedKvp102TokenTransfer {
+  rawTxHex: string;
+  signingHashHex: string;
+  signatureHex: string;
+  call: CallTxKind;
+}
+
+/**
+ * Builds and signs a KVP-102 `token_transfer` contract call transaction via
+ * `kovanica-sdk`, enforcing strict PRO-21 validation for both contract and
+ * recipient addresses on the active chain.
+ */
+export function signKvp102TokenTransfer(
+  params: SignKvp102TokenTransferParams,
+): SignedKvp102TokenTransfer {
+  const {
+    contractAddress,
+    recipientAddress,
+    amountUnits,
+    nonce,
+    fee = DEFAULT_TOKEN_TRANSFER_FEE_ATOMS,
+    gasLimit = DEFAULT_CALL_GAS_LIMIT,
+    chainId,
+    privateKey,
+    publicKey,
+  } = params;
+
+  const contractCheck = validateRecipientAddress(contractAddress, chainId);
+  if (!contractCheck.valid || !contractCheck.payloadBytes) {
+    throw new Error(contractCheck.error ?? "Invalid KVP-102 token contract address");
+  }
+
+  const recipientCheck = validateRecipientAddress(recipientAddress, chainId);
+  if (!recipientCheck.valid || !recipientCheck.payloadBytes) {
+    throw new Error(recipientCheck.error ?? "Invalid PRO-21 recipient address");
+  }
+
+  if (amountUnits <= 0n) {
+    throw new Error("Token transfer amount must be greater than zero");
+  }
+
+  const call = buildTokenTransferCall(
+    contractCheck.payloadBytes,
+    recipientCheck.payloadBytes,
+    amountUnits,
+    gasLimit,
+  );
+
+  const signed = signCallContractTransaction({
+    sender: publicKey,
+    secretKey: privateKey,
+    nonce,
+    fee,
+    chainId,
+    call,
+  });
+
+  return {
+    rawTxHex: signed.rawTxHex.startsWith("0x") ? signed.rawTxHex : `0x${signed.rawTxHex}`,
+    signingHashHex: signed.sighashHex.startsWith("0x")
+      ? signed.sighashHex
+      : `0x${signed.sighashHex}`,
+    signatureHex: signed.signatureHex.startsWith("0x")
+      ? signed.signatureHex
+      : `0x${signed.signatureHex}`,
+    call,
+  };
 }
 
 /**
