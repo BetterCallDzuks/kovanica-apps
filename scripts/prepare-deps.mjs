@@ -117,7 +117,7 @@ function provisionNodePackage(repoUrl, pinnedSha, targetDir) {
   console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
-/** Provision kovanica-l1 (Rust workspace): use git archive to extract packages/ at pinned SHA. */
+/** Provision kovanica-l1 (Rust workspace): clone directly to targetDir. */
 function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
   if (existsSync(targetDir)) {
     let head = "";
@@ -131,39 +131,15 @@ function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
     } catch {}
   }
 
-  console.log(`[prepare-deps] Cloning kovanica-l1 at ${pinnedSha}...`);
-  const cacheDir = join(tmpdir(), `kovanica-deps-l1-${pinnedSha.slice(0, 12)}`);
-  if (!existsSync(join(cacheDir, "Cargo.toml"))) {
-    rmSync(cacheDir, { recursive: true, force: true });
-    mkdirSync(cacheDir, { recursive: true });
-    execSync(`git clone "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
-    execSync(`git -C "${cacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
-  }
-  const verifiedHead = execSync(`git -C "${cacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+  console.log(`[prepare-deps] Cloning kovanica-l1 at ${pinnedSha} directly to ${targetDir}...`);
+  rmSync(targetDir, { recursive: true, force: true });
+  mkdirSync(targetDir, { recursive: true });
+  execSync(`git clone "${repoUrl}" "${targetDir}"`, { stdio: "inherit" });
+  execSync(`git -C "${targetDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
+  const verifiedHead = execSync(`git -C "${targetDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
   if (verifiedHead !== pinnedSha) {
     fail(`SHA verification failed for kovanica-l1: expected ${pinnedSha}, got ${verifiedHead}`);
   }
-
-  // Use git archive to extract the packages/ directory at the pinned SHA.
-  // This is more reliable than cpSync after checkout for monorepo subdirectories.
-  rmSync(targetDir, { recursive: true, force: true });
-  mkdirSync(targetDir, { recursive: true });
-
-  console.log(`[prepare-deps] Extracting packages/ from kovanica-l1 at ${pinnedSha}...`);
-  execSync(
-    `git -C "${cacheDir}" archive ${pinnedSha} -- packages/ | tar -x -C "${targetDir}"`,
-    { stdio: "inherit" },
-  );
-
-  // Also copy top-level Cargo.toml etc. that might be needed
-  for (const entry of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "README.md", "LICENSE"]) {
-    const src = join(cacheDir, entry);
-    if (existsSync(src)) {
-      cpSync(src, join(targetDir, entry), { recursive: true, overwrite: true });
-    }
-  }
-
-  writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
   console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
