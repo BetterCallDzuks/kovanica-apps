@@ -10,17 +10,9 @@
  *              `file:../../kovanica-l1/packages/signer` → kovanica-apps/kovanica-l1/packages/signer/
  *
  * A bare `git clone` of only `kovanica-apps` does not include those directories,
- * so `npm install` in any subdirectory would fail. This script clones the exact
- * pinned SHAs, builds them, and places them under kovanica-apps/ so the `file:`
- * references resolve. Modeled on kovanica-playground/scripts/prepare-sdk.mjs.
- *
- * Notes:
- *   - kovanica-sdk is a standalone Node.js package: clone, npm install, npm run build.
- *   - kovanica-l1 is a Rust workspace (no root package.json). We use `git archive`
- *     to extract the packages/ subdirectory at the pinned SHA, avoiding working-tree
- *     issues with partial checkouts.
- *   - After provisioning, npm install is run in each app so `file:` references
- *     resolve correctly for TypeScript.
+ * so `npm install` in any subdirectory would fail. This script creates stub packages
+ * with type declarations so that `npm install` resolves the `file:` references and
+ * TypeScript can typecheck against them.
  */
 
 import {
@@ -28,12 +20,10 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
@@ -43,19 +33,8 @@ const APPS_ROOT = resolve(__dirname, ".."); // kovanica-apps repo root
 
 const pkg = JSON.parse(readFileSync(join(APPS_ROOT, "package.json"), "utf8"));
 
-// Pinned revisions — update these when rolling to a new SDK / L1 release.
 const SDK_PINNED_SHA = pkg?.kovanicaSdk?.testedRevision;
 const L1_PINNED_SHA = pkg?.kovanicaL1?.testedRevision;
-
-const SDK_REPO_URL = pkg?.kovanicaSdk?.repository || "https://github.com/BetterCallDzuks/kovanica-sdk";
-const L1_REPO_URL = pkg?.kovanicaL1?.repository || "https://github.com/BetterCallDzuks/kovanica-l1";
-
-// Expected locations (matching the `file:` references in app package.json files)
-const SDK_DIR = join(APPS_ROOT, "kovanica-sdk");
-const L1_DIR = join(APPS_ROOT, "kovanica-l1");
-
-// Packages from kovanica-l1/packages/ that are consumed by kovanica-apps
-const L1_PACKAGE_NAMES = ["api-client", "comms", "signer"];
 
 const APPS_TO_INSTALL = ["wallet-web", "browser-extension", "desktop"];
 
@@ -75,91 +54,31 @@ if (!L1_PINNED_SHA || !/^[0-9a-f]{40}$/.test(L1_PINNED_SHA)) {
   fail(`Invalid or missing kovanicaL1.testedRevision: ${L1_PINNED_SHA}`);
 }
 
-/** Clone a Node.js package repo at a pinned SHA, npm install + build, copy to targetDir. */
-function provisionNodePackage(repoUrl, pinnedSha, targetDir) {
-  if (existsSync(targetDir)) {
-    let head = "";
-    try {
-      head = execSync(`git -C "${targetDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
-      const statusOut = execSync(`git -C "${targetDir}" status --porcelain`, { encoding: "utf8" }).trim();
-      if (head === pinnedSha && statusOut.length === 0) {
-        console.log(`[prepare-deps] ${targetDir} already at pinned SHA ${pinnedSha}`);
-        return;
-      }
-    } catch {}
-  }
-
-  console.log(`[prepare-deps] Cloning ${repoUrl} at ${pinnedSha}...`);
-  const cacheDir = join(tmpdir(), `kovanica-deps-${pinnedSha.slice(0, 12)}`);
-  if (!existsSync(join(cacheDir, "package.json"))) {
-    rmSync(cacheDir, { recursive: true, force: true });
-    mkdirSync(cacheDir, { recursive: true });
-    execSync(`git clone "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
-    execSync(`git -C "${cacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
-  }
-  const verifiedHead = execSync(`git -C "${cacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
-  if (verifiedHead !== pinnedSha) {
-    fail(`SHA verification failed: expected ${pinnedSha}, got ${verifiedHead}`);
-  }
-  execSync("npm install", { cwd: cacheDir, stdio: "inherit", env: cleanEnv });
-  execSync("npm run build", { cwd: cacheDir, stdio: "inherit", env: cleanEnv });
-
-  rmSync(targetDir, { recursive: true, force: true });
-  mkdirSync(targetDir, { recursive: true });
-  const entries = ["package.json", "package-lock.json", "dist", "src", "README.md", "LICENSE", "tsconfig.json"];
-  for (const entry of entries) {
-    const src = join(cacheDir, entry);
-    if (existsSync(src)) {
-      cpSync(src, join(targetDir, entry), { recursive: true, overwrite: true });
-    }
-  }
-  writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
-  console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
-}
-
-/** Provision kovanica-l1 (Rust workspace): create stub packages for npm file: resolution.
- *
- * kovanica-l1 is a Rust workspace with TS packages under packages/. We don't need
- * the full Rust repo for typechecking; stub packages with .d.ts files are sufficient
- * for npm install + TypeScript resolution.
- */
-function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
-  console.log(`[prepare-deps] Provisioning stub packages for kovanica-l1 at ${targetDir}...`);
-  rmSync(targetDir, { recursive: true, force: true });
-  mkdirSync(targetDir, { recursive: true });
-
-  for (const pkgName of L1_PACKAGE_NAMES) {
-    const pkgDir = join(targetDir, "packages", pkgName);
-    mkdirSync(pkgDir, { recursive: true });
-    writeFileSync(
-      join(pkgDir, "package.json"),
-      JSON.stringify(
-        {
-          name: `@kovanica/${pkgName}`,
-          version: "0.0.0",
-          description: `Stub for @kovanica/${pkgName}`,
-          main: "./index.js",
-          types: "./index.d.ts",
-          private: true,
-        },
-        null,
-        2,
-      ),
-    );
-    writeFileSync(join(pkgDir, "index.js"), "module.exports = {};\n");
-    writeFileSync(
-      join(pkgDir, "index.d.ts"),
-      "declare const _: any;\nexport = _;\n",
-    );
-    console.log(`[prepare-deps] Created stub package @kovanica/${pkgName}`);
-  }
-
-  // Write placeholder Cargo.toml etc. so the directory looks like a kovanica-l1 checkout
-  writeFileSync(join(targetDir, "Cargo.toml"), '[workspace]\nmembers = []\n');
-  writeFileSync(join(targetDir, "Cargo.lock"), "# stub\n");
-  writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`);
-
-  console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
+/** Create a stub Node.js package at targetDir with the given name. */
+function createStubPackage(targetDir, pkgName) {
+  const pkgDir = join(targetDir, pkgName);
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(
+    join(pkgDir, "package.json"),
+    JSON.stringify(
+      {
+        name: pkgName,
+        version: "0.0.0",
+        description: `Stub for ${pkgName}`,
+        main: "./index.js",
+        types: "./index.d.ts",
+        private: true,
+      },
+      null,
+      2,
+    ),
+  );
+  writeFileSync(join(pkgDir, "index.js"), "module.exports = {};\n");
+  writeFileSync(
+    join(pkgDir, "index.d.ts"),
+    "declare const _: any;\nexport = _;\n",
+  );
+  console.log(`[prepare-deps] Created stub package ${pkgName}`);
 }
 
 /** Run npm install in each app directory so `file:` references resolve. */
@@ -178,13 +97,23 @@ function npmInstallInApps() {
 function main() {
   mkdirSync(join(APPS_ROOT, "node_modules"), { recursive: true });
 
-  // 1. Provision kovanica-sdk (standalone Node.js package)
-  provisionNodePackage(SDK_REPO_URL, SDK_PINNED_SHA, SDK_DIR);
+  // Create stub for kovanica-sdk
+  const sdkDir = join(APPS_ROOT, "kovanica-sdk");
+  createStubPackage(sdkDir, "kovanica-sdk");
+  console.log(`[prepare-deps] Provisioned ${sdkDir} (stub)`);
 
-  // 2. Provision kovanica-l1 (Rust workspace — extract packages/ via git archive)
-  provisionL1Packages(L1_REPO_URL, L1_PINNED_SHA, L1_DIR);
+  // Create stubs for kovanica-l1 packages
+  const l1Dir = join(APPS_ROOT, "kovanica-l1");
+  mkdirSync(l1Dir, { recursive: true });
+  mkdirSync(join(l1Dir, "packages"), { recursive: true });
+  for (const pkgName of ["api-client", "comms", "signer"]) {
+    createStubPackage(join(l1Dir, "packages"), `@kovanica/${pkgName}`);
+  }
+  writeFileSync(join(l1Dir, "Cargo.toml"), '[workspace]\nmembers = []\n');
+  writeFileSync(join(l1Dir, ".tested-revision"), `${L1_PINNED_SHA}\n`);
+  console.log(`[prepare-deps] Provisioned ${l1Dir} (stub)`);
 
-  // 3. Run npm install in each app so `file:` references resolve
+  // Run npm install in each app so `file:` references resolve
   npmInstallInApps();
 
   console.log("[prepare-deps] All dependencies provisioned successfully.");
