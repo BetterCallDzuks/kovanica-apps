@@ -23,17 +23,17 @@ jobs:
       - name: Install & typecheck wallet-web
         working-directory: wallet-web
         run: |
-          npm ci
+          npm install
           npm run typecheck
 
       - name: Install & typecheck browser-extension
         working-directory: browser-extension
         run: |
-          npm ci
+          npm install
           npm run typecheck
 
       - name: Install & typecheck desktop
         working-directory: desktop
         run: |
-          npm ci
+          npm install
           npm run typecheck
