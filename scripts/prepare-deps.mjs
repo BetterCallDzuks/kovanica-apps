@@ -88,7 +88,7 @@ function provision(repoUrl, pinnedSha, targetDir, siblingDir, installDir) {
         existsSync(join(targetDir, "src")); // TS-only packages may not have dist/
       if (!distExists) {
         console.log(`[prepare-deps] Building sibling at ${siblingHead}...`);
-        execSync("npm ci", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
+        execSync("npm install", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
         execSync("npm run build", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
       }
       if (!(existsSync(installDir) && lstatSync(installDir).isSymbolicLink())) {
@@ -118,7 +118,7 @@ function provision(repoUrl, pinnedSha, targetDir, siblingDir, installDir) {
     fail(`SHA verification failed for ${targetDir}: expected ${pinnedSha}, got ${verifiedHead}`);
   }
 
-  execSync("npm ci", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
+  execSync("npm install", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
   execSync("npm run build", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
 
   if (existsSync(installDir) && lstatSync(installDir).isSymbolicLink()) unlinkSync(installDir);
