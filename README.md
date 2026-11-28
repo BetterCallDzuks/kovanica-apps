@@ -22,7 +22,34 @@ Cross-platform client applications for the **Kovanica (KVNC)** Layer-1 blockchai
 | `android-comms` | Kotlin | Android E2E encrypted Comms client | — |
 | `android-chain` | Kotlin | Shared canonical Chain IDs (`1` Mainnet, `2` Testnet, `3` Devnet) | — |
 | `android-node` | Kotlin / Rust | `kovanica.online` dark zinc + gold Android Testnet node (`START_STICKY` + WakeLock/WifiLock keep-alive, embedded `127.0.0.1:8545` RPC, thermal-safe `1..4`-thread PoW miner) | [`android-node/README.md`](android-node/README.md) |
-| `ios` | Swift / UniFFI | iOS light client | — |
+|| `ios` | Swift / UniFFI | iOS light client | — |
+
+---
+
+## Standalone Clone & Dependency Provisioning
+
+`kovanica-apps` consumes external TypeScript dependencies (`kovanica-sdk` and `kovanica-l1` packages) via `file:` references that resolve to sibling directories of this repo. A bare `git clone` of only `kovanica-apps` does not include those siblings, so `npm install` in any subdirectory would fail.
+
+### Provision dependencies (run once before first install)
+
+```bash
+cd kovanica-apps
+npm run prepare-deps
+```
+
+This clones `kovanica-sdk` and `kovanica-l1` at pinned SHAs (see root `package.json` `kovanicaSdk.testedRevision` and `kovanicaL1.testedRevision`) into sibling directories, builds them, and makes them discoverable by the `file:` references in each app's `package.json`.
+
+### Install & typecheck each app
+
+```bash
+cd kovanica-apps/wallet-web && npm ci && npm run typecheck
+cd kovanica-apps/browser-extension && npm ci && npm run typecheck
+cd kovanica-apps/desktop && npm ci && npm run typecheck
+```
+
+### CI
+
+The `.github/workflows/standalone-clone.yml` workflow verifies that a fresh clone of `kovanica-apps` (without sibling repos) can provision dependencies, install, and typecheck all TypeScript apps.
 
 ---
 

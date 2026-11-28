@@ -31,7 +31,7 @@ pub struct TransferRow {
     pub counterparty: String,
     /// Amount in atoms.
     pub amount_atoms: String,
-    /// Amount in KUNA.
+    /// Amount in KVNC.
     pub amount_display: String,
     /// Committed height. Empty while the transfer is still pooled.
     pub height: Option<String>,
@@ -57,7 +57,7 @@ pub struct HistoryPage {
 pub struct ReportedBalance {
     /// Atoms, decimal.
     pub atoms: String,
-    /// KUNA text from the integer formatter.
+    /// KVNC text from the integer formatter.
     pub display: String,
     /// Visible label. The figure is not proven.
     pub label: String,
