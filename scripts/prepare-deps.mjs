@@ -28,6 +28,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -148,19 +149,10 @@ function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
   rmSync(targetDir, { recursive: true, force: true });
   mkdirSync(targetDir, { recursive: true });
 
-  // Copy top-level files that might be needed
-  for (const entry of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "README.md", "LICENSE"]) {
-    const src = join(cacheDir, entry);
-    if (existsSync(src)) {
-      cpSync(src, join(targetDir, entry), { recursive: true, overwrite: true });
-    }
-  }
-
-  // Copy only the packages/ subdirectory with individual package.json files
-  const srcPackagesDir = join(cacheDir, "packages");
-  const dstPackagesDir = join(targetDir, "packages");
-  if (existsSync(srcPackagesDir)) {
-    cpSync(srcPackagesDir, dstPackagesDir, { recursive: true });
+  // Copy everything from the cache - simpler and more reliable than selective copy
+  const cacheEntries = existsSync(cacheDir) ? readdirSync(cacheDir) : [];
+  for (const entry of cacheEntries) {
+    cpSync(join(cacheDir, entry), join(targetDir, entry), { recursive: true, overwrite: true });
   }
 
   writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
