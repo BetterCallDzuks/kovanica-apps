@@ -1,0 +1,19 @@
+{
+  "name": "kovanica-apps",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cross-platform client applications for the Kovanica (KVNC) Layer-1 blockchain",
+  "scripts": {
+    "prepare-deps": "node scripts/prepare-deps.mjs",
+    "typecheck": "npm run --prefix wallet-web typecheck && npm run --prefix browser-extension typecheck && npm run --prefix desktop typecheck",
+    "test": "npm run --prefix wallet-web test && npm run --prefix browser-extension test"
+  },
+  "kovanicaSdk": {
+    "repository": "https://github.com/BetterCallDzuks/kovanica-sdk",
+    "testedRevision": "837b1d9c80a1e370070602335fa99823b08b22af"
+  },
+  "kovanicaL1": {
+    "repository": "https://github.com/BetterCallDzuks/kovanica-l1",
+    "testedRevision": "2bc79bdcca59c30605220fb78b1e98e989de2cbc"
+  }
+}

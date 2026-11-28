@@ -222,6 +222,7 @@ class HistoryActivity : Activity() {
 
     private fun coinFor(entry: HistoryEntry): View {
         val symbol = entry.symbol
+        // "KUNA" is kept as a legacy alias; all user-visible text uses "KVNC"
         return if (symbol.isNullOrBlank() || symbol.equals("KVNC", ignoreCase = true) || symbol.equals("KUNA", ignoreCase = true)) {
             WalletUi.kunaCoin(this, 28)
         } else {

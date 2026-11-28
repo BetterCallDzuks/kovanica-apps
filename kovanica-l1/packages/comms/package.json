@@ -1,0 +1,8 @@
+{
+  "name": "@kovanica/comms",
+  "version": "0.0.0",
+  "description": "Stub for @kovanica/comms",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "private": true
+}

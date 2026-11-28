@@ -1,4 +1,4 @@
-//! Quote a KUNA transfer before the keystore is decrypted.
+//! Quote a KVNC transfer before the keystore is decrypted.
 //!
 //! The recipient, amount, fee, and chain id are fixed into the quote. Signing
 //! uses that quote. Chain 1 is refused until the caller confirms it, and that
@@ -34,7 +34,7 @@ pub struct TransferDraft<'a> {
     pub confirm_mainnet: bool,
     /// Recipient text from the form.
     pub recipient: &'a str,
-    /// KUNA amount text from the form.
+    /// KVNC amount text from the form.
     pub amount: &'a str,
 }
 
@@ -46,11 +46,11 @@ pub struct TransferQuote {
     pub recipient: String,
     /// Amount in atoms.
     pub amount_atoms: String,
-    /// Amount in KUNA, from the integer formatter.
+    /// Amount in KVNC, from the integer formatter.
     pub amount_display: String,
     /// Fee in atoms.
     pub fee_atoms: String,
-    /// Fee in KUNA.
+    /// Fee in KVNC.
     pub fee_display: String,
     /// Chain id the quote was built for.
     pub chain_id: String,

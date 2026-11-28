@@ -1,0 +1,36 @@
+name: Standalone Clone & Typecheck
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  standalone-clone-typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Simulate a standalone clone: kovanica-apps without sibling kovanica-sdk / kovanica-l1
+      - name: Run prepare-deps (provisions pinned SDK + L1, runs npm install in apps)
+        run: |
+          node --version
+          npm --version
+          npm run prepare-deps
+
+      - name: Typecheck wallet-web
+        working-directory: wallet-web
+        run: |
+          npm run typecheck
+
+      - name: Typecheck browser-extension
+        working-directory: browser-extension
+        run: |
+          npm run typecheck
+
+      - name: Typecheck desktop
+        working-directory: desktop
+        run: |
+          npm run typecheck
