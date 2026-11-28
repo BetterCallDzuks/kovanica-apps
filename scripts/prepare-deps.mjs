@@ -94,7 +94,7 @@ function provisionNodePackage(repoUrl, pinnedSha, targetDir) {
   if (!existsSync(join(cacheDir, "package.json"))) {
     rmSync(cacheDir, { recursive: true, force: true });
     mkdirSync(cacheDir, { recursive: true });
-    execSync(`git clone --no-checkout "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
+    execSync(`git clone "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
     execSync(`git -C "${cacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
   }
   const verifiedHead = execSync(`git -C "${cacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
@@ -137,7 +137,7 @@ function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
   if (!existsSync(join(cacheDir, "Cargo.toml"))) {
     rmSync(cacheDir, { recursive: true, force: true });
     mkdirSync(cacheDir, { recursive: true });
-    execSync(`git clone --no-checkout "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
+    execSync(`git clone "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
     execSync(`git -C "${cacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
   }
   const verifiedHead = execSync(`git -C "${cacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
