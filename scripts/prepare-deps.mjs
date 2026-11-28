@@ -3,22 +3,22 @@
  * prepare-deps.mjs — Materialize pinned external dependencies for kovanica-apps.
  *
  * kovanica-apps consumes `kovanica-sdk` and `kovanica-l1` packages via `file:`
- * references, which only work in a monorepo checkout. This script clones the
- * exact pinned SHAs, builds them, and places them under node_modules/ so a
- * standalone `git clone` + `npm ci` works without a sibling checkout.
+ * references that resolve to directories inside this repo:
+ *   - wallet-web/browser-extension: `file:../../kovanica-sdk` → kovanica-apps/kovanica-sdk/
+ *   - desktop: `file:../../kovanica-l1/packages/api-client` → kovanica-apps/kovanica-l1/packages/api-client/
  *
- * Modeled on kovanica-playground/scripts/prepare-sdk.mjs.
+ * A bare `git clone` of only `kovanica-apps` does not include those directories,
+ * so `npm install` in any subdirectory would fail. This script clones the exact
+ * pinned SHAs, builds them, and places them under kovanica-apps/ so the `file:`
+ * references resolve. Modeled on kovanica-playground/scripts/prepare-sdk.mjs.
  */
 
 import {
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -28,7 +28,7 @@ import { execSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const APPS_ROOT = resolve(__dirname, "..");
+const APPS_ROOT = resolve(__dirname, ".."); // kovanica-apps repo root
 
 const pkg = JSON.parse(readFileSync(join(APPS_ROOT, "package.json"), "utf8"));
 
@@ -39,10 +39,9 @@ const L1_PINNED_SHA = pkg?.kovanicaL1?.testedRevision;
 const SDK_REPO_URL = pkg?.kovanicaSdk?.repository || "https://github.com/BetterCallDzuks/kovanica-sdk";
 const L1_REPO_URL = pkg?.kovanicaL1?.repository || "https://github.com/BetterCallDzuks/kovanica-l1";
 
-const SIBLING_SDK_DIR = resolve(APPS_ROOT, "../kovanica-sdk");
-const SIBLING_L1_DIR = resolve(APPS_ROOT, "../kovanica-l1");
-const INSTALLED_SDK_DIR = join(APPS_ROOT, "node_modules", "kovanica-sdk");
-const INSTALLED_L1_DIR = join(APPS_ROOT, "node_modules", "kovanica-l1");
+// Expected locations (matching the `file:` references in app package.json files)
+const SDK_DIR = join(APPS_ROOT, "kovanica-sdk");
+const L1_DIR = join(APPS_ROOT, "kovanica-l1");
 
 const cleanEnv = { ...process.env };
 delete cleanEnv.npm_config_allow_scripts;
@@ -60,92 +59,59 @@ if (!L1_PINNED_SHA || !/^[0-9a-f]{40}$/.test(L1_PINNED_SHA)) {
   fail(`Invalid or missing kovanicaL1.testedRevision: ${L1_PINNED_SHA}`);
 }
 
-/** Clone a repo at a pinned SHA into a target dir, building if it has a build script. */
-function provision(repoUrl, pinnedSha, targetDir, siblingDir, installDir) {
-  // 1. If sibling exists and is at (or includes) the pinned SHA, use it via symlink.
-  if (existsSync(siblingDir)) {
-    let siblingHead = "";
-    let siblingClean = false;
+/** Clone a repo at a pinned SHA into targetDir, build it. */
+function provisionRepo(repoUrl, pinnedSha, targetDir) {
+  if (existsSync(targetDir)) {
+    let head = "";
     try {
-      siblingHead = execSync(`git -C "${siblingDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
-      const statusOut = execSync(`git -C "${siblingDir}" status --porcelain`, { encoding: "utf8" }).trim();
-      siblingClean = statusOut.length === 0;
+      head = execSync(`git -C "${targetDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+      const statusOut = execSync(`git -C "${targetDir}" status --porcelain`, { encoding: "utf8" }).trim();
+      if (head === pinnedSha && statusOut.length === 0) {
+        console.log(`[prepare-deps] ${targetDir} already at pinned SHA ${pinnedSha}`);
+        return;
+      }
     } catch {}
-
-    let siblingIncludesPinned = siblingHead === pinnedSha;
-    if (!siblingIncludesPinned && siblingHead) {
-      try {
-        execSync(`git -C "${siblingDir}" merge-base --is-ancestor ${pinnedSha} HEAD`, { stdio: "ignore" });
-        siblingIncludesPinned = true;
-      } catch {
-        siblingIncludesPinned = false;
-      }
-    }
-
-    if (siblingIncludesPinned) {
-      const distExists = existsSync(join(targetDir, "dist", "index.js")) ||
-        existsSync(join(targetDir, "dist", "index.mjs")) ||
-        existsSync(join(targetDir, "src")); // TS-only packages may not have dist/
-      if (!distExists) {
-        console.log(`[prepare-deps] Building sibling at ${siblingHead}...`);
-        execSync("npm install", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
-        execSync("npm run build", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
-      }
-      if (!(existsSync(installDir) && lstatSync(installDir).isSymbolicLink())) {
-        if (existsSync(installDir)) rmSync(installDir, { recursive: true, force: true });
-        symlinkSync(siblingDir, installDir, "dir");
-      }
-      console.log(`[prepare-deps] Verified ${targetDir} at pinned SHA ${pinnedSha}`);
-      return;
-    }
   }
 
-  // 2. Otherwise, materialize the exact pinned SHA in an isolated cache.
-  console.log(`[prepare-deps] Materializing ${targetDir} at pinned SHA ${pinnedSha}...`);
-  const buildCacheDir = join(tmpdir(), `kovanica-deps-${targetDir.replace(/\//g, "-")}-${pinnedSha}`);
-
-  if (!existsSync(join(buildCacheDir, "package.json"))) {
-    rmSync(buildCacheDir, { recursive: true, force: true });
-    mkdirSync(buildCacheDir, { recursive: true });
-    const siblingGit = join(siblingDir, ".git");
-    const refArg = existsSync(siblingGit) ? `--reference-if-able "${siblingGit}" ` : "";
-    execSync(`git clone --no-checkout ${refArg}"${repoUrl}" "${buildCacheDir}"`, { stdio: "inherit" });
-    execSync(`git -C "${buildCacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
+  console.log(`[prepare-deps] Cloning ${repoUrl} at ${pinnedSha} into ${targetDir}...`);
+  const cacheDir = join(tmpdir(), `kovanica-deps-${pinnedSha.slice(0, 12)}`);
+  if (!existsSync(join(cacheDir, "package.json"))) {
+    rmSync(cacheDir, { recursive: true, force: true });
+    mkdirSync(cacheDir, { recursive: true });
+    execSync(`git clone --no-checkout "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
+    execSync(`git -C "${cacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
   }
-
-  const verifiedHead = execSync(`git -C "${buildCacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+  const verifiedHead = execSync(`git -C "${cacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
   if (verifiedHead !== pinnedSha) {
-    fail(`SHA verification failed for ${targetDir}: expected ${pinnedSha}, got ${verifiedHead}`);
+    fail(`SHA verification failed: expected ${pinnedSha}, got ${verifiedHead}`);
   }
+  execSync("npm install", { cwd: cacheDir, stdio: "inherit", env: cleanEnv });
+  execSync("npm run build", { cwd: cacheDir, stdio: "inherit", env: cleanEnv });
 
-  execSync("npm install", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
-  execSync("npm run build", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
-
-  if (existsSync(installDir) && lstatSync(installDir).isSymbolicLink()) unlinkSync(installDir);
-  else if (existsSync(installDir)) rmSync(installDir, { recursive: true, force: true });
-
-  mkdirSync(installDir, { recursive: true });
-  cpSync(join(buildCacheDir, "package.json"), join(installDir, "package.json"), { overwrite: true });
-  // Copy dist/ if present, otherwise copy src/ for TS-only packages
-  if (existsSync(join(buildCacheDir, "dist"))) {
-    cpSync(join(buildCacheDir, "dist"), join(installDir, "dist"), { recursive: true });
-  } else if (existsSync(join(buildCacheDir, "src"))) {
-    cpSync(join(buildCacheDir, "src"), join(installDir, "src"), { recursive: true });
+  rmSync(targetDir, { recursive: true, force: true });
+  mkdirSync(targetDir, { recursive: true });
+  // Copy everything needed for the package to work
+  const entries = ["package.json", "package-lock.json", "dist", "src", "README.md", "LICENSE", "tsconfig.json"];
+  for (const entry of entries) {
+    const src = join(cacheDir, entry);
+    if (existsSync(src)) {
+      cpSync(src, join(targetDir, entry), { recursive: true, overwrite: true });
+    }
   }
-  if (existsSync(join(buildCacheDir, "README.md"))) {
-    cpSync(join(buildCacheDir, "README.md"), join(installDir, "README.md"), { overwrite: true });
-  }
-  writeFileSync(join(installDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
-  console.log(`[prepare-deps] Materialized ${targetDir} (${pinnedSha}) into node_modules/`);
+  writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
+  console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
 function main() {
   mkdirSync(join(APPS_ROOT, "node_modules"), { recursive: true });
 
-  provision(SDK_REPO_URL, SDK_PINNED_SHA, "kovanica-sdk", SIBLING_SDK_DIR, INSTALLED_SDK_DIR);
-  provision(L1_REPO_URL, L1_PINNED_SHA, "kovanica-l1", SIBLING_L1_DIR, INSTALLED_L1_DIR);
+  // 1. Provision kovanica-sdk (standalone Node.js package)
+  provisionRepo(SDK_REPO_URL, SDK_PINNED_SHA, SDK_DIR);
 
-  console.log("[prepare-deps] All dependencies materialized successfully.");
+  // 2. Provision kovanica-l1 (Rust workspace with TS packages inside)
+  provisionRepo(L1_REPO_URL, L1_PINNED_SHA, L1_DIR);
+
+  console.log("[prepare-deps] All dependencies provisioned successfully.");
 }
 
 main();
