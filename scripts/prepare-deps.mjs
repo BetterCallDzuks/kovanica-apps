@@ -91,7 +91,7 @@ function provision(repoUrl, pinnedSha, targetDir, siblingDir, installDir) {
         execSync("npm ci", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
         execSync("npm run build", { cwd: siblingDir, stdio: "inherit", env: cleanEnv });
       }
-      if (!lstatSync(installDir).isSymbolicLink()) {
+      if (!(existsSync(installDir) && lstatSync(installDir).isSymbolicLink())) {
         if (existsSync(installDir)) rmSync(installDir, { recursive: true, force: true });
         symlinkSync(siblingDir, installDir, "dir");
       }
@@ -121,7 +121,7 @@ function provision(repoUrl, pinnedSha, targetDir, siblingDir, installDir) {
   execSync("npm ci", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
   execSync("npm run build", { cwd: buildCacheDir, stdio: "inherit", env: cleanEnv });
 
-  if (lstatSync(installDir).isSymbolicLink()) unlinkSync(installDir);
+  if (existsSync(installDir) && lstatSync(installDir).isSymbolicLink()) unlinkSync(installDir);
   else if (existsSync(installDir)) rmSync(installDir, { recursive: true, force: true });
 
   mkdirSync(installDir, { recursive: true });
