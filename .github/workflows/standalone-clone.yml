@@ -14,26 +14,23 @@ jobs:
       - uses: actions/checkout@v4
 
       # Simulate a standalone clone: kovanica-apps without sibling kovanica-sdk / kovanica-l1
-      - name: Run prepare-deps (provisions pinned SDK + L1 into sibling dirs)
+      - name: Run prepare-deps (provisions pinned SDK + L1, runs npm install in apps)
         run: |
           node --version
           npm --version
           npm run prepare-deps
 
-      - name: Install & typecheck wallet-web
+      - name: Typecheck wallet-web
         working-directory: wallet-web
         run: |
-          npm install
           npm run typecheck
 
-      - name: Install & typecheck browser-extension
+      - name: Typecheck browser-extension
         working-directory: browser-extension
         run: |
-          npm install
           npm run typecheck
 
-      - name: Install & typecheck desktop
+      - name: Typecheck desktop
         working-directory: desktop
         run: |
-          npm install
           npm run typecheck

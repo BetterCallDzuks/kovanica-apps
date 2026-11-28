@@ -19,6 +19,8 @@
  *   - kovanica-l1 is a Rust workspace (no root package.json). We clone it but skip
  *     npm install at the root; instead we copy the individual TS packages under
  *     kovanica-l1/packages/ into place.
+ *   - After provisioning, npm install is run in each app so `file:` references
+ *     resolve correctly for TypeScript.
  */
 
 import {
@@ -50,10 +52,11 @@ const L1_REPO_URL = pkg?.kovanicaL1?.repository || "https://github.com/BetterCal
 // Expected locations (matching the `file:` references in app package.json files)
 const SDK_DIR = join(APPS_ROOT, "kovanica-sdk");
 const L1_DIR = join(APPS_ROOT, "kovanica-l1");
-const L1_PACKAGES_DIR = join(L1_DIR, "packages");
 
 // Packages from kovanica-l1/packages/ that are consumed by kovanica-apps
 const L1_PACKAGE_NAMES = ["api-client", "comms", "signer"];
+
+const APPS_TO_INSTALL = ["wallet-web", "browser-extension", "desktop"];
 
 const cleanEnv = { ...process.env };
 delete cleanEnv.npm_config_allow_scripts;
@@ -164,6 +167,19 @@ function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
   console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
+/** Run npm install in each app directory so `file:` references resolve. */
+function npmInstallInApps() {
+  for (const app of APPS_TO_INSTALL) {
+    const appDir = join(APPS_ROOT, app);
+    if (!existsSync(appDir)) {
+      console.log(`[prepare-deps] Skipping ${app}: directory not found`);
+      continue;
+    }
+    console.log(`[prepare-deps] npm install in ${app}...`);
+    execSync("npm install", { cwd: appDir, stdio: "inherit", env: cleanEnv });
+  }
+}
+
 function main() {
   mkdirSync(join(APPS_ROOT, "node_modules"), { recursive: true });
 
@@ -172,6 +188,9 @@ function main() {
 
   // 2. Provision kovanica-l1 (Rust workspace — copy packages/ directory)
   provisionL1Packages(L1_REPO_URL, L1_PINNED_SHA, L1_DIR);
+
+  // 3. Run npm install in each app so `file:` references resolve
+  npmInstallInApps();
 
   console.log("[prepare-deps] All dependencies provisioned successfully.");
 }
