@@ -102,12 +102,15 @@ function main() {
   createStubPackage(sdkDir, "kovanica-sdk");
   console.log(`[prepare-deps] Provisioned ${sdkDir} (stub)`);
 
-  // Create stubs for kovanica-l1 packages
+  // Create stubs for kovanica-l1 packages.
+  // Directory names match the `file:` references in app package.json files
+  // (e.g. `file:../../kovanica-l1/packages/signer`), which do NOT include
+  // the `@kovanica/` scope prefix — only the package.json "name" field does.
   const l1Dir = join(APPS_ROOT, "kovanica-l1");
   mkdirSync(l1Dir, { recursive: true });
   mkdirSync(join(l1Dir, "packages"), { recursive: true });
   for (const pkgName of ["api-client", "comms", "signer"]) {
-    createStubPackage(join(l1Dir, "packages"), `@kovanica/${pkgName}`);
+    createStubPackage(join(l1Dir, "packages"), pkgName);
   }
   writeFileSync(join(l1Dir, "Cargo.toml"), '[workspace]\nmembers = []\n');
   writeFileSync(join(l1Dir, ".tested-revision"), `${L1_PINNED_SHA}\n`);
