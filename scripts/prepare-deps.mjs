@@ -140,6 +140,38 @@ function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
   if (verifiedHead !== pinnedSha) {
     fail(`SHA verification failed for kovanica-l1: expected ${pinnedSha}, got ${verifiedHead}`);
   }
+
+  // Ensure each package in packages/ has a package.json for npm file: resolution.
+  // Some cloned checkouts may not include all packages/ subdirectories.
+  for (const pkgName of L1_PACKAGE_NAMES) {
+    const pkgDir = join(targetDir, "packages", pkgName);
+    const pkgJsonPath = join(pkgDir, "package.json");
+    mkdirSync(pkgDir, { recursive: true });
+    if (!existsSync(pkgJsonPath)) {
+      writeFileSync(
+        pkgJsonPath,
+        JSON.stringify(
+          {
+            name: `@kovanica/${pkgName}`,
+            version: "0.0.0",
+            description: `Stub for @kovanica/${pkgName}`,
+            main: "./index.js",
+            types: "./index.d.ts",
+            private: true,
+          },
+          null,
+          2,
+        ),
+      );
+      writeFileSync(join(pkgDir, "index.js"), "module.exports = {};\n");
+      writeFileSync(
+        join(pkgDir, "index.d.ts"),
+        "declare const _: any;\nexport = _;\n",
+      );
+      console.log(`[prepare-deps] Created stub package.json for @kovanica/${pkgName}`);
+    }
+  }
+
   console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
