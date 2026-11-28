@@ -16,9 +16,9 @@
  *
  * Notes:
  *   - kovanica-sdk is a standalone Node.js package: clone, npm install, npm run build.
- *   - kovanica-l1 is a Rust workspace (no root package.json). We clone it but skip
- *     npm install at the root; instead we copy the individual TS packages under
- *     kovanica-l1/packages/ into place.
+ *   - kovanica-l1 is a Rust workspace (no root package.json). We use `git archive`
+ *     to extract the packages/ subdirectory at the pinned SHA, avoiding working-tree
+ *     issues with partial checkouts.
  *   - After provisioning, npm install is run in each app so `file:` references
  *     resolve correctly for TypeScript.
  */
@@ -117,8 +117,7 @@ function provisionNodePackage(repoUrl, pinnedSha, targetDir) {
   console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
-/** Provision kovanica-l1 (Rust workspace): clone but skip npm install at root.
- *  Instead, copy the individual TS packages under kovanica-l1/packages/. */
+/** Provision kovanica-l1 (Rust workspace): use git archive to extract packages/ at pinned SHA. */
 function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
   if (existsSync(targetDir)) {
     let head = "";
@@ -145,14 +144,23 @@ function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
     fail(`SHA verification failed for kovanica-l1: expected ${pinnedSha}, got ${verifiedHead}`);
   }
 
-  // Copy the whole kovanica-l1 checkout (it's a Rust workspace; no npm install needed)
+  // Use git archive to extract the packages/ directory at the pinned SHA.
+  // This is more reliable than cpSync after checkout for monorepo subdirectories.
   rmSync(targetDir, { recursive: true, force: true });
   mkdirSync(targetDir, { recursive: true });
 
-  // Copy everything from the cache - simpler and more reliable than selective copy
-  const cacheEntries = existsSync(cacheDir) ? readdirSync(cacheDir) : [];
-  for (const entry of cacheEntries) {
-    cpSync(join(cacheDir, entry), join(targetDir, entry), { recursive: true, overwrite: true });
+  console.log(`[prepare-deps] Extracting packages/ from kovanica-l1 at ${pinnedSha}...`);
+  execSync(
+    `git -C "${cacheDir}" archive ${pinnedSha} -- packages/ | tar -x -C "${targetDir}"`,
+    { stdio: "inherit" },
+  );
+
+  // Also copy top-level Cargo.toml etc. that might be needed
+  for (const entry of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "README.md", "LICENSE"]) {
+    const src = join(cacheDir, entry);
+    if (existsSync(src)) {
+      cpSync(src, join(targetDir, entry), { recursive: true, overwrite: true });
+    }
   }
 
   writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
@@ -178,7 +186,7 @@ function main() {
   // 1. Provision kovanica-sdk (standalone Node.js package)
   provisionNodePackage(SDK_REPO_URL, SDK_PINNED_SHA, SDK_DIR);
 
-  // 2. Provision kovanica-l1 (Rust workspace — copy packages/ directory)
+  // 2. Provision kovanica-l1 (Rust workspace — extract packages/ via git archive)
   provisionL1Packages(L1_REPO_URL, L1_PINNED_SHA, L1_DIR);
 
   // 3. Run npm install in each app so `file:` references resolve
