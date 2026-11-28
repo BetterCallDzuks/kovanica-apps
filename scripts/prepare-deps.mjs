@@ -6,11 +6,19 @@
  * references that resolve to directories inside this repo:
  *   - wallet-web/browser-extension: `file:../../kovanica-sdk` → kovanica-apps/kovanica-sdk/
  *   - desktop: `file:../../kovanica-l1/packages/api-client` → kovanica-apps/kovanica-l1/packages/api-client/
+ *              `file:../../kovanica-l1/packages/comms` → kovanica-apps/kovanica-l1/packages/comms/
+ *              `file:../../kovanica-l1/packages/signer` → kovanica-apps/kovanica-l1/packages/signer/
  *
  * A bare `git clone` of only `kovanica-apps` does not include those directories,
  * so `npm install` in any subdirectory would fail. This script clones the exact
  * pinned SHAs, builds them, and places them under kovanica-apps/ so the `file:`
  * references resolve. Modeled on kovanica-playground/scripts/prepare-sdk.mjs.
+ *
+ * Notes:
+ *   - kovanica-sdk is a standalone Node.js package: clone, npm install, npm run build.
+ *   - kovanica-l1 is a Rust workspace (no root package.json). We clone it but skip
+ *     npm install at the root; instead we copy the individual TS packages under
+ *     kovanica-l1/packages/ into place.
  */
 
 import {
@@ -42,6 +50,10 @@ const L1_REPO_URL = pkg?.kovanicaL1?.repository || "https://github.com/BetterCal
 // Expected locations (matching the `file:` references in app package.json files)
 const SDK_DIR = join(APPS_ROOT, "kovanica-sdk");
 const L1_DIR = join(APPS_ROOT, "kovanica-l1");
+const L1_PACKAGES_DIR = join(L1_DIR, "packages");
+
+// Packages from kovanica-l1/packages/ that are consumed by kovanica-apps
+const L1_PACKAGE_NAMES = ["api-client", "comms", "signer"];
 
 const cleanEnv = { ...process.env };
 delete cleanEnv.npm_config_allow_scripts;
@@ -59,8 +71,8 @@ if (!L1_PINNED_SHA || !/^[0-9a-f]{40}$/.test(L1_PINNED_SHA)) {
   fail(`Invalid or missing kovanicaL1.testedRevision: ${L1_PINNED_SHA}`);
 }
 
-/** Clone a repo at a pinned SHA into targetDir, build it. */
-function provisionRepo(repoUrl, pinnedSha, targetDir) {
+/** Clone a Node.js package repo at a pinned SHA, npm install + build, copy to targetDir. */
+function provisionNodePackage(repoUrl, pinnedSha, targetDir) {
   if (existsSync(targetDir)) {
     let head = "";
     try {
@@ -73,7 +85,7 @@ function provisionRepo(repoUrl, pinnedSha, targetDir) {
     } catch {}
   }
 
-  console.log(`[prepare-deps] Cloning ${repoUrl} at ${pinnedSha} into ${targetDir}...`);
+  console.log(`[prepare-deps] Cloning ${repoUrl} at ${pinnedSha}...`);
   const cacheDir = join(tmpdir(), `kovanica-deps-${pinnedSha.slice(0, 12)}`);
   if (!existsSync(join(cacheDir, "package.json"))) {
     rmSync(cacheDir, { recursive: true, force: true });
@@ -90,7 +102,6 @@ function provisionRepo(repoUrl, pinnedSha, targetDir) {
 
   rmSync(targetDir, { recursive: true, force: true });
   mkdirSync(targetDir, { recursive: true });
-  // Copy everything needed for the package to work
   const entries = ["package.json", "package-lock.json", "dist", "src", "README.md", "LICENSE", "tsconfig.json"];
   for (const entry of entries) {
     const src = join(cacheDir, entry);
@@ -102,14 +113,65 @@ function provisionRepo(repoUrl, pinnedSha, targetDir) {
   console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
 }
 
+/** Provision kovanica-l1 (Rust workspace): clone but skip npm install at root.
+ *  Instead, copy the individual TS packages under kovanica-l1/packages/. */
+function provisionL1Packages(repoUrl, pinnedSha, targetDir) {
+  if (existsSync(targetDir)) {
+    let head = "";
+    try {
+      head = execSync(`git -C "${targetDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+      const statusOut = execSync(`git -C "${targetDir}" status --porcelain`, { encoding: "utf8" }).trim();
+      if (head === pinnedSha && statusOut.length === 0) {
+        console.log(`[prepare-deps] ${targetDir} already at pinned SHA ${pinnedSha}`);
+        return;
+      }
+    } catch {}
+  }
+
+  console.log(`[prepare-deps] Cloning kovanica-l1 at ${pinnedSha}...`);
+  const cacheDir = join(tmpdir(), `kovanica-deps-l1-${pinnedSha.slice(0, 12)}`);
+  if (!existsSync(join(cacheDir, "Cargo.toml"))) {
+    rmSync(cacheDir, { recursive: true, force: true });
+    mkdirSync(cacheDir, { recursive: true });
+    execSync(`git clone --no-checkout "${repoUrl}" "${cacheDir}"`, { stdio: "inherit" });
+    execSync(`git -C "${cacheDir}" checkout --detach ${pinnedSha}`, { stdio: "inherit" });
+  }
+  const verifiedHead = execSync(`git -C "${cacheDir}" rev-parse HEAD`, { encoding: "utf8" }).trim();
+  if (verifiedHead !== pinnedSha) {
+    fail(`SHA verification failed for kovanica-l1: expected ${pinnedSha}, got ${verifiedHead}`);
+  }
+
+  // Copy the whole kovanica-l1 checkout (it's a Rust workspace; no npm install needed)
+  rmSync(targetDir, { recursive: true, force: true });
+  mkdirSync(targetDir, { recursive: true });
+
+  // Copy top-level files that might be needed
+  for (const entry of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "README.md", "LICENSE"]) {
+    const src = join(cacheDir, entry);
+    if (existsSync(src)) {
+      cpSync(src, join(targetDir, entry), { recursive: true, overwrite: true });
+    }
+  }
+
+  // Copy only the packages/ subdirectory with individual package.json files
+  const srcPackagesDir = join(cacheDir, "packages");
+  const dstPackagesDir = join(targetDir, "packages");
+  if (existsSync(srcPackagesDir)) {
+    cpSync(srcPackagesDir, dstPackagesDir, { recursive: true });
+  }
+
+  writeFileSync(join(targetDir, ".tested-revision"), `${pinnedSha}\n`, "utf8");
+  console.log(`[prepare-deps] Provisioned ${targetDir} (${pinnedSha})`);
+}
+
 function main() {
   mkdirSync(join(APPS_ROOT, "node_modules"), { recursive: true });
 
   // 1. Provision kovanica-sdk (standalone Node.js package)
-  provisionRepo(SDK_REPO_URL, SDK_PINNED_SHA, SDK_DIR);
+  provisionNodePackage(SDK_REPO_URL, SDK_PINNED_SHA, SDK_DIR);
 
-  // 2. Provision kovanica-l1 (Rust workspace with TS packages inside)
-  provisionRepo(L1_REPO_URL, L1_PINNED_SHA, L1_DIR);
+  // 2. Provision kovanica-l1 (Rust workspace — copy packages/ directory)
+  provisionL1Packages(L1_REPO_URL, L1_PINNED_SHA, L1_DIR);
 
   console.log("[prepare-deps] All dependencies provisioned successfully.");
 }
